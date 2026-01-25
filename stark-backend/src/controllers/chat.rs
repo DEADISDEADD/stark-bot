@@ -1,7 +1,7 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 
-use crate::ai::{ClaudeClient, Message, MessageRole};
+use crate::ai::{AiClient, Message, MessageRole};
 use crate::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -71,31 +71,31 @@ async fn chat(
         }
     }
 
-    // Get Anthropic API key from database
-    let api_key = match state.db.get_api_key("anthropic") {
-        Ok(Some(key)) => key.api_key,
+    // Get active agent settings from database
+    let settings = match state.db.get_active_agent_settings() {
+        Ok(Some(settings)) => settings,
         Ok(None) => {
             return HttpResponse::ServiceUnavailable().json(ChatResponse {
                 success: false,
                 message: None,
-                error: Some("Anthropic API key not configured. Please add it in API Keys settings.".to_string()),
+                error: Some("No AI provider configured. Please configure it in Agent Settings.".to_string()),
             });
         }
         Err(e) => {
-            log::error!("Failed to get API key: {}", e);
+            log::error!("Failed to get agent settings: {}", e);
             return HttpResponse::InternalServerError().json(ChatResponse {
                 success: false,
                 message: None,
-                error: Some("Failed to retrieve API configuration".to_string()),
+                error: Some("Failed to retrieve AI configuration".to_string()),
             });
         }
     };
 
-    // Create Claude client
-    let claude_client = match ClaudeClient::new(&api_key, None) {
+    // Create AI client from settings
+    let ai_client = match AiClient::from_settings(&settings) {
         Ok(client) => client,
         Err(e) => {
-            log::error!("Failed to create Claude client: {}", e);
+            log::error!("Failed to create AI client: {}", e);
             return HttpResponse::InternalServerError().json(ChatResponse {
                 success: false,
                 message: None,
@@ -131,8 +131,8 @@ async fn chat(
         msgs
     };
 
-    // Call Claude API
-    match claude_client.generate_text(messages).await {
+    // Call AI API
+    match ai_client.generate_text(messages).await {
         Ok(response_text) => HttpResponse::Ok().json(ChatResponse {
             success: true,
             message: Some(ChatMessage {
@@ -142,7 +142,7 @@ async fn chat(
             error: None,
         }),
         Err(e) => {
-            log::error!("Claude API error: {}", e);
+            log::error!("AI API error ({}): {}", settings.provider, e);
             HttpResponse::InternalServerError().json(ChatResponse {
                 success: false,
                 message: None,

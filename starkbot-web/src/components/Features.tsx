@@ -1,4 +1,4 @@
-import { Zap, Code2, Puzzle, Lock, MessageCircle, BarChart3 } from 'lucide-react'
+import { Zap, Code2, Puzzle, Lock, MessageCircle, BarChart3, AlertTriangle } from 'lucide-react'
 
 const features = [
   {
@@ -37,6 +37,32 @@ export function Features() {
   return (
     <section id="features" className="py-20 px-6">
       <div className="max-w-6xl mx-auto">
+        {/* Warning Banner */}
+        <div className="mb-12 p-6 bg-yellow-500/10 border border-yellow-500/50 rounded-xl">
+          <div className="flex items-start gap-4">
+            <div className="flex-shrink-0">
+              <AlertTriangle className="w-8 h-8 text-yellow-500" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-yellow-500 mb-2">WARNING</h3>
+              <p className="text-slate-300 leading-relaxed">
+                Starkbot is in active development and not production-ready software.
+                Starkbot is not responsible for data loss or security intrusions.
+                Always run Starkbot in a sandboxed VPS container.
+                Feel free to contribute to development with a{' '}
+                <a
+                  href="https://github.com/your-repo/starkbot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-yellow-500 hover:text-yellow-400 underline"
+                >
+                  pull request
+                </a>.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <h2 className="text-3xl sm:text-4xl font-bold text-center mb-4">
           <span className="gradient-text">Powerful Features</span>
         </h2>

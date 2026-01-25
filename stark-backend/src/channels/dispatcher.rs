@@ -1,4 +1,4 @@
-use crate::ai::{ClaudeClient, Message, MessageRole};
+use crate::ai::{AiClient, Message, MessageRole};
 use crate::channels::types::{DispatchResult, NormalizedMessage};
 use crate::db::Database;
 use crate::gateway::events::EventBroadcaster;
@@ -26,11 +26,11 @@ impl MessageDispatcher {
             &message.text,
         ));
 
-        // Get the Anthropic API key from database
-        let api_key = match self.db.get_api_key("anthropic") {
-            Ok(Some(key)) => key.api_key,
+        // Get active agent settings from database
+        let settings = match self.db.get_active_agent_settings() {
+            Ok(Some(settings)) => settings,
             Ok(None) => {
-                let error = "No Anthropic API key configured".to_string();
+                let error = "No AI provider configured. Please configure agent settings.".to_string();
                 log::error!("{}", error);
                 return DispatchResult::error(error);
             }
@@ -41,11 +41,17 @@ impl MessageDispatcher {
             }
         };
 
-        // Create Claude client
-        let client = match ClaudeClient::new(&api_key, None) {
+        log::info!(
+            "Using {} provider with model {} for message dispatch",
+            settings.provider,
+            settings.model
+        );
+
+        // Create AI client from settings
+        let client = match AiClient::from_settings(&settings) {
             Ok(c) => c,
             Err(e) => {
-                let error = format!("Failed to create Claude client: {}", e);
+                let error = format!("Failed to create AI client: {}", e);
                 log::error!("{}", error);
                 return DispatchResult::error(error);
             }
@@ -77,15 +83,16 @@ impl MessageDispatcher {
                 ));
 
                 log::info!(
-                    "Generated response for {} on channel {}",
+                    "Generated response for {} on channel {} using {}",
                     message.user_name,
-                    message.channel_id
+                    message.channel_id,
+                    settings.provider
                 );
 
                 DispatchResult::success(response)
             }
             Err(e) => {
-                let error = format!("AI generation error: {}", e);
+                let error = format!("AI generation error ({}): {}", settings.provider, e);
                 log::error!("{}", error);
                 DispatchResult::error(error)
             }

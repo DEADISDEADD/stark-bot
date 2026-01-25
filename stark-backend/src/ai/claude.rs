@@ -6,6 +6,7 @@ use std::time::Duration;
 #[derive(Debug, Clone)]
 pub struct ClaudeClient {
     client: Client,
+    endpoint: String,
     model: String,
 }
 
@@ -47,7 +48,7 @@ struct ClaudeError {
 }
 
 impl ClaudeClient {
-    pub fn new(api_key: &str, model: Option<&str>) -> Result<Self, String> {
+    pub fn new(api_key: &str, endpoint: Option<&str>, model: Option<&str>) -> Result<Self, String> {
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::CONTENT_TYPE,
@@ -70,6 +71,9 @@ impl ClaudeClient {
 
         Ok(Self {
             client,
+            endpoint: endpoint
+                .unwrap_or("https://api.anthropic.com/v1/messages")
+                .to_string(),
             model: model.unwrap_or("claude-sonnet-4-20250514").to_string(),
         })
     }
@@ -108,7 +112,7 @@ impl ClaudeClient {
 
         let response = self
             .client
-            .post("https://api.anthropic.com/v1/messages")
+            .post(&self.endpoint)
             .json(&request)
             .send()
             .await

@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use uuid::Uuid;
 
-use crate::models::{ApiKey, Channel, Session};
+use crate::models::{AgentSettings, AiProvider, ApiKey, Channel, Session};
 
 pub struct Database {
     conn: Mutex<Connection>,
@@ -65,6 +65,21 @@ impl Database {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(channel_type, name)
+            )",
+            [],
+        )?;
+
+        // Agent settings table (AI provider configuration)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                model TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             )",
             [],
         )?;
@@ -439,5 +454,163 @@ impl Database {
             [id],
         )?;
         Ok(rows_affected > 0)
+    }
+
+    // Agent Settings methods
+
+    /// Get the currently enabled agent settings (only one can be enabled)
+    pub fn get_active_agent_settings(&self) -> SqliteResult<Option<AgentSettings>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, provider, endpoint, api_key, model, enabled, created_at, updated_at
+             FROM agent_settings WHERE enabled = 1 LIMIT 1",
+        )?;
+
+        let settings = stmt
+            .query_row([], |row| {
+                let created_at_str: String = row.get(6)?;
+                let updated_at_str: String = row.get(7)?;
+
+                Ok(AgentSettings {
+                    id: row.get(0)?,
+                    provider: row.get(1)?,
+                    endpoint: row.get(2)?,
+                    api_key: row.get(3)?,
+                    model: row.get(4)?,
+                    enabled: row.get::<_, i32>(5)? != 0,
+                    created_at: DateTime::parse_from_rfc3339(&created_at_str)
+                        .unwrap()
+                        .with_timezone(&Utc),
+                    updated_at: DateTime::parse_from_rfc3339(&updated_at_str)
+                        .unwrap()
+                        .with_timezone(&Utc),
+                })
+            })
+            .ok();
+
+        Ok(settings)
+    }
+
+    /// Get agent settings by provider name
+    pub fn get_agent_settings_by_provider(&self, provider: &str) -> SqliteResult<Option<AgentSettings>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, provider, endpoint, api_key, model, enabled, created_at, updated_at
+             FROM agent_settings WHERE provider = ?1",
+        )?;
+
+        let settings = stmt
+            .query_row([provider], |row| {
+                let created_at_str: String = row.get(6)?;
+                let updated_at_str: String = row.get(7)?;
+
+                Ok(AgentSettings {
+                    id: row.get(0)?,
+                    provider: row.get(1)?,
+                    endpoint: row.get(2)?,
+                    api_key: row.get(3)?,
+                    model: row.get(4)?,
+                    enabled: row.get::<_, i32>(5)? != 0,
+                    created_at: DateTime::parse_from_rfc3339(&created_at_str)
+                        .unwrap()
+                        .with_timezone(&Utc),
+                    updated_at: DateTime::parse_from_rfc3339(&updated_at_str)
+                        .unwrap()
+                        .with_timezone(&Utc),
+                })
+            })
+            .ok();
+
+        Ok(settings)
+    }
+
+    /// List all agent settings
+    pub fn list_agent_settings(&self) -> SqliteResult<Vec<AgentSettings>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, provider, endpoint, api_key, model, enabled, created_at, updated_at
+             FROM agent_settings ORDER BY provider",
+        )?;
+
+        let settings = stmt
+            .query_map([], |row| {
+                let created_at_str: String = row.get(6)?;
+                let updated_at_str: String = row.get(7)?;
+
+                Ok(AgentSettings {
+                    id: row.get(0)?,
+                    provider: row.get(1)?,
+                    endpoint: row.get(2)?,
+                    api_key: row.get(3)?,
+                    model: row.get(4)?,
+                    enabled: row.get::<_, i32>(5)? != 0,
+                    created_at: DateTime::parse_from_rfc3339(&created_at_str)
+                        .unwrap()
+                        .with_timezone(&Utc),
+                    updated_at: DateTime::parse_from_rfc3339(&updated_at_str)
+                        .unwrap()
+                        .with_timezone(&Utc),
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(settings)
+    }
+
+    /// Save agent settings (upsert by provider, and set as the only enabled one)
+    pub fn save_agent_settings(
+        &self,
+        provider: &str,
+        endpoint: &str,
+        api_key: &str,
+        model: &str,
+    ) -> SqliteResult<AgentSettings> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+
+        // First, disable all existing settings
+        conn.execute("UPDATE agent_settings SET enabled = 0, updated_at = ?1", [&now])?;
+
+        // Check if this provider already exists
+        let existing: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM agent_settings WHERE provider = ?1",
+                [provider],
+                |row| row.get(0),
+            )
+            .ok();
+
+        if let Some(id) = existing {
+            // Update existing
+            conn.execute(
+                "UPDATE agent_settings SET endpoint = ?1, api_key = ?2, model = ?3, enabled = 1, updated_at = ?4 WHERE id = ?5",
+                rusqlite::params![endpoint, api_key, model, &now, id],
+            )?;
+        } else {
+            // Insert new
+            conn.execute(
+                "INSERT INTO agent_settings (provider, endpoint, api_key, model, enabled, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)",
+                rusqlite::params![provider, endpoint, api_key, model, &now, &now],
+            )?;
+        }
+
+        drop(conn);
+
+        // Return the saved settings
+        self.get_agent_settings_by_provider(provider)
+            .map(|opt| opt.unwrap())
+    }
+
+    /// Disable all agent settings (no AI provider active)
+    pub fn disable_agent_settings(&self) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+        conn.execute("UPDATE agent_settings SET enabled = 0, updated_at = ?1", [&now])?;
+        Ok(())
     }
 }
