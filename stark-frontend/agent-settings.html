@@ -125,10 +125,19 @@
                             <input
                                 type="url"
                                 id="endpoint-input"
-                                placeholder="https://api.example.com/v1/chat"
+                                placeholder="https://api.example.com/v1/chat/completions"
                                 class="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-stark-500 focus:border-transparent"
                             >
                             <p class="mt-1 text-sm text-slate-500">The API endpoint URL. Default will be used if left empty.</p>
+                            <div class="mt-2 p-3 bg-slate-900/50 border border-slate-700 rounded-lg">
+                                <p class="text-xs text-slate-400 mb-2">Typical endpoint formats:</p>
+                                <ul class="text-xs text-slate-500 space-y-1">
+                                    <li><span class="text-slate-400">OpenAI:</span> https://api.openai.com/v1/chat/completions</li>
+                                    <li><span class="text-slate-400">Claude:</span> https://api.anthropic.com/v1/messages</li>
+                                    <li><span class="text-slate-400">Ollama:</span> http://localhost:11434/api/chat</li>
+                                    <li><span class="text-slate-400">DigitalOcean/Other:</span> https://your-endpoint.com/api/v1/chat/completions</li>
+                                </ul>
+                            </div>
                         </div>
 
                         <!-- Model Selection -->
