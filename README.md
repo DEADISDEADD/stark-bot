@@ -38,6 +38,15 @@ head -c 32 /dev/urandom | base64
 cat /proc/sys/kernel/random/uuid
 ```
 
+
+Or just use any random password.   It should be long and secure as the endpoint will be available to the global internet.  
+
+
+This is the only required ENV var (SECRET_KEY) and it is used to log in to the bot.  
+
+
+
+
 ### Environment Setup
 
 Both local development and Docker configurations read from a `.env` file. Set this up once and all commands will use it automatically.
@@ -160,18 +169,12 @@ docker compose -f docker-compose.dev.yml up --build -d
 docker compose -f docker-compose.dev.yml logs -f
 ```
 
-### How Hot Reload Works
 
-| Change Type | Behavior |
-|-------------|----------|
-| **Frontend** (HTML/CSS/JS in `stark-frontend/`) | Instant - files are volume-mounted directly |
-| **Backend** (Rust code in `stark-backend/src/`) | Automatic recompilation via `cargo-watch` |
 
-### Performance Notes
 
-- First build is slower (compiling all dependencies)
-- Subsequent rebuilds are fast thanks to cached dependencies
-- Named volumes (`cargo-target`, `cargo-registry`) persist between restarts
+
+
+
 
 ### Stop Development Environment
 
@@ -299,3 +302,32 @@ starkbot/
     ├── css/styles.css
     └── js/
 ```
+
+
+
+
+## Ai Agent 
+
+It is acceptable to use stark-bot with a Digitalocean Agent, such as one using the llama-33-instruct model.
+
+
+In this case, input the following for Agent Settings 
+
+
+```
+
+
+
+Provider Type  : openAi Compatible 
+Api Endpoint URI : https://xxxxxxxxxxxxxxxxx.agents.do-ai.run/api/v1/chat/completions
+API Key :   xxxxxxxxxxxxxxxxxx   (access key)
+
+
+```
+
+
+
+
+## Custom skills
+
+Standard claude skills / clawd skills can be installed using the Skills page- either a zip file or md file.  

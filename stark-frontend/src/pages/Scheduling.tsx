@@ -160,14 +160,26 @@ function CronJobsTab({ jobs, setJobs, showCreateForm, setShowCreateForm, setErro
     message: '',
   });
 
+  // Interval helper state (for 'every' schedule type)
+  const [intervalValue, setIntervalValue] = useState(1);
+  const [intervalUnit, setIntervalUnit] = useState<'seconds' | 'minutes' | 'hours'>('hours');
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsCreating(true);
     setError(null);
 
+    // Compute schedule_value for 'every' type from intervalValue and intervalUnit
+    let scheduleValue = formData.schedule_value;
+    if (formData.schedule_type === 'every') {
+      const multipliers = { seconds: 1000, minutes: 60000, hours: 3600000 };
+      scheduleValue = String(intervalValue * multipliers[intervalUnit]);
+    }
+
     try {
       const newJob = await createCronJob({
         ...formData,
+        schedule_value: scheduleValue,
         deliver: false,
       });
       setJobs((prev) => [...prev, newJob]);
@@ -180,6 +192,8 @@ function CronJobsTab({ jobs, setJobs, showCreateForm, setShowCreateForm, setErro
         session_mode: 'main',
         message: '',
       });
+      setIntervalValue(1);
+      setIntervalUnit('hours');
     } catch (err) {
       setError('Failed to create cron job');
     } finally {
@@ -305,13 +319,40 @@ function CronJobsTab({ jobs, setJobs, showCreateForm, setShowCreateForm, setErro
                 </div>
               </div>
 
-              <Input
-                label={formData.schedule_type === 'cron' ? 'Cron Expression' : formData.schedule_type === 'at' ? 'Run At (ISO date)' : 'Interval (ms)'}
-                value={formData.schedule_value}
-                onChange={(e) => setFormData({ ...formData, schedule_value: e.target.value })}
-                placeholder={formData.schedule_type === 'cron' ? '0 0 * * *' : formData.schedule_type === 'at' ? '2024-12-31T12:00:00Z' : '3600000'}
-                required
-              />
+              {formData.schedule_type === 'every' ? (
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Interval
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      value={intervalValue}
+                      onChange={(e) => setIntervalValue(parseInt(e.target.value) || 1)}
+                      className="flex-1 px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:ring-2 focus:ring-stark-500 focus:border-transparent"
+                      required
+                    />
+                    <select
+                      value={intervalUnit}
+                      onChange={(e) => setIntervalUnit(e.target.value as 'seconds' | 'minutes' | 'hours')}
+                      className="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:ring-2 focus:ring-stark-500 focus:border-transparent"
+                    >
+                      <option value="seconds">Seconds</option>
+                      <option value="minutes">Minutes</option>
+                      <option value="hours">Hours</option>
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <Input
+                  label={formData.schedule_type === 'cron' ? 'Cron Expression' : 'Run At (ISO date)'}
+                  value={formData.schedule_value}
+                  onChange={(e) => setFormData({ ...formData, schedule_value: e.target.value })}
+                  placeholder={formData.schedule_type === 'cron' ? '0 0 * * *' : '2024-12-31T12:00:00Z'}
+                  required
+                />
+              )}
 
               <Input
                 label="Description"
