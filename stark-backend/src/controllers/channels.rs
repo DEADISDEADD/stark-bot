@@ -160,7 +160,7 @@ async fn create_channel(
         return HttpResponse::BadRequest().json(ChannelOperationResponse {
             success: false,
             channel: None,
-            error: Some("Invalid channel type. Valid options: telegram, slack".to_string()),
+            error: Some("Invalid channel type. Valid options: telegram, slack, discord".to_string()),
         });
     }
 

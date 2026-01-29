@@ -1,6 +1,6 @@
 use crate::db::Database;
 use crate::skills::types::{DbSkill, DbSkillScript, Skill, SkillSource};
-use crate::skills::zip_parser::{parse_skill_zip, ParsedSkill};
+use crate::skills::zip_parser::{parse_skill_md, parse_skill_zip, ParsedSkill};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -98,6 +98,28 @@ impl SkillRegistry {
     /// Create a skill from a parsed ZIP file
     pub fn create_skill_from_zip(&self, data: &[u8]) -> Result<DbSkill, String> {
         let parsed = parse_skill_zip(data)?;
+        self.create_skill_from_parsed(parsed)
+    }
+
+    /// Create a skill from markdown content (SKILL.md format)
+    pub fn create_skill_from_markdown(&self, content: &str) -> Result<DbSkill, String> {
+        let (metadata, body) = parse_skill_md(content)?;
+
+        let parsed = ParsedSkill {
+            name: metadata.name,
+            description: metadata.description,
+            body,
+            version: metadata.version,
+            author: metadata.author,
+            homepage: metadata.homepage,
+            metadata: metadata.metadata,
+            requires_tools: metadata.requires_tools,
+            requires_binaries: metadata.requires_binaries,
+            arguments: metadata.arguments,
+            tags: metadata.tags,
+            scripts: Vec::new(), // No scripts for plain markdown
+        };
+
         self.create_skill_from_parsed(parsed)
     }
 

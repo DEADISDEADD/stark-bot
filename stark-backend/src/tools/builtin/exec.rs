@@ -3,7 +3,7 @@ use crate::tools::types::{
     PropertySchema, ToolContext, ToolDefinition, ToolGroup, ToolInputSchema, ToolResult,
 };
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -11,6 +11,20 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
+
+/// Deserialize a u64 from either a number or a string
+fn deserialize_u64_lenient<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value: Option<Value> = Option::deserialize(deserializer)?;
+    match value {
+        None => Ok(None),
+        Some(Value::Number(n)) => Ok(n.as_u64()),
+        Some(Value::String(s)) => Ok(s.parse().ok()),
+        _ => Ok(None),
+    }
+}
 
 /// Command execution tool with configurable security
 pub struct ExecTool {
@@ -134,6 +148,7 @@ impl Default for ExecTool {
 struct ExecParams {
     command: String,
     workdir: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_u64_lenient")]
     timeout: Option<u64>,
     env: Option<HashMap<String, String>>,
 }
@@ -206,6 +221,22 @@ impl Tool for ExecTool {
         if let Some(github_token) = context.get_api_key("github") {
             cmd.env("GH_TOKEN", &github_token);
             cmd.env("GITHUB_TOKEN", &github_token);
+            // Disable git terminal prompts (would hang in non-interactive mode)
+            cmd.env("GIT_TERMINAL_PROMPT", "0");
+            // Configure git to rewrite github HTTPS URLs to include the token
+            // This allows git clone/push to authenticate automatically
+            cmd.env("GIT_CONFIG_COUNT", "2");
+            cmd.env("GIT_CONFIG_KEY_0", "url.https://x-access-token:".to_string() + &github_token + "@github.com/.insteadOf");
+            cmd.env("GIT_CONFIG_VALUE_0", "https://github.com/");
+            cmd.env("GIT_CONFIG_KEY_1", "url.https://x-access-token:".to_string() + &github_token + "@github.com/.insteadOf");
+            cmd.env("GIT_CONFIG_VALUE_1", "git@github.com:");
+            // Set git author/committer info for commits (from bot config)
+            let bot_name = context.get_bot_name();
+            let bot_email = context.get_bot_email();
+            cmd.env("GIT_AUTHOR_NAME", &bot_name);
+            cmd.env("GIT_AUTHOR_EMAIL", &bot_email);
+            cmd.env("GIT_COMMITTER_NAME", &bot_name);
+            cmd.env("GIT_COMMITTER_EMAIL", &bot_email);
         }
 
         if let Some(openai_key) = context.get_api_key("openai") {

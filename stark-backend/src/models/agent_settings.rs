@@ -70,6 +70,8 @@ pub struct AgentSettings {
     pub model_archetype: Option<String>,
     pub max_tokens: i32,
     pub enabled: bool,
+    pub bot_name: String,
+    pub bot_email: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -91,6 +93,8 @@ pub struct AgentSettingsResponse {
     pub model_archetype: Option<String>,
     pub max_tokens: i32,
     pub enabled: bool,
+    pub bot_name: String,
+    pub bot_email: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -106,6 +110,8 @@ impl From<AgentSettings> for AgentSettingsResponse {
             model_archetype: settings.model_archetype,
             max_tokens: settings.max_tokens,
             enabled: settings.enabled,
+            bot_name: settings.bot_name,
+            bot_email: settings.bot_email,
             created_at: settings.created_at,
             updated_at: settings.updated_at,
         }

@@ -1,5 +1,6 @@
-use crate::ai::{AiClient, Message, MessageRole, ToolCall, ToolHistoryEntry, ToolResponse};
+use crate::ai::{AiClient, Message, MessageRole, ThinkingLevel, ToolCall, ToolHistoryEntry, ToolResponse};
 use crate::channels::types::{DispatchResult, NormalizedMessage};
+use crate::context::{self, estimate_tokens, ContextManager};
 use crate::db::Database;
 use crate::execution::ExecutionTracker;
 use crate::gateway::events::EventBroadcaster;
@@ -37,10 +38,13 @@ pub struct MessageDispatcher {
     tool_registry: Arc<ToolRegistry>,
     execution_tracker: Arc<ExecutionTracker>,
     burner_wallet_private_key: Option<String>,
+    context_manager: ContextManager,
     // Regex patterns for memory markers
     daily_log_pattern: Regex,
     remember_pattern: Regex,
     remember_important_pattern: Regex,
+    // Regex patterns for thinking directives
+    thinking_directive_pattern: Regex,
 }
 
 impl MessageDispatcher {
@@ -60,15 +64,18 @@ impl MessageDispatcher {
         execution_tracker: Arc<ExecutionTracker>,
         burner_wallet_private_key: Option<String>,
     ) -> Self {
+        let context_manager = ContextManager::new(db.clone());
         Self {
             db,
             broadcaster,
             tool_registry,
             execution_tracker,
             burner_wallet_private_key,
+            context_manager,
             daily_log_pattern: Regex::new(r"\[DAILY_LOG:\s*(.+?)\]").unwrap(),
             remember_pattern: Regex::new(r"\[REMEMBER:\s*(.+?)\]").unwrap(),
             remember_important_pattern: Regex::new(r"\[REMEMBER_IMPORTANT:\s*(.+?)\]").unwrap(),
+            thinking_directive_pattern: Regex::new(r"(?i)^/(?:t|think|thinking)(?::(\w+))?$").unwrap(),
         }
     }
 
@@ -76,15 +83,18 @@ impl MessageDispatcher {
     pub fn new_without_tools(db: Arc<Database>, broadcaster: Arc<EventBroadcaster>) -> Self {
         // Create a minimal execution tracker for legacy use
         let execution_tracker = Arc::new(ExecutionTracker::new(broadcaster.clone()));
+        let context_manager = ContextManager::new(db.clone());
         Self {
-            db,
+            db: db.clone(),
             broadcaster,
             tool_registry: Arc::new(ToolRegistry::new()),
             execution_tracker,
             burner_wallet_private_key: None,
+            context_manager,
             daily_log_pattern: Regex::new(r"\[DAILY_LOG:\s*(.+?)\]").unwrap(),
             remember_pattern: Regex::new(r"\[REMEMBER:\s*(.+?)\]").unwrap(),
             remember_important_pattern: Regex::new(r"\[REMEMBER_IMPORTANT:\s*(.+?)\]").unwrap(),
+            thinking_directive_pattern: Regex::new(r"(?i)^/(?:t|think|thinking)(?::(\w+))?$").unwrap(),
         }
     }
 
@@ -103,6 +113,14 @@ impl MessageDispatcher {
         if text_lower == "/new" || text_lower == "/reset" {
             return self.handle_reset_command(&message).await;
         }
+
+        // Check for thinking directives (session-level setting)
+        if let Some(thinking_response) = self.handle_thinking_directive(&message).await {
+            return thinking_response;
+        }
+
+        // Parse inline thinking directive and extract clean message
+        let (thinking_level, clean_text) = self.parse_inline_thinking(&message.text);
 
         // Start execution tracking
         let execution_id = self.execution_tracker.start_execution(message.channel_id, "execute");
@@ -144,17 +162,26 @@ impl MessageDispatcher {
             }
         };
 
-        // Store user message in session
+        // Use clean text (with inline thinking directive removed) for storage
+        let message_text = clean_text.as_deref().unwrap_or(&message.text);
+
+        // Estimate tokens for the user message
+        let user_tokens = estimate_tokens(message_text);
+
+        // Store user message in session with token count
         if let Err(e) = self.db.add_session_message(
             session.id,
             DbMessageRole::User,
-            &message.text,
+            message_text,
             Some(&message.user_id),
             Some(&message.user_name),
             message.message_id.as_deref(),
-            None,
+            Some(user_tokens),
         ) {
             log::error!("Failed to store user message: {}", e);
+        } else {
+            // Update context tokens
+            self.context_manager.update_context_tokens(session.id, user_tokens);
         }
 
         // Get active agent settings from database
@@ -224,6 +251,14 @@ impl MessageDispatcher {
             content: system_prompt.clone(),
         }];
 
+        // Add compaction summary if available (provides context from earlier in conversation)
+        if let Some(compaction_summary) = self.context_manager.get_compaction_summary(session.id) {
+            messages.push(Message {
+                role: MessageRole::System,
+                content: format!("## Previous Conversation Summary\n{}", compaction_summary),
+            });
+        }
+
         // Add conversation history (skip the last one since it's the current message)
         for msg in history.iter().take(history.len().saturating_sub(1)) {
             let role = match msg.role {
@@ -237,14 +272,22 @@ impl MessageDispatcher {
             });
         }
 
-        // Add current user message
+        // Add current user message (use clean text without thinking directive)
         messages.push(Message {
             role: MessageRole::User,
-            content: message.text.clone(),
+            content: message_text.to_string(),
         });
 
         // Debug: Log user message
-        log::info!("[DISPATCH] User message: {}", message.text);
+        log::info!("[DISPATCH] User message: {}", message_text);
+
+        // Apply thinking level if set (for Claude models)
+        if let Some(level) = thinking_level {
+            if client.supports_thinking() {
+                log::info!("[DISPATCH] Applying thinking level: {}", level);
+                client.set_thinking_level(level);
+            }
+        }
 
         // Check if the client supports tools and tools are configured
         let use_tools = client.supports_tools() && !self.tool_registry.is_empty();
@@ -274,6 +317,11 @@ impl MessageDispatcher {
             for key in keys {
                 tool_context = tool_context.with_api_key(&key.service_name, key.api_key);
             }
+        }
+
+        // Load bot config from agent settings for git commits etc.
+        if let Ok(Some(settings)) = self.db.get_active_agent_settings() {
+            tool_context = tool_context.with_bot_config(settings.bot_name, settings.bot_email);
         }
 
         // Generate response with optional tool execution loop
@@ -306,7 +354,10 @@ impl MessageDispatcher {
                 // Clean response by removing memory markers before storing/returning
                 let clean_response = self.clean_response(&response);
 
-                // Store AI response in session
+                // Estimate tokens for the response
+                let response_tokens = estimate_tokens(&clean_response);
+
+                // Store AI response in session with token count
                 if let Err(e) = self.db.add_session_message(
                     session.id,
                     DbMessageRole::Assistant,
@@ -314,9 +365,24 @@ impl MessageDispatcher {
                     None,
                     None,
                     None,
-                    None,
+                    Some(response_tokens),
                 ) {
                     log::error!("Failed to store AI response: {}", e);
+                } else {
+                    // Update context tokens
+                    self.context_manager.update_context_tokens(session.id, response_tokens);
+
+                    // Check if compaction is needed
+                    if self.context_manager.needs_compaction(session.id) {
+                        log::info!("[COMPACTION] Context limit reached for session {}, triggering compaction", session.id);
+                        if let Err(e) = self.context_manager.compact_session(
+                            session.id,
+                            &client,
+                            Some(&identity.identity_id),
+                        ).await {
+                            log::error!("[COMPACTION] Failed to compact session: {}", e);
+                        }
+                    }
                 }
 
                 // Emit response event
@@ -443,13 +509,35 @@ impl MessageDispatcher {
                         });
 
                         // Add tool result as user message for next iteration
-                        conversation.push(Message {
-                            role: MessageRole::User,
-                            content: format!(
+                        let followup_prompt = if tool_result.success {
+                            format!(
                                 "Tool '{}' returned:\n{}\n\nNow provide your final response to the user based on this result. Remember to respond in JSON format.",
                                 tool_call.tool_name,
                                 tool_result.content
-                            ),
+                            )
+                        } else {
+                            // Check if this is a git permission error (can be solved by forking)
+                            let error_lower = tool_result.content.to_lowercase();
+                            let is_git_permission = (error_lower.contains("permission") || error_lower.contains("403") || error_lower.contains("denied"))
+                                && (error_lower.contains("git") || error_lower.contains("github") || error_lower.contains("push"));
+
+                            if is_git_permission {
+                                format!(
+                                    "Tool '{}' FAILED with error:\n{}\n\nYou don't have push access to this repository. To contribute to repos you don't own, use the FORK workflow:\n1. Fork the repo: `gh repo fork OWNER/REPO --clone`\n2. Make changes in the forked repo\n3. Push to YOUR fork\n4. Create PR: `gh pr create --repo OWNER/REPO`\n\nTry the fork workflow. Remember to respond in JSON format.",
+                                    tool_call.tool_name,
+                                    tool_result.content
+                                )
+                            } else {
+                                format!(
+                                    "Tool '{}' FAILED with error:\n{}\n\nTry a different approach if possible. Common fixes:\n- If directory exists: cd into it instead of cloning\n- If command not found: try alternative command\n- If permission denied: check if you need to fork the repo first\n\nIf truly impossible, explain why. Remember to respond in JSON format.",
+                                    tool_call.tool_name,
+                                    tool_result.content
+                                )
+                            }
+                        };
+                        conversation.push(Message {
+                            role: MessageRole::User,
+                            content: followup_prompt,
                         });
 
                         // Continue loop to get final response
@@ -487,25 +575,30 @@ impl MessageDispatcher {
 
         log::info!("[SKILL] Executing skill '{}' with input: {}", skill_name, input);
 
-        // Look up the skill
-        let skills = match self.db.list_enabled_skills() {
+        // Look up the specific skill by name (more efficient than loading all skills)
+        let skill = match self.db.get_enabled_skill_by_name(skill_name) {
             Ok(s) => s,
             Err(e) => {
-                return crate::tools::ToolResult::error(format!("Failed to load skills: {}", e));
+                return crate::tools::ToolResult::error(format!("Failed to load skill: {}", e));
             }
         };
 
-        let skill = skills.iter().find(|s| s.name == skill_name && s.enabled);
-
         match skill {
             Some(skill) => {
+                // Determine the skills directory path
+                let skills_dir = std::env::var("STARK_SKILLS_DIR")
+                    .unwrap_or_else(|_| "./skills".to_string());
+                let skill_base_dir = format!("{}/{}", skills_dir, skill.name);
+
                 // Return the skill's instructions/body along with context
                 let mut result = format!("## Skill: {}\n\n", skill.name);
                 result.push_str(&format!("Description: {}\n\n", skill.description));
 
                 if !skill.body.is_empty() {
+                    // Replace {baseDir} placeholder with actual skill directory
+                    let body_with_paths = skill.body.replace("{baseDir}", &skill_base_dir);
                     result.push_str("### Instructions:\n");
-                    result.push_str(&skill.body);
+                    result.push_str(&body_with_paths);
                     result.push_str("\n\n");
                 }
 
@@ -515,14 +608,14 @@ impl MessageDispatcher {
                 crate::tools::ToolResult::success(&result)
             }
             None => {
+                // Fetch available skills for the error message
+                let available = self.db.list_enabled_skills()
+                    .map(|skills| skills.iter().map(|s| s.name.clone()).collect::<Vec<_>>().join(", "))
+                    .unwrap_or_else(|_| "unknown".to_string());
                 crate::tools::ToolResult::error(format!(
                     "Skill '{}' not found or not enabled. Available skills: {}",
                     skill_name,
-                    skills.iter()
-                        .filter(|s| s.enabled)
-                        .map(|s| s.name.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    available
                 ))
             }
         }
@@ -537,6 +630,39 @@ impl MessageDispatcher {
             return Some(response);
         }
 
+        // Try to parse as typed JSON response
+        // {"type": "message", "content": "..."} or {"type": "function", ...}
+        if let Ok(json) = serde_json::from_str::<Value>(content) {
+            if let Some(msg_type) = json.get("type").and_then(|v| v.as_str()) {
+                // Handle message type - just extract content
+                if msg_type == "message" {
+                    if let Some(content_str) = json.get("content").and_then(|v| v.as_str()) {
+                        log::info!("[PARSE] Extracted message content from type:message format");
+                        return Some(AgentResponse {
+                            body: content_str.to_string(),
+                            tool_call: None,
+                        });
+                    }
+                }
+                // Handle function call type
+                if msg_type == "function" {
+                    if let (Some(name), Some(params)) = (
+                        json.get("name").and_then(|v| v.as_str()),
+                        json.get("parameters"),
+                    ) {
+                        log::info!("[PARSE] Converted native function call format: {}", name);
+                        return Some(AgentResponse {
+                            body: format!("Executing {}...", name),
+                            tool_call: Some(TextToolCall {
+                                tool_name: name.to_string(),
+                                tool_params: params.clone(),
+                            }),
+                        });
+                    }
+                }
+            }
+        }
+
         // Try to extract JSON from markdown code blocks
         let json_patterns = [
             // ```json ... ```
@@ -546,8 +672,38 @@ impl MessageDispatcher {
         for pattern in &json_patterns {
             if let Some(captures) = pattern.captures(content) {
                 if let Some(json_match) = captures.get(1) {
-                    if let Ok(response) = serde_json::from_str::<AgentResponse>(json_match.as_str().trim()) {
+                    let json_str = json_match.as_str().trim();
+                    if let Ok(response) = serde_json::from_str::<AgentResponse>(json_str) {
                         return Some(response);
+                    }
+                    // Also try typed JSON format in code blocks
+                    if let Ok(json) = serde_json::from_str::<Value>(json_str) {
+                        if let Some(msg_type) = json.get("type").and_then(|v| v.as_str()) {
+                            // Handle message type
+                            if msg_type == "message" {
+                                if let Some(content_str) = json.get("content").and_then(|v| v.as_str()) {
+                                    return Some(AgentResponse {
+                                        body: content_str.to_string(),
+                                        tool_call: None,
+                                    });
+                                }
+                            }
+                            // Handle function type
+                            if msg_type == "function" {
+                                if let (Some(name), Some(params)) = (
+                                    json.get("name").and_then(|v| v.as_str()),
+                                    json.get("parameters"),
+                                ) {
+                                    return Some(AgentResponse {
+                                        body: format!("Executing {}...", name),
+                                        tool_call: Some(TextToolCall {
+                                            tool_name: name.to_string(),
+                                            tool_params: params.clone(),
+                                        }),
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -575,6 +731,35 @@ impl MessageDispatcher {
                 let json_str = &content[start..end];
                 if let Ok(response) = serde_json::from_str::<AgentResponse>(json_str) {
                     return Some(response);
+                }
+                // Also try typed JSON format
+                if let Ok(json) = serde_json::from_str::<Value>(json_str) {
+                    if let Some(msg_type) = json.get("type").and_then(|v| v.as_str()) {
+                        // Handle message type
+                        if msg_type == "message" {
+                            if let Some(content_str) = json.get("content").and_then(|v| v.as_str()) {
+                                return Some(AgentResponse {
+                                    body: content_str.to_string(),
+                                    tool_call: None,
+                                });
+                            }
+                        }
+                        // Handle function type
+                        if msg_type == "function" {
+                            if let (Some(name), Some(params)) = (
+                                json.get("name").and_then(|v| v.as_str()),
+                                json.get("parameters"),
+                            ) {
+                                return Some(AgentResponse {
+                                    body: format!("Executing {}...", name),
+                                    tool_call: Some(TextToolCall {
+                                        tool_name: name.to_string(),
+                                        tool_params: params.clone(),
+                                    }),
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -675,6 +860,26 @@ impl MessageDispatcher {
         responses
     }
 
+    /// Load SOUL.md content if it exists
+    fn load_soul() -> Option<String> {
+        // Try multiple locations for SOUL.md
+        let paths = [
+            "SOUL.md",
+            "./SOUL.md",
+            "/app/SOUL.md",
+        ];
+
+        for path in paths {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                log::debug!("[SOUL] Loaded from {}", path);
+                return Some(content);
+            }
+        }
+
+        log::debug!("[SOUL] No SOUL.md found, using default personality");
+        None
+    }
+
     /// Build the system prompt with context from memories, tools, and skills
     fn build_system_prompt(
         &self,
@@ -682,9 +887,15 @@ impl MessageDispatcher {
         identity_id: &str,
         tool_config: &ToolConfig,
     ) -> String {
-        let mut prompt = String::from(
-            "You are StarkBot, an AI agent who can respond to users and operate tools.\n\n"
-        );
+        let mut prompt = String::new();
+
+        // Load SOUL.md if available, otherwise use default intro
+        if let Some(soul) = Self::load_soul() {
+            prompt.push_str(&soul);
+            prompt.push_str("\n\n");
+        } else {
+            prompt.push_str("You are StarkBot, an AI agent who can respond to users and operate tools.\n\n");
+        }
 
         // Add JSON response format instruction
         prompt.push_str("## RESPONSE FORMAT (CRITICAL)\n\n");
@@ -776,17 +987,14 @@ impl MessageDispatcher {
             prompt.push_str("**IMPORTANT**: For weather, news, or live data - USE TOOLS IMMEDIATELY. Do not say you cannot access real-time data.\n\n");
         }
 
-        // Add skill details for context
+        // Add available skills (name + description only - full body provided when use_skill is called)
         if !active_skills.is_empty() {
-            prompt.push_str("## SKILL DETAILS\n\n");
+            prompt.push_str("## AVAILABLE SKILLS\n\n");
+            prompt.push_str("Use the `use_skill` tool to activate a skill. The skill instructions will be provided when activated.\n\n");
             for skill in &active_skills {
-                prompt.push_str(&format!("### {}\n", skill.name));
-                prompt.push_str(&format!("{}\n", skill.description));
-                if !skill.body.is_empty() {
-                    prompt.push_str(&format!("Instructions: {}\n", skill.body.lines().take(3).collect::<Vec<_>>().join(" ")));
-                }
-                prompt.push_str("\n");
+                prompt.push_str(&format!("- **{}**: {}\n", skill.name, skill.description));
             }
+            prompt.push_str("\n");
         }
 
         // Add daily logs context
@@ -808,6 +1016,16 @@ impl MessageDispatcher {
                     prompt.push_str(&format!("- {}\n", mem.content));
                 }
                 prompt.push('\n');
+            }
+        }
+
+        // Add recent session summaries (past conversations)
+        if let Ok(summaries) = self.db.get_session_summaries(Some(identity_id), 3) {
+            if !summaries.is_empty() {
+                prompt.push_str("## Previous Sessions\n");
+                for summary in summaries {
+                    prompt.push_str(&format!("{}\n\n", summary.content));
+                }
             }
         }
 
@@ -921,6 +1139,83 @@ impl MessageDispatcher {
         clean.trim().to_string()
     }
 
+    /// Handle thinking directive messages (e.g., "/think:medium" sets session default)
+    async fn handle_thinking_directive(&self, message: &NormalizedMessage) -> Option<DispatchResult> {
+        let text = message.text.trim();
+
+        // Check if this is a standalone thinking directive
+        if let Some(captures) = self.thinking_directive_pattern.captures(text) {
+            let level_str = captures.get(1).map(|m| m.as_str()).unwrap_or("low");
+
+            if let Some(level) = ThinkingLevel::from_str(level_str) {
+                // Store the thinking level preference for this session
+                // For now, we just acknowledge it (session storage could be added later)
+                let response = format!(
+                    "Thinking level set to **{}**. {}",
+                    level,
+                    match level {
+                        ThinkingLevel::Off => "Extended thinking is now disabled.",
+                        ThinkingLevel::Minimal => "Using minimal thinking (~1K tokens).",
+                        ThinkingLevel::Low => "Using low thinking (~4K tokens).",
+                        ThinkingLevel::Medium => "Using medium thinking (~10K tokens).",
+                        ThinkingLevel::High => "Using high thinking (~32K tokens).",
+                        ThinkingLevel::XHigh => "Using maximum thinking (~64K tokens).",
+                    }
+                );
+
+                self.broadcaster.broadcast(GatewayEvent::agent_response(
+                    message.channel_id,
+                    &message.user_name,
+                    &response,
+                ));
+
+                log::info!(
+                    "Thinking level set to {} for user {} on channel {}",
+                    level,
+                    message.user_name,
+                    message.channel_id
+                );
+
+                return Some(DispatchResult::success(response));
+            } else {
+                // Invalid level specified
+                let response = format!(
+                    "Invalid thinking level '{}'. Valid options: off, minimal, low, medium, high, xhigh",
+                    level_str
+                );
+                self.broadcaster.broadcast(GatewayEvent::agent_response(
+                    message.channel_id,
+                    &message.user_name,
+                    &response,
+                ));
+                return Some(DispatchResult::success(response));
+            }
+        }
+
+        None
+    }
+
+    /// Parse inline thinking directive from message (e.g., "/think:high What is...")
+    /// Returns the thinking level and the clean message text
+    fn parse_inline_thinking(&self, text: &str) -> (Option<ThinkingLevel>, Option<String>) {
+        let text = text.trim();
+
+        // Pattern: /think:level followed by the actual message
+        let inline_pattern = Regex::new(r"(?i)^/(?:t|think|thinking):(\w+)\s+(.+)$").unwrap();
+
+        if let Some(captures) = inline_pattern.captures(text) {
+            let level_str = captures.get(1).map(|m| m.as_str()).unwrap_or("");
+            let clean_text = captures.get(2).map(|m| m.as_str().to_string());
+
+            if let Some(level) = ThinkingLevel::from_str(level_str) {
+                return (Some(level), clean_text);
+            }
+        }
+
+        // No inline thinking directive found
+        (None, None)
+    }
+
     /// Handle /new or /reset commands
     async fn handle_reset_command(&self, message: &NormalizedMessage) -> DispatchResult {
         // Determine session scope
@@ -939,6 +1234,37 @@ impl MessageDispatcher {
             None,
         ) {
             Ok(session) => {
+                // Get identity for memory storage
+                let identity_id = self.db.get_or_create_identity(
+                    &message.channel_type,
+                    &message.user_id,
+                    Some(&message.user_name),
+                ).ok().map(|id| id.identity_id);
+
+                // Save session memory before reset (session memory hook)
+                let message_count = self.db.count_session_messages(session.id).unwrap_or(0);
+                if message_count >= 2 {
+                    // Only save if there are meaningful messages
+                    if let Ok(Some(settings)) = self.db.get_active_agent_settings() {
+                        if let Ok(client) = AiClient::from_settings(&settings) {
+                            match context::save_session_memory(
+                                &self.db,
+                                &client,
+                                session.id,
+                                identity_id.as_deref(),
+                                15, // Save last 15 messages
+                            ).await {
+                                Ok(memory_id) => {
+                                    log::info!("[SESSION_MEMORY] Saved session memory (id={}) before reset", memory_id);
+                                }
+                                Err(e) => {
+                                    log::warn!("[SESSION_MEMORY] Failed to save session memory: {}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Reset the session
                 match self.db.reset_chat_session(session.id) {
                     Ok(_) => {

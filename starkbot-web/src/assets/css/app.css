@@ -28,3 +28,129 @@ body {
   0%, 100% { opacity: 0.3; }
   50% { opacity: 1; }
 }
+
+/* Scrollbar styling for docs */
+.docs-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.docs-scrollbar::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+.docs-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-slate-700 rounded-full;
+}
+
+.docs-scrollbar::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-600;
+}
+
+/* Markdown body styles */
+.markdown-body {
+  @apply text-slate-300 leading-relaxed;
+}
+
+.markdown-body h1 {
+  @apply text-4xl font-bold text-slate-100 mb-6 pb-4 border-b border-slate-800;
+}
+
+.markdown-body h2 {
+  @apply text-2xl font-semibold text-slate-100 mt-10 mb-4 pb-2 border-b border-slate-800;
+}
+
+.markdown-body h3 {
+  @apply text-xl font-semibold text-slate-200 mt-8 mb-3;
+}
+
+.markdown-body h4 {
+  @apply text-lg font-medium text-slate-200 mt-6 mb-2;
+}
+
+.markdown-body p {
+  @apply text-slate-400 mb-4 leading-relaxed;
+}
+
+.markdown-body > p:first-of-type {
+  @apply text-lg text-slate-300;
+}
+
+.markdown-body ul {
+  @apply list-disc mb-4 space-y-2 text-slate-400 ml-6;
+}
+
+.markdown-body ol {
+  @apply list-decimal mb-4 space-y-2 text-slate-400 ml-6;
+}
+
+.markdown-body li {
+  @apply text-slate-400 pl-1;
+}
+
+.markdown-body li::marker {
+  @apply text-slate-600;
+}
+
+.markdown-body li strong {
+  @apply text-slate-200 font-semibold;
+}
+
+.markdown-body a {
+  @apply text-emerald-400 hover:text-emerald-300 no-underline hover:underline;
+}
+
+.markdown-body code {
+  @apply bg-slate-800 px-1.5 py-0.5 rounded text-sm text-emerald-400 font-mono;
+}
+
+.markdown-body pre {
+  @apply bg-slate-900 border border-slate-800 rounded-lg p-4 overflow-x-auto mb-4;
+}
+
+.markdown-body pre code {
+  @apply bg-transparent p-0 text-slate-300 text-sm;
+}
+
+.markdown-body blockquote {
+  @apply border-l-4 border-emerald-500/50 pl-4 italic text-slate-400 my-4 bg-slate-900/50 py-2;
+}
+
+.markdown-body table {
+  @apply w-full border-collapse mb-6 text-sm;
+}
+
+.markdown-body thead {
+  @apply border-b border-slate-700;
+}
+
+.markdown-body th {
+  @apply px-4 py-3 text-left text-slate-300 font-semibold;
+}
+
+.markdown-body td {
+  @apply px-4 py-3 text-slate-400 border-b border-slate-800;
+}
+
+.markdown-body tbody tr:hover {
+  @apply bg-slate-900/50;
+}
+
+.markdown-body hr {
+  @apply border-slate-800 my-8;
+}
+
+.markdown-body strong {
+  @apply font-semibold text-slate-200;
+}
+
+.markdown-body em {
+  @apply italic text-slate-300;
+}
+
+/* Nested lists */
+.markdown-body ul ul,
+.markdown-body ol ul,
+.markdown-body ul ol,
+.markdown-body ol ol {
+  @apply mt-2 mb-0;
+}

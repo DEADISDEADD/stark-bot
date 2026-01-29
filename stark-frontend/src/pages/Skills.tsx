@@ -79,7 +79,7 @@ export default function Skills() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".zip"
+            accept=".zip,.md"
             onChange={handleUpload}
             className="hidden"
           />

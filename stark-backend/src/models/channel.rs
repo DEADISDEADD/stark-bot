@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum ChannelType {
     Telegram,
     Slack,
+    Discord,
 }
 
 impl ChannelType {
@@ -13,6 +14,7 @@ impl ChannelType {
         match self {
             ChannelType::Telegram => "telegram",
             ChannelType::Slack => "slack",
+            ChannelType::Discord => "discord",
         }
     }
 
@@ -20,6 +22,7 @@ impl ChannelType {
         match s.to_lowercase().as_str() {
             "telegram" => Some(ChannelType::Telegram),
             "slack" => Some(ChannelType::Slack),
+            "discord" => Some(ChannelType::Discord),
             _ => None,
         }
     }

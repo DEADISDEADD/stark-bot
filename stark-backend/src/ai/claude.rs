@@ -1,19 +1,41 @@
 use crate::ai::types::{
     AiResponse, ClaudeContentBlock, ClaudeMessage as TypedClaudeMessage,
-    ClaudeMessageContent, ClaudeTool, ToolCall, ToolResponse,
+    ClaudeMessageContent, ClaudeTool, ThinkingLevel, ToolCall, ToolResponse,
 };
 use crate::ai::{Message, MessageRole};
 use crate::tools::ToolDefinition;
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ClaudeClient {
     client: Client,
     endpoint: String,
     model: String,
+    /// Thinking budget in tokens (0 = disabled)
+    thinking_budget: AtomicU32,
+}
+
+impl Clone for ClaudeClient {
+    fn clone(&self) -> Self {
+        ClaudeClient {
+            client: self.client.clone(),
+            endpoint: self.endpoint.clone(),
+            model: self.model.clone(),
+            thinking_budget: AtomicU32::new(self.thinking_budget.load(Ordering::SeqCst)),
+        }
+    }
+}
+
+/// Extended thinking configuration for Claude
+#[derive(Debug, Clone, Serialize)]
+struct ThinkingConfig {
+    #[serde(rename = "type")]
+    thinking_type: String,
+    budget_tokens: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -23,6 +45,8 @@ struct ClaudeCompletionRequest {
     max_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<ThinkingConfig>,
 }
 
 #[derive(Debug, Serialize)]
@@ -40,6 +64,8 @@ struct ClaudeToolRequest {
     system: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<ClaudeTool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<ThinkingConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -101,7 +127,33 @@ impl ClaudeClient {
                 .unwrap_or("https://api.anthropic.com/v1/messages")
                 .to_string(),
             model: model.unwrap_or("claude-sonnet-4-20250514").to_string(),
+            thinking_budget: AtomicU32::new(0),
         })
+    }
+
+    /// Set the thinking level for subsequent requests
+    pub fn set_thinking_level(&self, level: ThinkingLevel) {
+        let budget = level.budget_tokens().unwrap_or(0);
+        self.thinking_budget.store(budget, Ordering::SeqCst);
+        log::info!("Claude thinking level set to {} (budget: {} tokens)", level, budget);
+    }
+
+    /// Get the current thinking budget
+    pub fn get_thinking_budget(&self) -> u32 {
+        self.thinking_budget.load(Ordering::SeqCst)
+    }
+
+    /// Build thinking config if enabled
+    fn build_thinking_config(&self) -> Option<ThinkingConfig> {
+        let budget = self.get_thinking_budget();
+        if budget > 0 {
+            Some(ThinkingConfig {
+                thinking_type: "enabled".to_string(),
+                budget_tokens: budget,
+            })
+        } else {
+            None
+        }
     }
 
     pub async fn generate_text(&self, messages: Vec<Message>) -> Result<String, String> {
@@ -127,11 +179,13 @@ impl ClaudeClient {
             })
             .collect();
 
+        let thinking = self.build_thinking_config();
         let request = ClaudeCompletionRequest {
             model: self.model.clone(),
             messages: api_messages,
             max_tokens: 4096,
             system: system_message,
+            thinking,
         };
 
         log::debug!("Sending request to Claude API: {:?}", request);
@@ -222,6 +276,7 @@ impl ClaudeClient {
             })
             .collect();
 
+        let thinking = self.build_thinking_config();
         let request = ClaudeToolRequest {
             model: self.model.clone(),
             messages: api_messages,
@@ -232,6 +287,7 @@ impl ClaudeClient {
             } else {
                 Some(claude_tools)
             },
+            thinking,
         };
 
         log::debug!(

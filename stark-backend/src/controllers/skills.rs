@@ -343,12 +343,20 @@ async fn upload_skill(
         return resp;
     }
 
-    // Read the uploaded file
+    // Read the uploaded file and capture filename
     let mut file_data: Vec<u8> = Vec::new();
+    let mut filename: Option<String> = None;
 
     while let Some(item) = payload.next().await {
         match item {
             Ok(mut field) => {
+                // Capture filename from content disposition
+                if filename.is_none() {
+                    filename = field.content_disposition()
+                        .get_filename()
+                        .map(|s| s.to_string());
+                }
+
                 while let Some(chunk) = field.next().await {
                     match chunk {
                         Ok(data) => file_data.extend_from_slice(&data),
@@ -380,8 +388,25 @@ async fn upload_skill(
         });
     }
 
-    // Parse and create the skill
-    match state.skill_registry.create_skill_from_zip(&file_data) {
+    // Determine file type from filename or content
+    let is_markdown = filename
+        .as_ref()
+        .map(|f| f.to_lowercase().ends_with(".md"))
+        .unwrap_or(false);
+
+    // Parse and create the skill based on file type
+    let result = if is_markdown {
+        // Parse as markdown file
+        match String::from_utf8(file_data) {
+            Ok(content) => state.skill_registry.create_skill_from_markdown(&content),
+            Err(e) => Err(format!("Invalid UTF-8 in markdown file: {}", e)),
+        }
+    } else {
+        // Parse as ZIP file
+        state.skill_registry.create_skill_from_zip(&file_data)
+    };
+
+    match result {
         Ok(db_skill) => {
             let skill = db_skill.into_skill();
             HttpResponse::Ok().json(UploadResponse {
@@ -391,7 +416,7 @@ async fn upload_skill(
             })
         }
         Err(e) => {
-            log::error!("Failed to create skill from ZIP: {}", e);
+            log::error!("Failed to create skill: {}", e);
             HttpResponse::BadRequest().json(UploadResponse {
                 success: false,
                 skill: None,

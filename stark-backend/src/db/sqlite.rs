@@ -1,3 +1,7 @@
+//! SQLite database - schema definitions and connection management
+//!
+//! Database operations are kept in this file for this branch.
+
 use chrono::{DateTime, Duration, NaiveDate, Timelike, Utc};
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::Path;
@@ -5,15 +9,18 @@ use std::sync::Mutex;
 use uuid::Uuid;
 
 use crate::models::{
-    AgentSettings, ApiKey, Channel, ChatSession, IdentityLink, Memory, MemorySearchResult,
-    MemoryType, MessageRole, ResetPolicy, Session, SessionMessage, SessionScope,
+    AgentSettings, ApiKey, Channel, ChatSession, IdentityLink, Memory,
+    MemorySearchResult, MemoryType, MessageRole, ResetPolicy, Session,
+    SessionMessage, SessionScope,
 };
 
+/// Main database wrapper with connection pooling via Mutex
 pub struct Database {
-    conn: Mutex<Connection>,
+    pub(crate) conn: Mutex<Connection>,
 }
 
 impl Database {
+    /// Create a new database connection and initialize schema
     pub fn new(database_url: &str) -> SqliteResult<Self> {
         // Create parent directory if it doesn't exist
         if let Some(parent) = Path::new(database_url).parent() {
@@ -30,6 +37,7 @@ impl Database {
         Ok(db)
     }
 
+    /// Initialize all database tables and run migrations
     fn init(&self) -> SqliteResult<()> {
         let conn = self.conn.lock().unwrap();
 
@@ -108,6 +116,8 @@ impl Database {
                 model TEXT NOT NULL,
                 model_archetype TEXT,
                 enabled INTEGER NOT NULL DEFAULT 0,
+                bot_name TEXT NOT NULL DEFAULT 'StarkBot',
+                bot_email TEXT NOT NULL DEFAULT 'starkbot@users.noreply.github.com',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )",
@@ -159,10 +169,18 @@ impl Database {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 last_activity_at TEXT NOT NULL,
-                expires_at TEXT
+                expires_at TEXT,
+                context_tokens INTEGER NOT NULL DEFAULT 0,
+                max_context_tokens INTEGER NOT NULL DEFAULT 100000,
+                compaction_id INTEGER
             )",
             [],
         )?;
+
+        // Migration: Add context management columns if they don't exist
+        let _ = conn.execute("ALTER TABLE chat_sessions ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE chat_sessions ADD COLUMN max_context_tokens INTEGER NOT NULL DEFAULT 100000", []);
+        let _ = conn.execute("ALTER TABLE chat_sessions ADD COLUMN compaction_id INTEGER", []);
 
         // Session messages table - conversation transcripts
         conn.execute(
@@ -351,6 +369,103 @@ impl Database {
         // Create index for tool executions lookup
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tool_executions_channel ON tool_executions(channel_id, executed_at)",
+            [],
+        )?;
+
+        // Cron jobs table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS cron_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                schedule_type TEXT NOT NULL,
+                schedule_value TEXT NOT NULL,
+                timezone TEXT,
+                session_mode TEXT NOT NULL DEFAULT 'isolated',
+                message TEXT,
+                system_event TEXT,
+                channel_id INTEGER,
+                deliver_to TEXT,
+                deliver INTEGER NOT NULL DEFAULT 0,
+                model_override TEXT,
+                thinking_level TEXT,
+                timeout_seconds INTEGER,
+                delete_after_run INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'active',
+                last_run_at TEXT,
+                next_run_at TEXT,
+                run_count INTEGER NOT NULL DEFAULT 0,
+                error_count INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (channel_id) REFERENCES external_channels(id) ON DELETE SET NULL
+            )",
+            [],
+        )?;
+
+        // Cron job runs history
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS cron_job_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                success INTEGER NOT NULL DEFAULT 0,
+                result TEXT,
+                error TEXT,
+                duration_ms INTEGER,
+                FOREIGN KEY (job_id) REFERENCES cron_jobs(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Index for job runs lookup
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cron_job_runs_job ON cron_job_runs(job_id, started_at DESC)",
+            [],
+        )?;
+
+        // Heartbeat configuration table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS heartbeat_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id INTEGER UNIQUE,
+                interval_minutes INTEGER NOT NULL DEFAULT 30,
+                target TEXT NOT NULL DEFAULT 'last',
+                active_hours_start TEXT,
+                active_hours_end TEXT,
+                active_days TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                last_beat_at TEXT,
+                next_beat_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (channel_id) REFERENCES external_channels(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Gmail integration configuration
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS gmail_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                token_expires_at TEXT,
+                watch_labels TEXT NOT NULL DEFAULT 'INBOX',
+                project_id TEXT NOT NULL,
+                topic_name TEXT NOT NULL,
+                watch_expires_at TEXT,
+                history_id TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                response_channel_id INTEGER,
+                auto_reply INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
             [],
         )?;
 
@@ -825,6 +940,8 @@ impl Database {
                     model_archetype: row.get(5)?,
                     max_tokens: row.get::<_, Option<i32>>(6)?.unwrap_or(40000),
                     enabled: row.get::<_, i32>(7)? != 0,
+                    bot_name: "StarkBot".to_string(),
+                    bot_email: "starkbot@users.noreply.github.com".to_string(),
                     created_at: DateTime::parse_from_rfc3339(&created_at_str)
                         .unwrap()
                         .with_timezone(&Utc),
@@ -861,6 +978,8 @@ impl Database {
                     model_archetype: row.get(5)?,
                     max_tokens: row.get::<_, Option<i32>>(6)?.unwrap_or(40000),
                     enabled: row.get::<_, i32>(7)? != 0,
+                    bot_name: "StarkBot".to_string(),
+                    bot_email: "starkbot@users.noreply.github.com".to_string(),
                     created_at: DateTime::parse_from_rfc3339(&created_at_str)
                         .unwrap()
                         .with_timezone(&Utc),
@@ -897,6 +1016,8 @@ impl Database {
                     model_archetype: row.get(5)?,
                     max_tokens: row.get::<_, Option<i32>>(6)?.unwrap_or(40000),
                     enabled: row.get::<_, i32>(7)? != 0,
+                    bot_name: "StarkBot".to_string(),
+                    bot_email: "starkbot@users.noreply.github.com".to_string(),
                     created_at: DateTime::parse_from_rfc3339(&created_at_str)
                         .unwrap()
                         .with_timezone(&Utc),
@@ -1219,6 +1340,9 @@ impl Database {
                     .unwrap()
                     .with_timezone(&Utc)
             }),
+            context_tokens: row.get(15).unwrap_or(0),
+            max_context_tokens: row.get(16).unwrap_or(100000),
+            compaction_id: row.get(17).ok(),
         })
     }
 
@@ -1700,6 +1824,37 @@ impl Database {
                 .collect()
         } else {
             stmt.query_map(rusqlite::params![min_imp, limit], |row| Self::row_to_memory(row))?
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+
+        Ok(memories)
+    }
+
+    /// Get session summaries (compaction summaries from past sessions)
+    pub fn get_session_summaries(&self, identity_id: Option<&str>, limit: i32) -> SqliteResult<Vec<Memory>> {
+        let conn = self.conn.lock().unwrap();
+
+        let sql = if identity_id.is_some() {
+            "SELECT id, memory_type, content, category, tags, importance, identity_id, session_id,
+             source_channel_type, source_message_id, log_date, created_at, updated_at, expires_at
+             FROM memories WHERE memory_type = 'session_summary' AND identity_id = ?1
+             ORDER BY created_at DESC LIMIT ?2"
+        } else {
+            "SELECT id, memory_type, content, category, tags, importance, identity_id, session_id,
+             source_channel_type, source_message_id, log_date, created_at, updated_at, expires_at
+             FROM memories WHERE memory_type = 'session_summary'
+             ORDER BY created_at DESC LIMIT ?1"
+        };
+
+        let mut stmt = conn.prepare(sql)?;
+
+        let memories: Vec<Memory> = if let Some(iid) = identity_id {
+            stmt.query_map(rusqlite::params![iid, limit], |row| Self::row_to_memory(row))?
+                .filter_map(|r| r.ok())
+                .collect()
+        } else {
+            stmt.query_map(rusqlite::params![limit], |row| Self::row_to_memory(row))?
                 .filter_map(|r| r.ok())
                 .collect()
         };

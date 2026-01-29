@@ -7,7 +7,8 @@ pub use claude::ClaudeClient;
 pub use llama::{LlamaClient, LlamaMessage};
 pub use openai::OpenAIClient;
 pub use types::{
-    AiResponse, ClaudeMessage as TypedClaudeMessage, ToolCall, ToolHistoryEntry, ToolResponse,
+    AiResponse, ClaudeMessage as TypedClaudeMessage, ThinkingLevel, ToolCall, ToolHistoryEntry,
+    ToolResponse,
 };
 
 use crate::models::{AgentSettings, AiProvider};
@@ -141,6 +142,18 @@ impl AiClient {
     pub fn supports_tools(&self) -> bool {
         // All providers now support tools
         matches!(self, AiClient::Claude(_) | AiClient::OpenAI(_) | AiClient::Llama(_))
+    }
+
+    /// Check if the current provider supports extended thinking
+    pub fn supports_thinking(&self) -> bool {
+        matches!(self, AiClient::Claude(_))
+    }
+
+    /// Set the thinking level for Claude models
+    pub fn set_thinking_level(&self, level: ThinkingLevel) {
+        if let AiClient::Claude(client) = self {
+            client.set_thinking_level(level);
+        }
     }
 
     /// Build a tool history entry from tool calls and responses

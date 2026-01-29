@@ -30,6 +30,9 @@ teloxide = { version = "0.12", features = ["macros"] }
 # Slack integration
 slack-morphism = { version = "2", features = ["hyper"] }
 
+# Discord integration
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model"] }
+
 # Concurrent state management
 dashmap = "5"
 
@@ -41,7 +44,16 @@ ethers = "2.0"
 hex = "0.4"
 rand = "0.8"
 getrandom = "0.2"
-base64 = "0.21"
+base64 = "0.22"
+
+# URL parsing
+url = "2"
+
+# Cron scheduling
+cron = "0.12"
+
+# Lazy static for global state
+lazy_static = "1.4"
 
 # Tools system
 which = "5"

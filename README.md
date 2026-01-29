@@ -13,28 +13,10 @@ A cloud-deployable agentic assistant built with Rust and Actix. StarkBot acts as
 
 
 
-## Starkbot is NOT production-ready 
-```
-  STARKBOT IS CURRENTLY IN EARLY ALPHA AND IS MISSING FEATURES 
+## Starkbot is in early BETA 
 
-  WHEN FULL RELEASE IS READY, IT WILL BE ANNOUNCED HERE.  FEEL FREE TO HELP BUILD STARK BOT.
+ <img width="1453" height="1018" alt="image" src="https://github.com/user-attachments/assets/2e51cf69-9c77-4610-a392-41ebd21993a5" />
 
-
-
-  FEATURES THAT ARE COMPLETE
- - one-click deploy to App Platform
- - SIWE (Sign In With Ethereum) wallet authentication
- - Configure custom agent model for chat
- - Gateway + channels to poll for bot inputs (telegram bot chat)
-
-  FEATURES THAT ARE INCOMPLETE
- - hooks
- - cron
- - tools and skills
- - multi-agent
- - debug logs interface 
-  
-```
 
 
 ## Local Development
@@ -44,6 +26,15 @@ A cloud-deployable agentic assistant built with Rust and Actix. StarkBot acts as
 - Rust 1.88+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
 - SQLite3 (usually pre-installed on Linux)
  
+
+
+Or just use any random password.   It should be long and secure as the endpoint will be available to the global internet.  
+
+
+This is the only required ENV var (SECRET_KEY) and it is used to log in to the bot.  
+
+
+
 
 ### Environment Setup
 
@@ -181,18 +172,12 @@ docker compose -f docker-compose.dev.yml up --build -d
 docker compose -f docker-compose.dev.yml logs -f
 ```
 
-### How Hot Reload Works
 
-| Change Type | Behavior |
-|-------------|----------|
-| **Frontend** (HTML/CSS/JS in `stark-frontend/`) | Instant - files are volume-mounted directly |
-| **Backend** (Rust code in `stark-backend/src/`) | Automatic recompilation via `cargo-watch` |
 
-### Performance Notes
 
-- First build is slower (compiling all dependencies)
-- Subsequent rebuilds are fast thanks to cached dependencies
-- Named volumes (`cargo-target`, `cargo-registry`) persist between restarts
+
+
+
 
 ### Stop Development Environment
 
@@ -316,3 +301,32 @@ starkbot/
     ├── css/styles.css
     └── js/
 ```
+
+
+
+
+## Ai Agent 
+
+It is acceptable to use stark-bot with a Digitalocean Agent, such as one using the llama-33-instruct model.
+
+
+In this case, input the following for Agent Settings 
+
+
+```
+
+
+
+Provider Type  : openAi Compatible 
+Api Endpoint URI : https://xxxxxxxxxxxxxxxxx.agents.do-ai.run/api/v1/chat/completions
+API Key :   xxxxxxxxxxxxxxxxxx   (access key)
+
+
+```
+
+
+
+
+## Custom skills
+
+Standard claude skills / clawd skills can be installed using the Skills page- either a zip file or md file.  

@@ -2,6 +2,7 @@ pub mod agent_settings;
 pub mod api_key;
 pub mod channel;
 pub mod chat_session;
+pub mod cron_job;
 pub mod execution;
 pub mod identity;
 pub mod memory;
@@ -25,4 +26,9 @@ pub use memory::{
 };
 pub use session::Session;
 pub use session_message::{AddMessageRequest, MessageRole, SessionMessage, SessionTranscriptResponse};
+pub use cron_job::{
+    CreateCronJobRequest, CronJob, CronJobResponse, CronJobRun, HeartbeatConfig,
+    HeartbeatConfigResponse, JobStatus, ScheduleType, SessionMode, UpdateCronJobRequest,
+    UpdateHeartbeatConfigRequest,
+};
 pub use execution::{ExecutionTask, TaskMetrics, TaskStatus, TaskType};

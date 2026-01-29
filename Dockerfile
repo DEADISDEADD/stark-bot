@@ -41,7 +41,13 @@ RUN apt-get update && apt-get install -y \
     curl \
     git \
     jq \
+    python3 \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install uv (fast Python package manager for skills)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
 
 # Install GitHub CLI (gh)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -59,6 +65,9 @@ COPY --from=frontend-builder /app/stark-frontend/dist /app/stark-frontend/dist
 
 # Copy the skills directory (bundled skills loaded on boot)
 COPY skills /app/skills
+
+# Copy SOUL.md (bot personality/identity)
+COPY SOUL.md /app/SOUL.md
 
 # Expose ports (HTTP + Gateway WebSocket)
 EXPOSE 8080

@@ -5,6 +5,7 @@ import {
   Settings,
   Wrench,
   Zap,
+  Clock,
   Calendar,
   FileText,
   Users,
@@ -35,6 +36,7 @@ export default function Sidebar() {
           <NavItem to="/agent-settings" icon={Settings} label="Agent Settings" />
           <NavItem to="/tools" icon={Wrench} label="Tools" />
           <NavItem to="/skills" icon={Zap} label="Skills" />
+          <NavItem to="/scheduling" icon={Clock} label="Scheduling" />
         </div>
 
         {/* Data Section */}

@@ -283,6 +283,11 @@ impl GatewayEvent {
             }),
         )
     }
+
+    /// Custom event with arbitrary event name and data
+    pub fn custom(event: &str, data: Value) -> Self {
+        Self::new(event, data)
+    }
 }
 
 /// Params for channel operations

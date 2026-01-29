@@ -1,3 +1,4 @@
+pub mod discord;
 pub mod dispatcher;
 pub mod slack;
 pub mod telegram;
@@ -136,6 +137,25 @@ impl ChannelManager {
 
                     if let Err(e) = result {
                         log::error!("Slack listener error: {}", e);
+                        broadcaster.broadcast(GatewayEvent::channel_error(channel_id, &e));
+                    }
+
+                    // Remove from running channels
+                    running_channels.remove(&channel_id);
+                });
+            }
+            "discord" => {
+                tokio::spawn(async move {
+                    let result = discord::start_discord_listener(
+                        channel,
+                        dispatcher,
+                        broadcaster.clone(),
+                        shutdown_rx,
+                    )
+                    .await;
+
+                    if let Err(e) = result {
+                        log::error!("Discord listener error: {}", e);
                         broadcaster.broadcast(GatewayEvent::channel_error(channel_id, &e));
                     }
 

@@ -11,7 +11,15 @@ export function Footer() {
           <span className="font-semibold">StarkBot</span>
         </div>
         <p className="text-slate-500 text-sm">
-          Open source AI assistant. Built with care.
+          made with &lt;3 by{' '}
+          <a
+            href="https://ethereumdegen.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-stark-400 hover:text-stark-300 transition-colors"
+          >
+            @ethereumdegen
+          </a>
         </p>
         <a
           href="https://github.com/ethereumdegen/stark-bot"

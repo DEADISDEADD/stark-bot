@@ -1,6 +1,75 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Thinking level for Claude extended thinking
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ThinkingLevel {
+    /// Disable extended thinking
+    Off,
+    /// Minimal thinking budget (~1K tokens)
+    Minimal,
+    /// Low thinking budget (~4K tokens) - default for reasoning models
+    #[default]
+    Low,
+    /// Medium thinking budget (~10K tokens)
+    Medium,
+    /// High thinking budget (~32K tokens)
+    High,
+    /// Extra high thinking budget (~64K tokens)
+    XHigh,
+}
+
+impl ThinkingLevel {
+    /// Parse thinking level from string (used for /think: directives)
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().trim() {
+            "off" | "none" | "disable" | "disabled" => Some(ThinkingLevel::Off),
+            "minimal" | "think" | "min" => Some(ThinkingLevel::Minimal),
+            "low" | "basic" => Some(ThinkingLevel::Low),
+            "medium" | "med" | "harder" => Some(ThinkingLevel::Medium),
+            "high" | "max" | "ultrathink" => Some(ThinkingLevel::High),
+            "xhigh" | "ultra" | "ultrathink+" | "maximum" => Some(ThinkingLevel::XHigh),
+            _ => None,
+        }
+    }
+
+    /// Get the budget token count for this thinking level
+    pub fn budget_tokens(&self) -> Option<u32> {
+        match self {
+            ThinkingLevel::Off => None,
+            ThinkingLevel::Minimal => Some(1024),
+            ThinkingLevel::Low => Some(4096),
+            ThinkingLevel::Medium => Some(10240),
+            ThinkingLevel::High => Some(32768),
+            ThinkingLevel::XHigh => Some(65536),
+        }
+    }
+
+    /// Check if thinking is enabled
+    pub fn is_enabled(&self) -> bool {
+        !matches!(self, ThinkingLevel::Off)
+    }
+
+    /// Get human-readable name
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ThinkingLevel::Off => "off",
+            ThinkingLevel::Minimal => "minimal",
+            ThinkingLevel::Low => "low",
+            ThinkingLevel::Medium => "medium",
+            ThinkingLevel::High => "high",
+            ThinkingLevel::XHigh => "xhigh",
+        }
+    }
+}
+
+impl std::fmt::Display for ThinkingLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 /// Represents a tool call made by the AI
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCall {
