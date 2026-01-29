@@ -30,14 +30,67 @@ interface DebugPanelProps {
   className?: string;
 }
 
+// Extract tool name from description for better display
+const extractToolName = (desc: string): string | undefined => {
+  if (!desc) return undefined;
+
+  // Try various patterns from the new descriptive format
+  const patterns = [
+    /^Reading\s+(.+)$/i,      // "Reading readme.md"
+    /^Writing\s+(.+)$/i,      // "Writing config.json"
+    /^Listing\s+(.+)$/i,      // "Listing /path"
+    /^Patching\s+(.+)$/i,     // "Patching file.rs"
+    /^Fetching\s+(.+)$/i,     // "Fetching github.com"
+    /^Searching:\s+(.+)$/i,   // "Searching: query"
+    /^Running:\s+(.+)$/i,     // "Running: git status"
+    /^Using skill:\s+(.+)$/i, // "Using skill: weather"
+    /^Agent:\s+(.+)$/i,       // "Agent: explore codebase"
+    /^Using\s+(.+)$/i,        // "Using web_fetch" (fallback)
+    /^Using tool:\s+(\w+)/i,  // Legacy: "Using tool: name"
+  ];
+
+  for (const pattern of patterns) {
+    const match = desc.match(pattern);
+    if (match) {
+      return match[1].trim();
+    }
+  }
+
+  return undefined;
+};
+
+// Get a short label for the tool badge based on description
+const getToolBadgeLabel = (desc: string, toolName?: string): string => {
+  if (!desc) return toolName || 'tool';
+
+  const lowerDesc = desc.toLowerCase();
+
+  if (lowerDesc.startsWith('reading')) return 'read';
+  if (lowerDesc.startsWith('writing')) return 'write';
+  if (lowerDesc.startsWith('listing')) return 'list';
+  if (lowerDesc.startsWith('patching')) return 'patch';
+  if (lowerDesc.startsWith('fetching')) return 'fetch';
+  if (lowerDesc.startsWith('searching')) return 'search';
+  if (lowerDesc.startsWith('running')) return 'exec';
+  if (lowerDesc.startsWith('using skill')) return 'skill';
+  if (lowerDesc.startsWith('agent')) return 'agent';
+  if (lowerDesc.startsWith('storing memory')) return 'memory';
+  if (lowerDesc.startsWith('recalling')) return 'recall';
+  if (lowerDesc.startsWith('sending')) return 'send';
+
+  return toolName || 'tool';
+};
+
 // Tool icons mapping
-const getToolIcon = (toolName?: string) => {
-  if (!toolName) return <Wrench className="w-3 h-3" />;
-  const name = toolName.toLowerCase();
-  if (name.includes('web') || name.includes('fetch')) return <Globe className="w-3 h-3" />;
-  if (name.includes('exec') || name.includes('shell') || name.includes('bash')) return <Terminal className="w-3 h-3" />;
-  if (name.includes('skill')) return <Zap className="w-3 h-3" />;
-  if (name.includes('read') || name.includes('file') || name.includes('list')) return <Cpu className="w-3 h-3" />;
+const getToolIcon = (toolName?: string, desc?: string) => {
+  const text = (toolName || desc || '').toLowerCase();
+  if (text.includes('fetch') || text.includes('web')) return <Globe className="w-3 h-3" />;
+  if (text.includes('exec') || text.includes('shell') || text.includes('bash') || text.includes('running')) return <Terminal className="w-3 h-3" />;
+  if (text.includes('skill')) return <Zap className="w-3 h-3" />;
+  if (text.includes('read') || text.includes('write') || text.includes('file') || text.includes('list') || text.includes('patch')) return <Cpu className="w-3 h-3" />;
+  if (text.includes('search')) return <Globe className="w-3 h-3" />;
+  if (text.includes('agent')) return <Brain className="w-3 h-3" />;
+  if (text.includes('memory') || text.includes('recall')) return <Brain className="w-3 h-3" />;
   return <Wrench className="w-3 h-3" />;
 };
 
@@ -72,13 +125,23 @@ export default function DebugPanel({ className }: DebugPanelProps) {
   }, []);
 
   const handleExecutionStarted = useCallback((data: unknown) => {
-    const event = data as ExecutionEvent;
+    const event = data as ExecutionEvent & {
+      description?: string;
+      active_form?: string;
+    };
     const mode = (data as Record<string, unknown>).mode as string || 'execute';
+
+    // Use description from event, fallback to generic text
+    const description = event.description ||
+      (mode === 'plan' ? 'Creating execution plan...' : 'Processing request...');
+    const activeForm = event.active_form || description;
+    const name = mode === 'plan' ? 'Planning' : 'Processing';
 
     const newExecution: DebugTask = {
       id: event.execution_id,
-      name: mode === 'plan' ? 'Planning' : 'Processing',
-      description: mode === 'plan' ? 'Creating execution plan...' : 'Processing request...',
+      name,
+      description,
+      activeForm,
       taskType: 'execution',
       status: 'in_progress',
       startTime: Date.now(),
@@ -107,10 +170,9 @@ export default function DebugPanel({ className }: DebugPanelProps) {
       description?: string;
     };
 
-    // Extract tool name from description if it's a tool task
+    // Extract tool name and context from description
     const desc = event.description || '';
-    const toolMatch = desc.match(/Using tool: (\w+)/);
-    const toolName = toolMatch ? toolMatch[1] : undefined;
+    const toolName = extractToolName(desc);
 
     const newTask: DebugTask = {
       id: event.id || event.task_id || crypto.randomUUID(),
@@ -339,8 +401,11 @@ export default function DebugPanel({ className }: DebugPanelProps) {
       }
     };
 
+    // Get icon based on both toolName and description for better matching
+    const toolIcon = getToolIcon(task.toolName, task.description);
+
     const typeConfig: Record<string, { color: string; bg: string; icon: JSX.Element }> = {
-      tool: { color: 'text-purple-400', bg: 'bg-purple-500/20', icon: getToolIcon(task.toolName) },
+      tool: { color: 'text-purple-400', bg: 'bg-purple-500/20', icon: toolIcon },
       thinking: { color: 'text-yellow-400', bg: 'bg-yellow-500/20', icon: <Brain className="w-3 h-3" /> },
       agent: { color: 'text-blue-400', bg: 'bg-blue-500/20', icon: <Cpu className="w-3 h-3" /> },
       execution: { color: 'text-cyan-400', bg: 'bg-cyan-500/20', icon: <Zap className="w-3 h-3" /> },
@@ -349,6 +414,8 @@ export default function DebugPanel({ className }: DebugPanelProps) {
 
     const config = typeConfig[task.taskType || ''] || { color: 'text-slate-400', bg: 'bg-slate-500/20', icon: <Cpu className="w-3 h-3" /> };
 
+    // Get short badge label and display text
+    const badgeLabel = getToolBadgeLabel(task.description || '', task.toolName);
     const taskText = isInProgress && task.activeForm
       ? task.activeForm
       : task.description || task.name;
@@ -392,7 +459,7 @@ export default function DebugPanel({ className }: DebugPanelProps) {
                 config.bg
               )}>
                 {config.icon}
-                <span>{task.toolName || task.taskType}</span>
+                <span>{task.taskType === 'tool' ? badgeLabel : task.taskType}</span>
               </span>
             )}
 

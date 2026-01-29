@@ -196,8 +196,8 @@ impl ModelArchetype for LlamaArchetype {
             prompt.push_str("Weather query:\n");
             prompt.push_str("```\n{\"body\": \"Checking...\", \"tool_call\": {\"tool_name\": \"exec\", \"tool_params\": {\"command\": \"curl -s 'wttr.in/Ohio?format=3'\"}}}\n```\n\n");
 
-            prompt.push_str("Web search:\n");
-            prompt.push_str("```\n{\"body\": \"Searching...\", \"tool_call\": {\"tool_name\": \"web_search\", \"tool_params\": {\"query\": \"latest news\"}}}\n```\n\n");
+            prompt.push_str("Fetch web page:\n");
+            prompt.push_str("```\n{\"body\": \"Fetching...\", \"tool_call\": {\"tool_name\": \"web_fetch\", \"tool_params\": {\"url\": \"https://example.com\"}}}\n```\n\n");
 
             prompt.push_str("**IMPORTANT**: For weather, news, or live data - USE TOOLS IMMEDIATELY. Do not say you cannot access real-time data.\n\n");
         }

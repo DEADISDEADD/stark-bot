@@ -284,10 +284,10 @@ mod tests {
     fn test_ai_response_with_tools() {
         let tool_call = ToolCall {
             id: "call_123".to_string(),
-            name: "web_search".to_string(),
-            arguments: serde_json::json!({"query": "rust programming"}),
+            name: "web_fetch".to_string(),
+            arguments: serde_json::json!({"url": "https://example.com"}),
         };
-        let response = AiResponse::with_tools("Searching...".to_string(), vec![tool_call]);
+        let response = AiResponse::with_tools("Fetching...".to_string(), vec![tool_call]);
 
         assert!(response.has_tool_calls());
         assert!(response.is_tool_use());

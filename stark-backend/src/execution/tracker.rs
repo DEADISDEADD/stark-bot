@@ -30,14 +30,34 @@ impl ExecutionTracker {
     /// Start a new execution for a channel
     ///
     /// Returns the execution ID (which is also the root task ID)
-    pub fn start_execution(&self, channel_id: i64, mode: &str) -> String {
-        // Create root execution task
+    pub fn start_execution(&self, channel_id: i64, mode: &str, user_message: Option<&str>) -> String {
+        // Create descriptive execution task based on user message
+        let (description, active_form) = match user_message {
+            Some(msg) => {
+                let truncated = if msg.len() > 60 {
+                    format!("{}...", &msg[..57])
+                } else {
+                    msg.to_string()
+                };
+                let short = if msg.len() > 30 {
+                    format!("{}...", &msg[..27])
+                } else {
+                    msg.to_string()
+                };
+                (truncated, short)
+            }
+            None => {
+                let desc = if mode == "plan" { "Planning..." } else { "Processing..." };
+                (desc.to_string(), desc.to_string())
+            }
+        };
+
         let mut task = ExecutionTask::new(
             channel_id,
             TaskType::Execution,
-            format!("Processing request"),
+            description,
             None,
-        ).with_active_form("Processing request".to_string());
+        ).with_active_form(active_form);
         task.start();
 
         let execution_id = task.id.clone();
@@ -46,11 +66,13 @@ impl ExecutionTracker {
         self.channel_executions.insert(channel_id, execution_id.clone());
         self.tasks.insert(execution_id.clone(), task.clone());
 
-        // Emit event
+        // Emit event with description
         self.broadcaster.broadcast(GatewayEvent::execution_started(
             channel_id,
             &execution_id,
             mode,
+            &task.description,
+            task.active_form.as_deref().unwrap_or(&task.description),
         ));
         self.broadcaster.broadcast(GatewayEvent::task_started(&task));
 
@@ -115,15 +137,178 @@ impl ExecutionTracker {
 
     /// Start a tool execution task
     ///
-    /// Convenience wrapper for starting tool executions
-    pub fn start_tool(&self, channel_id: i64, execution_id: &str, tool_name: &str) -> String {
+    /// Convenience wrapper for starting tool executions with context from arguments
+    pub fn start_tool(
+        &self,
+        channel_id: i64,
+        execution_id: &str,
+        tool_name: &str,
+        arguments: &serde_json::Value,
+    ) -> String {
+        // Extract context from tool arguments for better descriptions
+        let (description, active_form) = Self::describe_tool_call(tool_name, arguments);
+
         self.start_task(
             channel_id,
             Some(execution_id),
             TaskType::ToolExecution,
-            format!("Using tool: {}", tool_name),
-            Some(&format!("Running {}", tool_name)),
+            description,
+            Some(&active_form),
         )
+    }
+
+    /// Generate human-readable description and active form for a tool call
+    fn describe_tool_call(tool_name: &str, args: &serde_json::Value) -> (String, String) {
+        match tool_name {
+            // File operations
+            "read_file" | "read" => {
+                let path = args.get("path")
+                    .or_else(|| args.get("file_path"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("file");
+                let filename = std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(path);
+                (format!("Reading {}", filename), format!("Reading {}", filename))
+            }
+            "write_file" | "write" => {
+                let path = args.get("path")
+                    .or_else(|| args.get("file_path"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("file");
+                let filename = std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(path);
+                (format!("Writing {}", filename), format!("Writing {}", filename))
+            }
+            "list_files" | "list" => {
+                let path = args.get("path")
+                    .or_else(|| args.get("directory"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(".");
+                (format!("Listing {}", path), "Listing files".to_string())
+            }
+            "apply_patch" => {
+                let path = args.get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("file");
+                let filename = std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(path);
+                (format!("Patching {}", filename), format!("Patching {}", filename))
+            }
+
+            // Web operations
+            "web_fetch" => {
+                let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                let host = url.split("://")
+                    .nth(1)
+                    .unwrap_or(url)
+                    .split('/')
+                    .next()
+                    .unwrap_or(url);
+                (format!("Fetching {}", host), format!("Fetching {}", host))
+            }
+            // Shell/exec operations
+            "exec" | "shell" | "bash" => {
+                let cmd = args.get("command")
+                    .or_else(|| args.get("cmd"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                // Extract first word of command
+                let first_word = cmd.split_whitespace().next().unwrap_or("command");
+                let short_cmd = if cmd.len() > 50 {
+                    format!("{}...", &cmd[..47])
+                } else {
+                    cmd.to_string()
+                };
+                (format!("Running: {}", short_cmd), format!("Running {}", first_word))
+            }
+
+            // Skill operations
+            "use_skill" => {
+                let skill = args.get("skill")
+                    .or_else(|| args.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("skill");
+                (format!("Using skill: {}", skill), format!("Using {}", skill))
+            }
+
+            // Agent/subagent operations
+            "spawn_agent" | "subagent" => {
+                let task = args.get("task")
+                    .or_else(|| args.get("description"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("task");
+                let short_task = if task.len() > 40 {
+                    format!("{}...", &task[..37])
+                } else {
+                    task.to_string()
+                };
+                (format!("Agent: {}", short_task), "Running agent".to_string())
+            }
+
+            // Memory operations
+            "remember" | "memory_store" => {
+                ("Storing memory".to_string(), "Storing memory".to_string())
+            }
+            "recall" | "memory_search" => {
+                let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("...");
+                let short = if query.len() > 30 {
+                    format!("{}...", &query[..27])
+                } else {
+                    query.to_string()
+                };
+                (format!("Recalling: {}", short), "Searching memory".to_string())
+            }
+
+            // Message operations
+            "send_message" => {
+                let channel = args.get("channel")
+                    .or_else(|| args.get("channel_id"))
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "channel".to_string());
+                (format!("Sending to {}", channel), "Sending message".to_string())
+            }
+
+            // Wallet operations
+            "local_burner_wallet" => {
+                let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("query");
+                match action {
+                    "address" => ("Getting wallet address".to_string(), "Getting address".to_string()),
+                    "balance" => {
+                        let network = args.get("network").and_then(|v| v.as_str()).unwrap_or("base");
+                        (format!("Checking ETH balance on {}", network), "Checking balance".to_string())
+                    }
+                    "token_balance" => {
+                        let token = args.get("token").and_then(|v| v.as_str()).unwrap_or("");
+                        let short_token = if token.len() > 10 {
+                            format!("{}...", &token[..10])
+                        } else {
+                            token.to_string()
+                        };
+                        (format!("Checking token balance: {}", short_token), "Checking token".to_string())
+                    }
+                    "sign" => ("Signing message".to_string(), "Signing".to_string()),
+                    _ => (format!("Wallet: {}", action), "Wallet operation".to_string()),
+                }
+            }
+
+            // RPC operations
+            "x402_rpc" => {
+                let method = args.get("method").and_then(|v| v.as_str()).unwrap_or("call");
+                let network = args.get("network").and_then(|v| v.as_str()).unwrap_or("base");
+                (format!("RPC {} on {}", method, network), format!("RPC {}", method))
+            }
+
+            // Default fallback
+            _ => {
+                (format!("Using {}", tool_name), format!("Running {}", tool_name))
+            }
+        }
     }
 
     /// Update task metrics
@@ -247,13 +432,18 @@ mod tests {
         let tracker = create_test_tracker();
 
         // Start execution
-        let execution_id = tracker.start_execution(1, "execute");
+        let execution_id = tracker.start_execution(1, "execute", Some("Test execution"));
         assert!(!execution_id.is_empty());
         assert!(tracker.get_execution_id(1).is_some());
 
-        // Start a tool task
-        let tool_id = tracker.start_tool(1, &execution_id, "web_search");
+        // Start a tool task with arguments
+        let args = serde_json::json!({"url": "https://example.com/api"});
+        let tool_id = tracker.start_tool(1, &execution_id, "web_fetch", &args);
         assert!(!tool_id.is_empty());
+
+        // Verify the task has a descriptive name
+        let task = tracker.get_task(&tool_id).unwrap();
+        assert!(task.description.contains("example.com"));
 
         // Complete the tool
         tracker.complete_task(&tool_id);
@@ -269,14 +459,16 @@ mod tests {
     fn test_metrics_aggregation() {
         let tracker = create_test_tracker();
 
-        let execution_id = tracker.start_execution(1, "execute");
+        let execution_id = tracker.start_execution(1, "execute", Some("Test execution"));
 
-        // Start multiple tools
-        let tool1 = tracker.start_tool(1, &execution_id, "tool1");
+        // Start multiple tools with arguments
+        let args1 = serde_json::json!({"path": "/tmp/test.txt"});
+        let tool1 = tracker.start_tool(1, &execution_id, "read_file", &args1);
         tracker.add_to_task_metrics(&tool1, 1, 100, 10);
         tracker.complete_task(&tool1);
 
-        let tool2 = tracker.start_tool(1, &execution_id, "tool2");
+        let args2 = serde_json::json!({"url": "https://example.com"});
+        let tool2 = tracker.start_tool(1, &execution_id, "web_fetch", &args2);
         tracker.add_to_task_metrics(&tool2, 1, 200, 20);
         tracker.complete_task(&tool2);
 
@@ -284,9 +476,32 @@ mod tests {
         let task1 = tracker.get_task(&tool1).unwrap();
         assert_eq!(task1.metrics.tool_uses, 1);
         assert_eq!(task1.metrics.tokens_used, 100);
+        assert!(task1.description.contains("test.txt"));
 
         let task2 = tracker.get_task(&tool2).unwrap();
         assert_eq!(task2.metrics.tool_uses, 1);
         assert_eq!(task2.metrics.tokens_used, 200);
+        assert!(task2.description.contains("example.com"));
+    }
+
+    #[test]
+    fn test_tool_descriptions() {
+        // Test that various tools get nice descriptions
+        let test_cases = vec![
+            ("read_file", serde_json::json!({"path": "/home/user/docs/readme.md"}), "readme.md"),
+            ("web_fetch", serde_json::json!({"url": "https://api.github.com/repos"}), "api.github.com"),
+            ("exec", serde_json::json!({"command": "git status"}), "git status"),
+            ("use_skill", serde_json::json!({"skill": "weather"}), "weather"),
+            ("list_files", serde_json::json!({"path": "/home/user/projects"}), "/home/user/projects"),
+        ];
+
+        for (tool_name, args, expected_substr) in test_cases {
+            let (desc, _) = ExecutionTracker::describe_tool_call(tool_name, &args);
+            assert!(
+                desc.contains(expected_substr),
+                "Tool '{}' description '{}' should contain '{}'",
+                tool_name, desc, expected_substr
+            );
+        }
     }
 }

@@ -15,8 +15,8 @@ This guide walks you through setting up and running StarkBot.
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-org/stark-bot.git
-cd stark-bot
+git clone https://github.com/ethereumdegen/starkbot-monorepo.git
+cd starkbot-monorepo
 ```
 
 ### 2. Configure Environment
@@ -24,14 +24,14 @@ cd stark-bot
 Create a `.env` file in the project root:
 
 ```bash
-SECRET_KEY=your-secure-secret-key
+LOGIN_ADMIN_PUBLIC_ADDRESS=0xYourEthereumAddress
 PORT=8080
 GATEWAY_PORT=8081
 DATABASE_URL=./.db/stark.db
 RUST_LOG=info
 ```
 
-> **Important:** Use a strong, unique `SECRET_KEY` - this is used for authentication.
+> **Important:** Set `LOGIN_ADMIN_PUBLIC_ADDRESS` to your Ethereum wallet address for SIWE (Sign In With Ethereum) authentication.
 
 ### 3. Run with Docker Compose
 
@@ -47,7 +47,7 @@ docker-compose -f docker-compose.dev.yml up --build
 
 ### 4. Access the Dashboard
 
-Open `http://localhost:8080` in your browser. Log in using your `SECRET_KEY`.
+Open `http://localhost:8080` in your browser. Connect your Ethereum wallet to sign in.
 
 ---
 
@@ -111,7 +111,7 @@ Visit **Agent Chat** and send a message to verify everything works.
 ## Directory Structure
 
 ```
-stark-bot/
+starkbot-monorepo/
 ├── stark-backend/          # Rust backend
 │   └── src/
 │       ├── main.rs         # Entry point

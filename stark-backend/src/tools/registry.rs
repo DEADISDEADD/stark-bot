@@ -192,7 +192,7 @@ mod tests {
         };
 
         // Web, filesystem, and exec are allowed in Standard profile
-        assert!(config.is_tool_allowed("web_search", ToolGroup::Web));
+        assert!(config.is_tool_allowed("web_fetch", ToolGroup::Web));
         assert!(config.is_tool_allowed("read_file", ToolGroup::Filesystem));
         assert!(config.is_tool_allowed("exec", ToolGroup::Exec));
         // Messaging is not allowed in Standard profile

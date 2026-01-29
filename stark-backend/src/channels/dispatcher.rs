@@ -113,8 +113,13 @@ impl MessageDispatcher {
         // Parse inline thinking directive and extract clean message
         let (thinking_level, clean_text) = self.parse_inline_thinking(&message.text);
 
-        // Start execution tracking
-        let execution_id = self.execution_tracker.start_execution(message.channel_id, "execute");
+        // Start execution tracking with user message for descriptive display
+        let user_msg = clean_text.as_deref().unwrap_or(&message.text);
+        let execution_id = self.execution_tracker.start_execution(
+            message.channel_id,
+            "execute",
+            Some(user_msg),
+        );
 
         // Get or create identity for the user
         let identity = match self.db.get_or_create_identity(
@@ -795,9 +800,9 @@ impl MessageDispatcher {
         for call in tool_calls {
             let start = std::time::Instant::now();
 
-            // Start tracking this tool execution
+            // Start tracking this tool execution with context from arguments
             let task_id = if let Some(ref exec_id) = execution_id {
-                Some(self.execution_tracker.start_tool(channel_id, exec_id, &call.name))
+                Some(self.execution_tracker.start_tool(channel_id, exec_id, &call.name, &call.arguments))
             } else {
                 None
             };

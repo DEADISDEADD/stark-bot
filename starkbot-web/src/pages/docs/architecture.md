@@ -221,7 +221,7 @@ useGateway({
 
 ## Security Model
 
-- **Authentication** - Session tokens validated against SECRET_KEY
+- **Authentication** - SIWE (Sign In With Ethereum) wallet-based authentication
 - **API Keys** - Encrypted at rest in SQLite
 - **Tool Restrictions** - Dangerous commands blocklisted
 - **CORS** - Configured for allowed origins

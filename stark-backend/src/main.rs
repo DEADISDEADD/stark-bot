@@ -40,6 +40,11 @@ pub struct AppState {
     pub scheduler: Arc<Scheduler>,
 }
 
+/// SPA fallback handler - serves index.html for client-side routing
+async fn spa_fallback() -> actix_web::Result<NamedFile> {
+    Ok(NamedFile::open("./stark-frontend/dist/index.html")?)
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -167,14 +172,7 @@ async fn main() -> std::io::Result<()> {
             .service(
                 Files::new("/", "./stark-frontend/dist")
                     .index_file("index.html")
-                    .default_handler(|req: actix_web::dev::ServiceRequest| {
-                        let (http_req, _payload) = req.into_parts();
-                        async {
-                            let response = NamedFile::open("./stark-frontend/dist/index.html")?
-                                .into_response(&http_req);
-                            Ok(actix_web::dev::ServiceResponse::new(http_req, response))
-                        }
-                    })
+                    .default_handler(actix_web::web::to(spa_fallback))
             )
     })
     .bind(("0.0.0.0", port))?

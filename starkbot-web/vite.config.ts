@@ -6,7 +6,7 @@ import Markdown from 'vite-plugin-react-markdown'
 export default defineConfig({
   plugins: [
     Markdown({
-      wrapperComponentPath: './src/views/docs/DocsWrapper',
+      wrapperComponentPath: './src/pages/docs/DocsWrapper',
     }),
     react({
       include: [/\.tsx$/, /\.md$/],

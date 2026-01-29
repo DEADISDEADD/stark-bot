@@ -12,6 +12,7 @@ import {
   ScrollText,
   Bug,
   LogOut,
+  Key,
 } from 'lucide-react';
 import NavItem from './NavItem';
 import { useAuth } from '@/hooks/useAuth';
@@ -37,6 +38,7 @@ export default function Sidebar() {
           <NavItem to="/tools" icon={Wrench} label="Tools" />
           <NavItem to="/skills" icon={Zap} label="Skills" />
           <NavItem to="/scheduling" icon={Clock} label="Scheduling" />
+          <NavItem to="/api-keys" icon={Key} label="API Keys" />
         </div>
 
         {/* Data Section */}

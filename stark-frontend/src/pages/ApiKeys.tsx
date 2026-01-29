@@ -6,23 +6,23 @@ import Input from '@/components/ui/Input';
 import { getApiKeys, upsertApiKey, deleteApiKey, ApiKey } from '@/lib/api';
 
 const SERVICES = [
-  { value: 'brave_search', label: 'Brave Search' },
-  { value: 'serpapi', label: 'SerpAPI' },
   { value: 'github', label: 'GitHub' },
+  { value: 'twitter', label: 'Twitter/X' },
+  { value: 'bankr', label: 'Bankr' },
 ];
 
 const SERVICE_INFO = {
-  brave_search: {
-    description: 'Get a free API key',
-    url: 'https://brave.com/search/api/',
-  },
-  serpapi: {
-    description: 'Get an API key',
-    url: 'https://serpapi.com/',
-  },
   github: {
     description: 'Create a Personal Access Token with repo scope',
     url: 'https://github.com/settings/tokens',
+  },
+  twitter: {
+    description: 'Get API keys from the Developer Portal',
+    url: 'https://developer.x.com/en/portal/dashboard',
+  },
+  bankr: {
+    description: 'Generate an API key with Agent API access enabled',
+    url: 'https://bankr.bot/api',
   },
 };
 
@@ -30,7 +30,7 @@ export default function ApiKeys() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [selectedService, setSelectedService] = useState('brave_search');
+  const [selectedService, setSelectedService] = useState('github');
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 

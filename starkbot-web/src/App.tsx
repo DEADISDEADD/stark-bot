@@ -1,17 +1,18 @@
 import { Routes, Route } from 'react-router-dom'
-import Home from './pages/Home'
+import Home from './views/Home'
 
 // Import markdown docs as components
-import DocsOverview from './views/docs/overview.md'
-import DocsGettingStarted from './views/docs/getting-started.md'
-import DocsArchitecture from './views/docs/architecture.md'
-import DocsApi from './views/docs/api.md'
-import DocsTools from './views/docs/tools.md'
-import DocsSkills from './views/docs/skills.md'
-import DocsChannels from './views/docs/channels.md'
-import DocsScheduling from './views/docs/scheduling.md'
-import DocsMemories from './views/docs/memories.md'
-import DocsConfiguration from './views/docs/configuration.md'
+import DocsOverview from './pages/docs/overview.md'
+import DocsGettingStarted from './pages/docs/getting-started.md'
+import DocsArchitecture from './pages/docs/architecture.md'
+import DocsApi from './pages/docs/api.md'
+import DocsTools from './pages/docs/tools.md'
+import DocsSkills from './pages/docs/skills.md'
+import DocsChannels from './pages/docs/channels.md'
+import DocsScheduling from './pages/docs/scheduling.md'
+import DocsMemories from './pages/docs/memories.md'
+import DocsConfiguration from './pages/docs/configuration.md'
+import DocsTelegram from './pages/docs/telegram.md'
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
       <Route path="/docs/scheduling" element={<DocsScheduling />} />
       <Route path="/docs/memories" element={<DocsMemories />} />
       <Route path="/docs/configuration" element={<DocsConfiguration />} />
+      <Route path="/docs/telegram" element={<DocsTelegram />} />
     </Routes>
   )
 }

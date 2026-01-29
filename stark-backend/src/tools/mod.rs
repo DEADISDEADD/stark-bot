@@ -16,6 +16,8 @@ pub fn create_default_registry() -> ToolRegistry {
 
     // Register web tools
     registry.register(Arc::new(builtin::WebFetchTool::new()));
+    registry.register(Arc::new(builtin::X402RpcTool::new()));
+    registry.register(Arc::new(builtin::LocalBurnerWalletTool::new()));
 
     // Register filesystem tools
     registry.register(Arc::new(builtin::ReadFileTool::new()));
@@ -42,6 +44,8 @@ pub fn create_registry_with_config(config: ToolConfig) -> ToolRegistry {
 
     // Register web tools
     registry.register(Arc::new(builtin::WebFetchTool::new()));
+    registry.register(Arc::new(builtin::X402RpcTool::new()));
+    registry.register(Arc::new(builtin::LocalBurnerWalletTool::new()));
 
     // Register filesystem tools
     registry.register(Arc::new(builtin::ReadFileTool::new()));

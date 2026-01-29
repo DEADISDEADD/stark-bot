@@ -194,13 +194,21 @@ impl GatewayEvent {
     // =====================================================
 
     /// Execution started (plan mode or direct execution)
-    pub fn execution_started(channel_id: i64, execution_id: &str, mode: &str) -> Self {
+    pub fn execution_started(
+        channel_id: i64,
+        execution_id: &str,
+        mode: &str,
+        description: &str,
+        active_form: &str,
+    ) -> Self {
         Self::new(
             "execution.started",
             serde_json::json!({
                 "channel_id": channel_id,
                 "execution_id": execution_id,
-                "mode": mode  // "plan" or "execute"
+                "mode": mode,  // "plan" or "execute"
+                "description": description,
+                "active_form": active_form
             }),
         )
     }

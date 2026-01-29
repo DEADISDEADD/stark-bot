@@ -1,10 +1,10 @@
-import { Zap, Code, Box, Lock, Wallet, CreditCard, Bot, Globe, AlertTriangle } from 'lucide-react'
+import { Code, CreditCard, Globe, AlertTriangle } from 'lucide-react'
 
 const features = [
   {
-    icon: Wallet,
-    title: 'Sign In With Ethereum',
-    description: 'Wallet-based authentication using SIWE. No passwords, no emails—just connect your wallet to get started.',
+    icon: Globe,
+    title: 'Web3 First',
+    description: 'Built for the decentralized web. Native blockchain integrations, on-chain identity, and permissionless access.',
   },
   {
     icon: CreditCard,
@@ -12,24 +12,9 @@ const features = [
     description: 'Pay-per-use AI with the x402 protocol. Seamless crypto payments powered by DeFi Relay as the facilitator.',
   },
   {
-    icon: Bot,
-    title: 'x402 Agent',
-    description: 'Autonomous AI agent that can execute tasks and handle payments on your behalf using x402 protocol.',
-  },
-  {
     icon: Code,
     title: 'Open Source',
     description: "Fully open source and self-hostable. Own your data and customize to your heart's content.",
-  },
-  {
-    icon: Lock,
-    title: 'Crypto-Native Privacy',
-    description: 'Your keys, your data. Self-host on your own infrastructure with wallet-based identity and full sovereignty.',
-  },
-  {
-    icon: Globe,
-    title: 'Web3 First',
-    description: 'Built for the decentralized web. Native blockchain integrations, on-chain identity, and permissionless access.',
   },
 ]
 

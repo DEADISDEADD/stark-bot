@@ -24,6 +24,7 @@ export const docsConfig = {
         { label: 'Tools', to: '/docs/tools' },
         { label: 'Skills', to: '/docs/skills' },
         { label: 'Channels', to: '/docs/channels' },
+        { label: 'Telegram', to: '/docs/telegram' },
         { label: 'Memories', to: '/docs/memories' },
       ],
     },

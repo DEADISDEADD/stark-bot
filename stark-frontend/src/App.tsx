@@ -13,6 +13,7 @@ import Memories from '@/pages/Memories';
 import Identities from '@/pages/Identities';
 import Logs from '@/pages/Logs';
 import Debug from '@/pages/Debug';
+import ApiKeys from '@/pages/ApiKeys';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
         <Route path="/tools" element={<Tools />} />
         <Route path="/skills" element={<Skills />} />
         <Route path="/scheduling" element={<Scheduling />} />
+        <Route path="/api-keys" element={<ApiKeys />} />
         <Route path="/sessions" element={<Sessions />} />
         <Route path="/memories" element={<Memories />} />
         <Route path="/identities" element={<Identities />} />

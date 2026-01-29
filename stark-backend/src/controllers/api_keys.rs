@@ -116,7 +116,7 @@ async fn upsert_api_key(
     }
 
     // Validate service name
-    let valid_services = ["anthropic", "brave_search", "serpapi", "github"];
+    let valid_services =  [ "github", "twitter", "bankr"];
     if !valid_services.contains(&body.service_name.as_str()) {
         return HttpResponse::BadRequest().json(ApiKeyOperationResponse {
             success: false,
