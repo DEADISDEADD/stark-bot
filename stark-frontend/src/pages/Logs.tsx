@@ -80,14 +80,8 @@ export default function Logs() {
   const formatData = (data: unknown): string => {
     if (!data) return '';
     if (typeof data === 'string') return data;
-    const obj = data as Record<string, unknown>;
-    if (obj.text) return String(obj.text).slice(0, 100);
-    if (obj.from) return `from: ${obj.from}`;
-    if (obj.tool_name) return `tool: ${obj.tool_name}`;
-    if (obj.skill_name) return `skill: ${obj.skill_name}`;
-    if (obj.name) return String(obj.name);
-    if (obj.error) return `Error: ${String(obj.error).slice(0, 80)}`;
-    return JSON.stringify(data).slice(0, 100);
+    // Return full JSON without any truncation
+    return JSON.stringify(data, null, 2);
   };
 
   const filteredLogs = filter === 'all'
@@ -170,27 +164,29 @@ export default function Logs() {
               {filteredLogs.map((log) => (
                 <div
                   key={log.id}
-                  className="p-3 hover:bg-slate-700/30 transition-colors flex items-start gap-3"
+                  className="p-3 hover:bg-slate-700/30 transition-colors"
                 >
-                  <span className="text-slate-500 text-xs whitespace-nowrap">
-                    {log.timestamp.toLocaleTimeString('en-US', {
-                      hour12: false,
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit',
-                    })}
-                  </span>
-                  <span
-                    className={clsx(
-                      'px-2 py-0.5 text-xs font-medium rounded whitespace-nowrap',
-                      getEventColor(log.event)
-                    )}
-                  >
-                    {log.event}
-                  </span>
-                  <span className="text-slate-400 truncate flex-1">
+                  <div className="flex items-start gap-3 mb-1">
+                    <span className="text-slate-500 text-xs whitespace-nowrap">
+                      {log.timestamp.toLocaleTimeString('en-US', {
+                        hour12: false,
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })}
+                    </span>
+                    <span
+                      className={clsx(
+                        'px-2 py-0.5 text-xs font-medium rounded whitespace-nowrap',
+                        getEventColor(log.event)
+                      )}
+                    >
+                      {log.event}
+                    </span>
+                  </div>
+                  <pre className="text-slate-400 text-xs whitespace-pre-wrap break-all ml-16 mt-1" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                     {formatData(log.data)}
-                  </span>
+                  </pre>
                 </div>
               ))}
             </div>

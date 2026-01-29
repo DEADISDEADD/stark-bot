@@ -1,6 +1,7 @@
 pub mod archetypes;
 pub mod claude;
 pub mod llama;
+pub mod multi_agent;
 pub mod openai;
 pub mod types;
 

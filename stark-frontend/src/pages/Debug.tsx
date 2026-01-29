@@ -172,7 +172,7 @@ export default function Debug() {
                         {event.time.toLocaleTimeString()}
                       </span>
                     </div>
-                    <pre className="text-xs text-slate-400 overflow-x-auto">
+                    <pre className="text-xs text-slate-400 whitespace-pre-wrap break-all" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                       {JSON.stringify(event.data, null, 2)}
                     </pre>
                   </div>
