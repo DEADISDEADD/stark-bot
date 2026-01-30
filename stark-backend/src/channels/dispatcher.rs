@@ -1,7 +1,7 @@
 use crate::ai::{
     multi_agent::{Orchestrator, ProcessResult as OrchestratorResult},
     AiClient, ArchetypeId, ArchetypeRegistry, Message, MessageRole, ModelArchetype,
-    ThinkingLevel, ToolCall, ToolHistoryEntry, ToolResponse,
+    ThinkingLevel, ToolCall, ToolHistoryEntry, ToolResponse, AiResponse,
 };
 use crate::channels::types::{DispatchResult, NormalizedMessage};
 use crate::config::MemoryConfig;
@@ -17,10 +17,15 @@ use chrono::Utc;
 use regex::Regex;
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::interval;
 
 /// Maximum number of tool execution iterations
 /// Set to 25 to allow for async jobs that require polling (e.g., Bankr API)
 const MAX_TOOL_ITERATIONS: usize = 25;
+
+/// How often to broadcast "still waiting" events during long AI calls
+const AI_PROGRESS_INTERVAL_SECS: u64 = 30;
 
 /// Configuration for a memory marker pattern
 struct MemoryMarkerConfig {
@@ -530,15 +535,32 @@ impl MessageDispatcher {
         archetype_id: ArchetypeId,
     ) -> Result<String, String> {
         // Load existing agent context or create new one
+        // IMPORTANT: Start fresh if previous work is complete (intelligent context clearing)
         let mut orchestrator = match self.db.get_agent_context(session_id) {
             Ok(Some(context)) => {
-                log::info!(
-                    "[MULTI_AGENT] Resuming session {} in {} mode with {} tasks",
-                    session_id,
-                    context.mode,
-                    context.tasks.stats().total
-                );
-                Orchestrator::from_context(context)
+                let stats = context.tasks.stats();
+                let all_tasks_done = stats.pending == 0 && stats.in_progress == 0;
+                let is_terminal = context.mode == crate::ai::multi_agent::AgentMode::Perform && all_tasks_done;
+
+                // Start fresh if: previous work completed OR it's a clearly new request
+                if is_terminal || (all_tasks_done && stats.total > 0) {
+                    log::info!(
+                        "[MULTI_AGENT] Previous work complete (tasks: {}), starting fresh for new request",
+                        stats.total
+                    );
+                    // Clear the old context from DB
+                    let _ = self.db.delete_agent_context(session_id);
+                    Orchestrator::new(original_message.text.clone())
+                } else {
+                    log::info!(
+                        "[MULTI_AGENT] Resuming session {} in {} mode ({} pending, {} in_progress)",
+                        session_id,
+                        context.mode,
+                        stats.pending,
+                        stats.in_progress
+                    );
+                    Orchestrator::from_context(context)
+                }
             }
             Ok(None) => {
                 log::info!(
@@ -766,6 +788,12 @@ impl MessageDispatcher {
                 orchestrator.current_mode()
             );
 
+            // Check if execution was cancelled (e.g., user sent /new)
+            if self.execution_tracker.is_cancelled(original_message.channel_id) {
+                log::info!("[ORCHESTRATED_LOOP] Execution cancelled by user, stopping loop");
+                break;
+            }
+
             if iterations > MAX_TOOL_ITERATIONS {
                 log::warn!("Orchestrated tool loop exceeded max iterations ({})", MAX_TOOL_ITERATIONS);
                 break;
@@ -804,11 +832,13 @@ impl MessageDispatcher {
                 }
             }
 
-            // Generate with native tool support
-            let ai_response = client.generate_with_tools(
+            // Generate with native tool support and progress notifications
+            let ai_response = self.generate_with_progress(
+                &client,
                 conversation.clone(),
                 tool_history.clone(),
                 tools.clone(),
+                original_message.channel_id,
             ).await?;
 
             log::info!(
@@ -987,11 +1017,16 @@ impl MessageDispatcher {
                 self.broadcast_tasks_update(original_message.channel_id, orchestrator);
             }
 
-            // Add to tool history
+            // Add to tool history (keep only last N entries to prevent context bloat)
+            const MAX_TOOL_HISTORY: usize = 10;
             tool_history.push(ToolHistoryEntry::new(
                 ai_response.tool_calls,
                 tool_responses,
             ));
+            if tool_history.len() > MAX_TOOL_HISTORY {
+                // Remove oldest entries, keeping the most recent
+                tool_history.drain(0..tool_history.len() - MAX_TOOL_HISTORY);
+            }
 
             // If orchestrator is complete, break the loop
             if orchestrator_complete {
@@ -1060,6 +1095,12 @@ impl MessageDispatcher {
                 iterations,
                 orchestrator.current_mode()
             );
+
+            // Check if execution was cancelled (e.g., user sent /new)
+            if self.execution_tracker.is_cancelled(original_message.channel_id) {
+                log::info!("[TEXT_ORCHESTRATED] Execution cancelled by user, stopping loop");
+                break;
+            }
 
             if iterations > MAX_TOOL_ITERATIONS {
                 log::warn!("Text orchestrated loop exceeded max iterations ({})", MAX_TOOL_ITERATIONS);
@@ -1207,6 +1248,17 @@ impl MessageDispatcher {
                                 true,
                             ),
                         });
+
+                        // Truncate conversation to prevent context bloat
+                        // Keep system prompt(s) at start + last N message pairs
+                        const MAX_CONVERSATION_MESSAGES: usize = 20;
+                        let system_count = conversation.iter()
+                            .take_while(|m| m.role == MessageRole::System)
+                            .count();
+                        if conversation.len() > system_count + MAX_CONVERSATION_MESSAGES {
+                            let remove_count = conversation.len() - system_count - MAX_CONVERSATION_MESSAGES;
+                            conversation.drain(system_count..system_count + remove_count);
+                        }
 
                         if orchestrator_complete {
                             break;
@@ -1669,8 +1721,62 @@ impl MessageDispatcher {
         (None, None)
     }
 
+    /// Call AI with progress notifications for long-running requests
+    /// Broadcasts "still waiting" events every 30 seconds and handles timeout errors gracefully
+    async fn generate_with_progress(
+        &self,
+        client: &AiClient,
+        conversation: Vec<Message>,
+        tool_history: Vec<ToolHistoryEntry>,
+        tools: Vec<ToolDefinition>,
+        channel_id: i64,
+    ) -> Result<AiResponse, String> {
+        let broadcaster = self.broadcaster.clone();
+        let mut elapsed_secs = 0u64;
+
+        // Spawn the actual AI request
+        let ai_future = client.generate_with_tools(conversation, tool_history, tools);
+        tokio::pin!(ai_future);
+
+        // Create a ticker for progress updates
+        let mut progress_ticker = interval(Duration::from_secs(AI_PROGRESS_INTERVAL_SECS));
+        progress_ticker.tick().await; // First tick is immediate, skip it
+
+        loop {
+            tokio::select! {
+                result = &mut ai_future => {
+                    match result {
+                        Ok(response) => return Ok(response),
+                        Err(e) => {
+                            // Check if it's a timeout error
+                            if e.contains("timed out") || e.contains("timeout") {
+                                log::error!("[AI_PROGRESS] Request timed out after {}s: {}", elapsed_secs, e);
+                                broadcaster.broadcast(GatewayEvent::agent_error(
+                                    channel_id,
+                                    &format!("AI request timed out after {} seconds. The AI service may be overloaded. Please try again.", elapsed_secs + AI_PROGRESS_INTERVAL_SECS),
+                                ));
+                            }
+                            return Err(e);
+                        }
+                    }
+                }
+                _ = progress_ticker.tick() => {
+                    elapsed_secs += AI_PROGRESS_INTERVAL_SECS;
+                    log::info!("[AI_PROGRESS] Still waiting for AI response... ({}s elapsed)", elapsed_secs);
+                    broadcaster.broadcast(GatewayEvent::agent_thinking(
+                        channel_id,
+                        &format!("Still thinking... ({}s)", elapsed_secs),
+                    ));
+                }
+            }
+        }
+    }
+
     /// Handle /new or /reset commands
     async fn handle_reset_command(&self, message: &NormalizedMessage) -> DispatchResult {
+        // Cancel any ongoing execution for this channel
+        self.execution_tracker.cancel_execution(message.channel_id);
+
         // Determine session scope
         let scope = if message.chat_id != message.user_id {
             SessionScope::Group

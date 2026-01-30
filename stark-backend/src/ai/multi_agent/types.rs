@@ -186,7 +186,7 @@ impl Task {
         &self.id[..8]
     }
 
-    /// Format for display to the agent
+    /// Format for display to the agent (full detail)
     pub fn format_display(&self) -> String {
         let mut out = format!(
             "{} [{}] {}: {}",
@@ -208,6 +208,31 @@ impl Task {
             }
         }
         out
+    }
+
+    /// Format compact display (for completed/failed tasks to save context)
+    pub fn format_compact(&self) -> String {
+        let result_summary = match (&self.result, &self.error) {
+            (Some(r), _) => format!(" → {}", truncate_str(r, 60)),
+            (_, Some(e)) => format!(" ✗ {}", truncate_str(e, 60)),
+            _ => String::new(),
+        };
+        format!(
+            "{} [{}] {}{}",
+            self.status.emoji(),
+            self.short_id(),
+            self.subject,
+            result_summary
+        )
+    }
+}
+
+/// Truncate a string with ellipsis
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len.saturating_sub(3)])
     }
 }
 
@@ -282,7 +307,8 @@ impl TaskList {
         stats
     }
 
-    /// Format the entire list for agent display
+    /// Format the entire list for agent display (context-optimized)
+    /// Shows full detail for pending/in_progress, compact for completed/failed
     pub fn format_display(&self) -> String {
         if self.tasks.is_empty() {
             return "📋 Task List: (empty)".to_string();
@@ -294,8 +320,32 @@ impl TaskList {
             stats.total, stats.pending, stats.in_progress, stats.completed, stats.failed
         );
 
-        for task in &self.tasks {
-            out.push_str(&format!("\n{}", task.format_display()));
+        // Show active tasks (pending/in_progress) with full detail
+        let active: Vec<_> = self.tasks.iter()
+            .filter(|t| t.status == TaskStatus::Pending || t.status == TaskStatus::InProgress)
+            .collect();
+
+        if !active.is_empty() {
+            out.push_str("\n**Active:**\n");
+            for task in active {
+                out.push_str(&format!("{}\n", task.format_display()));
+            }
+        }
+
+        // Show completed/failed tasks in compact form (most recent 5 only)
+        let done: Vec<_> = self.tasks.iter()
+            .filter(|t| t.status == TaskStatus::Completed || t.status == TaskStatus::Failed)
+            .collect();
+
+        if !done.is_empty() {
+            out.push_str("\n**Done:**\n");
+            // Show only last 5 completed tasks to save context
+            for task in done.iter().rev().take(5).rev() {
+                out.push_str(&format!("{}\n", task.format_compact()));
+            }
+            if done.len() > 5 {
+                out.push_str(&format!("  ... and {} more completed\n", done.len() - 5));
+            }
         }
 
         out

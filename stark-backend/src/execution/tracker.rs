@@ -15,6 +15,8 @@ pub struct ExecutionTracker {
     tasks: DashMap<String, ExecutionTask>,
     /// Maps channel_id to current execution_id
     channel_executions: DashMap<i64, String>,
+    /// Channels that have been cancelled (checked by tool loops)
+    cancelled_channels: DashMap<i64, bool>,
 }
 
 impl ExecutionTracker {
@@ -24,13 +26,37 @@ impl ExecutionTracker {
             broadcaster,
             tasks: DashMap::new(),
             channel_executions: DashMap::new(),
+            cancelled_channels: DashMap::new(),
         }
+    }
+
+    /// Cancel any ongoing execution for a channel
+    /// This sets a flag that tool loops should check to exit early
+    pub fn cancel_execution(&self, channel_id: i64) {
+        log::info!("[EXECUTION_TRACKER] Cancelling execution for channel {}", channel_id);
+        self.cancelled_channels.insert(channel_id, true);
+
+        // Also complete/abort the current execution if there is one
+        self.complete_execution(channel_id);
+    }
+
+    /// Check if a channel's execution has been cancelled
+    pub fn is_cancelled(&self, channel_id: i64) -> bool {
+        self.cancelled_channels.get(&channel_id).map(|v| *v).unwrap_or(false)
+    }
+
+    /// Clear the cancellation flag for a channel (called when starting new execution)
+    pub fn clear_cancellation(&self, channel_id: i64) {
+        self.cancelled_channels.remove(&channel_id);
     }
 
     /// Start a new execution for a channel
     ///
     /// Returns the execution ID (which is also the root task ID)
     pub fn start_execution(&self, channel_id: i64, mode: &str, user_message: Option<&str>) -> String {
+        // Clear any previous cancellation flag
+        self.clear_cancellation(channel_id);
+
         // Create descriptive execution task based on user message
         let (description, active_form) = match user_message {
             Some(msg) => {

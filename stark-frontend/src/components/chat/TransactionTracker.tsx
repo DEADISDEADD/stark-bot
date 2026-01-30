@@ -132,11 +132,12 @@ export default function TransactionTracker({
     return null;
   }
 
+  // Only show the most recent transaction
+  const mostRecent = transactions[transactions.length - 1];
+
   return (
     <div className={clsx('space-y-2', className)}>
-      {transactions.map((tx) => (
-        <TransactionCard key={tx.tx_hash} tx={tx} />
-      ))}
+      <TransactionCard key={mostRecent.tx_hash} tx={mostRecent} />
     </div>
   );
 }

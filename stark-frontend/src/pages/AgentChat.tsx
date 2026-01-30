@@ -20,8 +20,35 @@ interface ConversationMessage {
   content: string;
 }
 
+// localStorage keys for persistence
+const STORAGE_KEY_MESSAGES = 'agentChat_messages';
+const STORAGE_KEY_HISTORY = 'agentChat_history';
+const STORAGE_KEY_MODE = 'agentChat_mode';
+
+// Helper to safely parse JSON from localStorage
+function loadFromStorage<T>(key: string, fallback: T): T {
+  try {
+    const stored = localStorage.getItem(key);
+    if (!stored) return fallback;
+    const parsed = JSON.parse(stored);
+    // Restore Date objects for messages
+    if (key === STORAGE_KEY_MESSAGES && Array.isArray(parsed)) {
+      return parsed.map((m: ChatMessageType) => ({
+        ...m,
+        timestamp: new Date(m.timestamp),
+      })) as T;
+    }
+    return parsed;
+  } catch {
+    return fallback;
+  }
+}
+
 export default function AgentChat() {
-  const [messages, setMessages] = useState<ChatMessageType[]>([]);
+  // Load persisted state from localStorage
+  const [messages, setMessages] = useState<ChatMessageType[]>(() =>
+    loadFromStorage<ChatMessageType[]>(STORAGE_KEY_MESSAGES, [])
+  );
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
@@ -31,12 +58,26 @@ export default function AgentChat() {
   const [copied, setCopied] = useState(false);
   const [trackedTxs, setTrackedTxs] = useState<TrackedTransaction[]>([]);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
-  const [agentMode, setAgentMode] = useState<{ mode: string; label: string } | null>(null);
+  const [agentMode, setAgentMode] = useState<{ mode: string; label: string } | null>(() =>
+    loadFromStorage<{ mode: string; label: string } | null>(STORAGE_KEY_MODE, null)
+  );
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { connected, on, off } = useGateway();
   const { address, usdcBalance, isConnected: walletConnected, connect: connectWallet, isCorrectNetwork } = useWallet();
+
+  // Persist messages to localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify(messages));
+  }, [messages]);
+
+  // Persist agent mode to localStorage
+  useEffect(() => {
+    if (agentMode) {
+      localStorage.setItem(STORAGE_KEY_MODE, JSON.stringify(agentMode));
+    }
+  }, [agentMode]);
 
   // Helper to truncate address
   const truncateAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
@@ -60,7 +101,9 @@ export default function AgentChat() {
   };
 
   // Conversation history for API
-  const conversationHistory = useRef<ConversationMessage[]>([]);
+  const conversationHistory = useRef<ConversationMessage[]>(
+    loadFromStorage<ConversationMessage[]>(STORAGE_KEY_HISTORY, [])
+  );
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -189,6 +232,53 @@ export default function AgentChat() {
     };
   }, [on, off]);
 
+  // Listen for agent thinking/progress events (long AI calls)
+  useEffect(() => {
+    const handleThinking = (data: unknown) => {
+      const event = data as { message: string; timestamp: string };
+      console.log('[Agent] Thinking:', event.message);
+      // Update typing indicator with progress message or add a system message
+      setMessages((prev) => {
+        // Remove any previous "still thinking" system message to avoid spam
+        const filtered = prev.filter(
+          (m) => !(m.role === 'system' && m.content.startsWith('Still thinking'))
+        );
+        return [
+          ...filtered,
+          {
+            id: crypto.randomUUID(),
+            role: 'system' as MessageRole,
+            content: event.message,
+            timestamp: new Date(event.timestamp),
+          },
+        ];
+      });
+    };
+
+    const handleError = (data: unknown) => {
+      const event = data as { error: string; timestamp: string };
+      console.error('[Agent] Error:', event.error);
+      setIsLoading(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: 'system' as MessageRole,
+          content: `⚠️ ${event.error}`,
+          timestamp: new Date(event.timestamp),
+        },
+      ]);
+    };
+
+    on('agent.thinking', handleThinking);
+    on('agent.error', handleError);
+
+    return () => {
+      off('agent.thinking', handleThinking);
+      off('agent.error', handleError);
+    };
+  }, [on, off]);
+
   // Listen for confirmation events
   useEffect(() => {
     const handleConfirmationRequired = (data: unknown) => {
@@ -238,6 +328,7 @@ export default function AgentChat() {
     // Add to conversation history if user or assistant
     if (role === 'user' || role === 'assistant') {
       conversationHistory.current.push({ role, content });
+      localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(conversationHistory.current));
     }
   }, []);
 
@@ -263,16 +354,25 @@ export default function AgentChat() {
     [Command.New]: () => {
       setMessages([]);
       conversationHistory.current = [];
+      localStorage.removeItem(STORAGE_KEY_HISTORY);
+      localStorage.removeItem(STORAGE_KEY_MODE);
+      setAgentMode(null);
       addMessage('system', 'Conversation cleared. Starting fresh.');
     },
     [Command.Reset]: () => {
       setMessages([]);
       conversationHistory.current = [];
+      localStorage.removeItem(STORAGE_KEY_HISTORY);
+      localStorage.removeItem(STORAGE_KEY_MODE);
+      setAgentMode(null);
       addMessage('system', 'Conversation reset.');
     },
     [Command.Clear]: () => {
       setMessages([]);
       conversationHistory.current = [];
+      localStorage.removeItem(STORAGE_KEY_HISTORY);
+      localStorage.removeItem(STORAGE_KEY_MODE);
+      setAgentMode(null);
     },
     [Command.Skills]: async () => {
       try {
@@ -412,6 +512,10 @@ export default function AgentChat() {
 
     try {
       const response = await sendChatMessage(trimmedInput, conversationHistory.current);
+      // Remove "still thinking" progress messages before adding the response
+      setMessages((prev) => prev.filter(
+        (m) => !(m.role === 'system' && m.content.startsWith('Still thinking'))
+      ));
       addMessage('assistant', response.response);
     } catch (error) {
       addMessage('error', error instanceof Error ? error.message : 'Failed to send message');
@@ -591,6 +695,10 @@ export default function AgentChat() {
             onClick={() => {
               setMessages([]);
               conversationHistory.current = [];
+              localStorage.removeItem(STORAGE_KEY_MESSAGES);
+              localStorage.removeItem(STORAGE_KEY_HISTORY);
+              localStorage.removeItem(STORAGE_KEY_MODE);
+              setAgentMode(null);
             }}
           >
             <RotateCcw className="w-4 h-4 mr-2" />

@@ -14,6 +14,8 @@ pub enum EventType {
     AgentResponse,
     AgentToolCall,  // Real-time tool call notification for chat display
     AgentModeChange,  // Multi-agent mode transition
+    AgentThinking,    // Progress update during long AI calls
+    AgentError,       // Error notification (timeout, etc.)
     // Tool events
     ToolExecution,
     ToolResult,
@@ -53,6 +55,8 @@ impl EventType {
             Self::AgentResponse => "agent.response",
             Self::AgentToolCall => "agent.tool_call",
             Self::AgentModeChange => "agent.mode_change",
+            Self::AgentThinking => "agent.thinking",
+            Self::AgentError => "agent.error",
             Self::ToolExecution => "tool.execution",
             Self::ToolResult => "tool.result",
             Self::ToolWaiting => "tool.waiting",
@@ -263,6 +267,30 @@ impl GatewayEvent {
                 "mode": mode,
                 "label": label,
                 "reason": reason,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        )
+    }
+
+    /// Emit progress update during long AI calls
+    pub fn agent_thinking(channel_id: i64, message: &str) -> Self {
+        Self::new(
+            EventType::AgentThinking,
+            serde_json::json!({
+                "channel_id": channel_id,
+                "message": message,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        )
+    }
+
+    /// Emit error notification (timeout, etc.)
+    pub fn agent_error(channel_id: i64, error: &str) -> Self {
+        Self::new(
+            EventType::AgentError,
+            serde_json::json!({
+                "channel_id": channel_id,
+                "error": error,
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }),
         )

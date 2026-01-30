@@ -66,26 +66,50 @@ impl Orchestrator {
     }
 
     /// Format a summary of the current context for the prompt
+    /// Context-optimized: caps notes/findings to prevent bloat
     fn format_context_summary(&self) -> String {
+        const MAX_NOTES: usize = 10;
+        const MAX_FINDINGS: usize = 15;
+        const MAX_SCRATCHPAD_LEN: usize = 1000;
+
         let mut summary = String::new();
 
         summary.push_str("## Current Context\n\n");
         summary.push_str(&format!("**Original Request**: {}\n\n", self.context.original_request));
         summary.push_str(&format!("**Current Mode**: {} (iteration {})\n\n", self.context.mode, self.context.mode_iterations));
 
-        // Add exploration notes
+        // Add exploration notes (capped, most recent)
         if !self.context.exploration_notes.is_empty() {
             summary.push_str("### Notes\n\n");
-            for note in &self.context.exploration_notes {
+            let notes_len = self.context.exploration_notes.len();
+            let skip = notes_len.saturating_sub(MAX_NOTES);
+            if skip > 0 {
+                summary.push_str(&format!("_(showing last {} of {} notes)_\n", MAX_NOTES, notes_len));
+            }
+            for note in self.context.exploration_notes.iter().skip(skip) {
                 summary.push_str(&format!("- {}\n", note));
             }
             summary.push('\n');
         }
 
-        // Add findings
+        // Add findings (capped, prioritize high relevance)
         if !self.context.findings.is_empty() {
             summary.push_str("### Findings\n\n");
-            for finding in &self.context.findings {
+
+            // Sort by relevance (high first) then take most recent
+            let mut sorted_findings: Vec<_> = self.context.findings.iter().collect();
+            sorted_findings.sort_by_key(|f| match f.relevance {
+                Relevance::High => 0,
+                Relevance::Medium => 1,
+                Relevance::Low => 2,
+            });
+
+            let findings_len = sorted_findings.len();
+            if findings_len > MAX_FINDINGS {
+                summary.push_str(&format!("_(showing top {} of {} findings)_\n", MAX_FINDINGS, findings_len));
+            }
+
+            for finding in sorted_findings.iter().take(MAX_FINDINGS) {
                 let files = if finding.files.is_empty() {
                     String::new()
                 } else {
@@ -104,14 +128,19 @@ impl Orchestrator {
             summary.push_str(&format!("### Plan Goal\n\n{}\n\n", plan_summary));
         }
 
-        // Add scratchpad if not empty
+        // Add scratchpad if not empty (truncated)
         if !self.context.scratchpad.is_empty() {
             summary.push_str("### Scratchpad\n\n");
-            summary.push_str(&self.context.scratchpad);
-            summary.push_str("\n\n");
+            if self.context.scratchpad.len() > MAX_SCRATCHPAD_LEN {
+                summary.push_str(&self.context.scratchpad[..MAX_SCRATCHPAD_LEN]);
+                summary.push_str("\n_(truncated)_\n\n");
+            } else {
+                summary.push_str(&self.context.scratchpad);
+                summary.push_str("\n\n");
+            }
         }
 
-        // Add task list (persistent memory) - always shown
+        // Add task list (persistent memory) - uses optimized display
         summary.push_str("### Task List (Persistent Memory)\n\n");
         summary.push_str(&self.context.tasks.format_display());
         summary.push_str("\n\n");
