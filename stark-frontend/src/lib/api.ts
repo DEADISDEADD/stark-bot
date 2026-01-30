@@ -147,6 +147,22 @@ export async function getTools(): Promise<ToolInfo[]> {
   return response.tools || [];
 }
 
+export interface ToolGroupInfo {
+  key: string;
+  label: string;
+  description: string;
+}
+
+interface ToolGroupsResponse {
+  success: boolean;
+  groups: ToolGroupInfo[];
+}
+
+export async function getToolGroups(): Promise<ToolGroupInfo[]> {
+  const response = await apiFetch<ToolGroupsResponse>('/tools/groups');
+  return response.groups || [];
+}
+
 export async function updateToolEnabled(name: string, enabled: boolean): Promise<void> {
   await apiFetch(`/tools/${encodeURIComponent(name)}/enabled`, {
     method: 'PUT',
@@ -733,6 +749,8 @@ export interface BotSettings {
   bot_name: string;
   bot_email: string;
   web3_tx_requires_confirmation: boolean;
+  rpc_provider: string;
+  custom_rpc_endpoints?: Record<string, string>;
   created_at: string;
   updated_at: string;
 }
@@ -745,11 +763,26 @@ export async function updateBotSettings(data: {
   bot_name?: string;
   bot_email?: string;
   web3_tx_requires_confirmation?: boolean;
+  rpc_provider?: string;
+  custom_rpc_endpoints?: Record<string, string>;
 }): Promise<BotSettings> {
   return apiFetch('/bot-settings', {
     method: 'PUT',
     body: JSON.stringify(data),
   });
+}
+
+// RPC Providers API
+export interface RpcProvider {
+  id: string;
+  display_name: string;
+  description: string;
+  x402: boolean;
+  networks: string[];
+}
+
+export async function getRpcProviders(): Promise<RpcProvider[]> {
+  return apiFetch('/rpc-providers');
 }
 
 // Confirmation API

@@ -1,7 +1,7 @@
 ---
 name: transfer
 description: "Transfer ETH or ERC20 tokens on Base/Ethereum using the burner wallet"
-version: 3.0.0
+version: 3.1.0
 author: starkbot
 homepage: https://basescan.org
 metadata: {"requires_auth": false, "clawdbot":{"emoji":"💸","requires":{"bins":[]}}}
@@ -23,11 +23,12 @@ Transfer ETH or ERC20 tokens from the burner wallet to any address.
 
 | Tool | Purpose |
 |------|---------|
-| `local_burner_wallet` | Get wallet address and check balances |
+| `x402_rpc` | Get gas price and ETH balance (get_balance preset) |
 | `register_set` | Build transaction params in a register |
-| `x402_rpc` | Get gas price |
 | `web3_tx` | Execute transfer from register |
-| `web3_function_call` | Transfer ERC20 tokens |
+| `web3_function_call` | Transfer ERC20 tokens and check balances |
+
+**Note:** `wallet_address` is an intrinsic register - always available automatically.
 
 ---
 
@@ -35,37 +36,30 @@ Transfer ETH or ERC20 tokens from the burner wallet to any address.
 
 ### Step 1: Get Gas Price
 
-```json
-// x402_rpc
-{"preset": "gas_price", "network": "base"}
+```tool:x402_rpc
+preset: gas_price
+network: base
 ```
 
 ### Step 2: Build Transfer in Register
 
 Use `register_set` with `json_value` to store the tx data:
 
-```json
-// register_set
-{
-  "key": "transfer_tx",
-  "json_value": {
-    "to": "<RECIPIENT_ADDRESS>",
-    "value": "<AMOUNT_IN_WEI>",
-    "data": "0x",
-    "gas": "21000"
-  }
-}
+```tool:register_set
+key: transfer_tx
+json_value:
+  to: "<RECIPIENT_ADDRESS>"
+  value: "<AMOUNT_IN_WEI>"
+  data: "0x"
+  gas: "21000"
 ```
 
 ### Step 3: Execute Transfer
 
-```json
-// web3_tx
-{
-  "from_register": "transfer_tx",
-  "max_fee_per_gas": "<GAS_PRICE>",
-  "network": "base"
-}
+```tool:web3_tx
+from_register: transfer_tx
+max_fee_per_gas: "<GAS_PRICE>"
+network: base
 ```
 
 ---
@@ -74,36 +68,29 @@ Use `register_set` with `json_value` to store the tx data:
 
 ### 1. Get gas price
 
-```json
-// x402_rpc
-{"preset": "gas_price", "network": "base"}
+```tool:x402_rpc
+preset: gas_price
+network: base
 ```
 Response: `"0xf4240"`
 
 ### 2. Build tx in register
 
-```json
-// register_set
-{
-  "key": "transfer_tx",
-  "json_value": {
-    "to": "0x1234567890abcdef1234567890abcdef12345678",
-    "value": "10000000000000000",
-    "data": "0x",
-    "gas": "21000"
-  }
-}
+```tool:register_set
+key: transfer_tx
+json_value:
+  to: "0x1234567890abcdef1234567890abcdef12345678"
+  value: "10000000000000000"
+  data: "0x"
+  gas: "21000"
 ```
 
 ### 3. Execute
 
-```json
-// web3_tx
-{
-  "from_register": "transfer_tx",
-  "max_fee_per_gas": "0xf4240",
-  "network": "base"
-}
+```tool:web3_tx
+from_register: transfer_tx
+max_fee_per_gas: "0xf4240"
+network: base
 ```
 
 ---
@@ -112,36 +99,24 @@ Response: `"0xf4240"`
 
 For ERC20 transfers, use `web3_function_call` directly (it handles encoding):
 
-```json
-// web3_function_call
-{
-  "abi": "erc20",
-  "contract": "<TOKEN_ADDRESS>",
-  "function": "transfer",
-  "params": [
-    "<RECIPIENT_ADDRESS>",
-    "<AMOUNT_IN_SMALLEST_UNIT>"
-  ],
-  "network": "base"
-}
+```tool:web3_function_call
+abi: erc20
+contract: "<TOKEN_ADDRESS>"
+function: transfer
+params: ["<RECIPIENT_ADDRESS>", "<AMOUNT_IN_SMALLEST_UNIT>"]
+network: base
 ```
 
 ### Example: Send 10 USDC
 
 USDC has 6 decimals, so 10 USDC = `10000000`
 
-```json
-// web3_function_call
-{
-  "abi": "erc20",
-  "contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-  "function": "transfer",
-  "params": [
-    "0x1234567890abcdef1234567890abcdef12345678",
-    "10000000"
-  ],
-  "network": "base"
-}
+```tool:web3_function_call
+abi: erc20
+contract: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+function: transfer
+params: ["0x1234567890abcdef1234567890abcdef12345678", "10000000"]
+network: base
 ```
 
 ---
@@ -150,23 +125,26 @@ USDC has 6 decimals, so 10 USDC = `10000000`
 
 ### Check ETH Balance
 
-```json
-// local_burner_wallet
-{"action": "balance", "network": "base"}
+```tool:x402_rpc
+preset: get_balance
+network: base
 ```
+
+The result is hex wei - convert to ETH by dividing by 10^18.
 
 ### Check ERC20 Token Balance
 
-```json
-// web3_function_call
-{
-  "abi": "erc20",
-  "contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-  "function": "balanceOf",
-  "params": ["<WALLET_ADDRESS>"],
-  "network": "base",
-  "call_only": true
-}
+First set the token address, then use the erc20_balance preset:
+
+```tool:register_set
+key: token_address
+value: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+```
+
+```tool:web3_function_call
+preset: erc20_balance
+network: base
+call_only: true
 ```
 
 ---
@@ -208,7 +186,7 @@ Use `token_lookup` to get addresses automatically, or use these directly:
 Before executing a transfer:
 
 1. **Verify recipient address** - Double-check the address is correct
-2. **Check balance** - Use `local_burner_wallet` or `web3_function_call` (balanceOf)
+2. **Check balance** - Use `x402_rpc` (get_balance) for ETH or `web3_function_call` (erc20_balance) for tokens
 3. **Confirm amount** - Ensure decimals are correct for the token
 4. **Network** - Confirm you're on the right network (base vs mainnet)
 

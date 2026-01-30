@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Wrench, Check, X } from 'lucide-react';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { getTools } from '@/lib/api';
+import { getTools, getToolGroups, ToolGroupInfo } from '@/lib/api';
 
 interface Tool {
   name: string;
@@ -12,17 +12,22 @@ interface Tool {
 
 export default function Tools() {
   const [tools, setTools] = useState<Tool[]>([]);
+  const [groups, setGroups] = useState<ToolGroupInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadTools();
+    loadData();
   }, []);
 
-  const loadTools = async () => {
+  const loadData = async () => {
     try {
-      const data = await getTools();
-      setTools(data);
+      const [toolsData, groupsData] = await Promise.all([
+        getTools(),
+        getToolGroups(),
+      ]);
+      setTools(toolsData);
+      setGroups(groupsData);
     } catch (err) {
       setError('Failed to load tools');
     } finally {
@@ -51,16 +56,14 @@ export default function Tools() {
     return acc;
   }, {} as Record<string, Tool[]>);
 
-  const groupLabels: Record<string, string> = {
-    web: 'Web Tools',
-    filesystem: 'Filesystem Tools',
-    exec: 'Execution Tools',
-    messaging: 'Messaging Tools',
-    system: 'System Tools',
-    other: 'Other Tools',
-  };
+  // Build group labels from API response
+  const groupLabels: Record<string, string> = groups.reduce((acc, g) => {
+    acc[g.key] = g.label;
+    return acc;
+  }, { other: 'Other Tools' } as Record<string, string>);
 
-  const groupOrder = ['web', 'filesystem', 'exec', 'messaging', 'system', 'other'];
+  // Use API order for groups, with 'other' at the end
+  const groupOrder = [...groups.map(g => g.key), 'other'];
 
   return (
     <div className="p-8">

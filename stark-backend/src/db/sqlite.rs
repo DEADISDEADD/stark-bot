@@ -173,6 +173,21 @@ impl Database {
             conn.execute("ALTER TABLE bot_settings ADD COLUMN web3_tx_requires_confirmation INTEGER NOT NULL DEFAULT 1", [])?;
         }
 
+        // Migration: Add rpc_provider column to bot_settings if it doesn't exist
+        let has_rpc_provider: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('bot_settings') WHERE name='rpc_provider'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|c| c > 0)
+            .unwrap_or(false);
+
+        if !has_rpc_provider {
+            conn.execute("ALTER TABLE bot_settings ADD COLUMN rpc_provider TEXT NOT NULL DEFAULT 'defirelay'", [])?;
+            conn.execute("ALTER TABLE bot_settings ADD COLUMN custom_rpc_endpoints TEXT", [])?;
+        }
+
         // Initialize bot_settings with defaults if empty
         let bot_settings_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM bot_settings", [], |row| row.get(0))
@@ -736,6 +751,7 @@ impl Database {
                 session_id INTEGER NOT NULL UNIQUE,
                 original_request TEXT NOT NULL,
                 mode TEXT NOT NULL DEFAULT 'explore',
+                subtype TEXT NOT NULL DEFAULT 'finance',
                 context_sufficient INTEGER NOT NULL DEFAULT 0,
                 plan_ready INTEGER NOT NULL DEFAULT 0,
                 mode_iterations INTEGER NOT NULL DEFAULT 0,
@@ -745,6 +761,7 @@ impl Database {
                 plan_summary TEXT,
                 scratchpad TEXT NOT NULL DEFAULT '',
                 tasks_json TEXT NOT NULL DEFAULT '{\"tasks\":[]}',
+                active_skill_json TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
@@ -756,6 +773,18 @@ impl Database {
             "CREATE INDEX IF NOT EXISTS idx_agent_contexts_session ON agent_contexts(session_id)",
             [],
         )?;
+
+        // Migration: Add subtype column to agent_contexts if it doesn't exist
+        let _ = conn.execute(
+            "ALTER TABLE agent_contexts ADD COLUMN subtype TEXT NOT NULL DEFAULT 'finance'",
+            [],
+        );
+
+        // Migration: Add active_skill_json column to agent_contexts if it doesn't exist
+        let _ = conn.execute(
+            "ALTER TABLE agent_contexts ADD COLUMN active_skill_json TEXT",
+            [],
+        );
 
         Ok(())
     }

@@ -8,6 +8,48 @@ use teloxide::prelude::*;
 use teloxide::requests::Requester;
 use tokio::sync::oneshot;
 
+/// Format a tool call event for Telegram display (plain text for reliability)
+fn format_tool_call_for_telegram(tool_name: &str, parameters: &serde_json::Value) -> String {
+    let params_str = serde_json::to_string_pretty(parameters)
+        .unwrap_or_else(|_| parameters.to_string());
+    // Truncate params if too long for Telegram
+    let params_display = if params_str.len() > 500 {
+        format!("{}...", &params_str[..500])
+    } else {
+        params_str
+    };
+    format!("🔧 Tool Call: {}\n{}", tool_name, params_display)
+}
+
+/// Format a tool result event for Telegram display (plain text for reliability)
+fn format_tool_result_for_telegram(tool_name: &str, success: bool, duration_ms: i64, content: &str) -> String {
+    let status = if success { "✅" } else { "❌" };
+    // Truncate content if too long
+    let content_display = if content.len() > 1000 {
+        format!("{}...", &content[..1000])
+    } else {
+        content.to_string()
+    };
+    format!(
+        "{} Tool Result: {} ({} ms)\n{}",
+        status, tool_name, duration_ms, content_display
+    )
+}
+
+/// Format an agent mode change for Telegram display
+fn format_mode_change_for_telegram(mode: &str, label: &str, reason: Option<&str>) -> String {
+    let emoji = match mode {
+        "explore" => "🔍",
+        "plan" => "📋",
+        "perform" => "⚡",
+        _ => "🔄",
+    };
+    match reason {
+        Some(r) => format!("{} Mode: {} - {}", emoji, label, r),
+        None => format!("{} Mode: {}", emoji, label),
+    }
+}
+
 /// Start a Telegram bot listener
 pub async fn start_telegram_listener(
     channel: Channel,
@@ -49,10 +91,14 @@ pub async fn start_telegram_listener(
         &channel_name,
     ));
 
+    // Clone broadcaster for use in handler
+    let broadcaster_for_handler = broadcaster.clone();
+
     // Create message handler
     let handler = Update::filter_message().endpoint(
         move |bot: Bot, msg: teloxide::types::Message, dispatcher: Arc<MessageDispatcher>| {
             let channel_id = channel_id;
+            let broadcaster = broadcaster_for_handler.clone();
             async move {
                 log::info!("Telegram: Received update from chat {}", msg.chat.id);
 
@@ -85,12 +131,103 @@ pub async fn start_telegram_listener(
                         message_id: Some(msg.id.to_string()),
                     };
 
+                    // Subscribe to events for real-time tool call forwarding
+                    let (client_id, mut event_rx) = broadcaster.subscribe();
+                    log::info!("Telegram: Subscribed to events as client {}", client_id);
+
+                    // Clone bot and chat_id for the event forwarder task
+                    let bot_for_events = bot.clone();
+                    let chat_id_for_events = msg.chat.id;
+                    let channel_id_for_events = channel_id;
+
+                    // Spawn task to forward events to Telegram in real-time
+                    let event_task = tokio::spawn(async move {
+                        while let Some(event) = event_rx.recv().await {
+                            // Only forward events for this channel
+                            if let Some(event_channel_id) = event.data.get("channel_id").and_then(|v| v.as_i64()) {
+                                if event_channel_id != channel_id_for_events {
+                                    continue;
+                                }
+                            }
+
+                            let message_text = match event.event.as_str() {
+                                "agent.tool_call" => {
+                                    let tool_name = event.data.get("tool_name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown");
+                                    let params = event.data.get("parameters")
+                                        .cloned()
+                                        .unwrap_or(serde_json::json!({}));
+                                    Some(format_tool_call_for_telegram(tool_name, &params))
+                                }
+                                "tool.result" => {
+                                    let tool_name = event.data.get("tool_name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown");
+                                    let success = event.data.get("success")
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false);
+                                    let duration_ms = event.data.get("duration_ms")
+                                        .and_then(|v| v.as_i64())
+                                        .unwrap_or(0);
+                                    let content = event.data.get("content")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+                                    Some(format_tool_result_for_telegram(tool_name, success, duration_ms, content))
+                                }
+                                "agent.mode_change" => {
+                                    let mode = event.data.get("mode")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown");
+                                    let label = event.data.get("label")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("Unknown");
+                                    let reason = event.data.get("reason")
+                                        .and_then(|v| v.as_str());
+                                    Some(format_mode_change_for_telegram(mode, label, reason))
+                                }
+                                "execution.task_started" => {
+                                    let task_type = event.data.get("type")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("task");
+                                    let name = event.data.get("name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("Unknown task");
+                                    Some(format!("▶️ *{}:* {}", task_type, name))
+                                }
+                                "execution.task_completed" => {
+                                    let status = event.data.get("status")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("completed");
+                                    let emoji = if status == "completed" { "✅" } else { "❌" };
+                                    Some(format!("{} Task {}", emoji, status))
+                                }
+                                _ => None,
+                            };
+
+                            if let Some(text) = message_text {
+                                // Send as plain text for maximum reliability
+                                if let Err(e) = bot_for_events
+                                    .send_message(chat_id_for_events, &text)
+                                    .await
+                                {
+                                    log::warn!("Telegram: Failed to send event message: {}", e);
+                                }
+                            }
+                        }
+                    });
+
                     // Dispatch to AI
                     log::info!("Telegram: Dispatching message to AI for user {}", user_name);
                     let result = dispatcher.dispatch(normalized).await;
                     log::info!("Telegram: Dispatch complete, error={:?}", result.error);
 
-                    // Send response
+                    // Unsubscribe and stop event forwarding
+                    broadcaster.unsubscribe(&client_id);
+                    event_task.abort();
+                    log::info!("Telegram: Unsubscribed from events, client {}", client_id);
+
+                    // Send final response
                     if result.error.is_none() && !result.response.is_empty() {
                         if let Err(e) = bot
                             .send_message(msg.chat.id, &result.response)

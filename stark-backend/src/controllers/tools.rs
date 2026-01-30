@@ -22,6 +22,19 @@ pub struct ToolInfo {
 }
 
 #[derive(Serialize)]
+pub struct GroupsListResponse {
+    pub success: bool,
+    pub groups: Vec<GroupInfo>,
+}
+
+#[derive(Serialize)]
+pub struct GroupInfo {
+    pub key: String,
+    pub label: String,
+    pub description: String,
+}
+
+#[derive(Serialize)]
 pub struct ProfilesListResponse {
     pub success: bool,
     pub profiles: Vec<ProfileInfo>,
@@ -59,6 +72,9 @@ impl From<ToolConfig> for ToolConfigResponse {
             ToolProfile::Minimal => "minimal",
             ToolProfile::Standard => "standard",
             ToolProfile::Messaging => "messaging",
+            ToolProfile::Finance => "finance",
+            ToolProfile::Developer => "developer",
+            ToolProfile::Secretary => "secretary",
             ToolProfile::Full => "full",
             ToolProfile::Custom => "custom",
         };
@@ -101,6 +117,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/tools")
             .route("", web::get().to(list_tools))
+            .route("/groups", web::get().to(list_groups))
             .route("/profiles", web::get().to(list_profiles))
             .route("/config", web::get().to(get_global_config))
             .route("/config", web::put().to(update_global_config))
@@ -179,6 +196,23 @@ async fn list_tools(state: web::Data<AppState>, req: HttpRequest) -> impl Respon
     })
 }
 
+/// List all tool groups with labels and descriptions
+async fn list_groups(_state: web::Data<AppState>, _req: HttpRequest) -> impl Responder {
+    let groups: Vec<GroupInfo> = ToolGroup::all()
+        .into_iter()
+        .map(|g| GroupInfo {
+            key: g.as_str().to_string(),
+            label: g.label().to_string(),
+            description: g.description().to_string(),
+        })
+        .collect();
+
+    HttpResponse::Ok().json(GroupsListResponse {
+        success: true,
+        groups,
+    })
+}
+
 async fn list_profiles(_state: web::Data<AppState>, _req: HttpRequest) -> impl Responder {
     let profiles = vec![
         ProfileInfo {
@@ -204,6 +238,38 @@ async fn list_profiles(_state: web::Data<AppState>, _req: HttpRequest) -> impl R
                 "filesystem".to_string(),
                 "exec".to_string(),
                 "messaging".to_string(),
+            ],
+        },
+        ProfileInfo {
+            name: "finance".to_string(),
+            description: "Finance/DeFi specialist - Web, filesystem, and finance tools".to_string(),
+            allowed_groups: vec![
+                "web".to_string(),
+                "filesystem".to_string(),
+                "finance".to_string(),
+                "system".to_string(),
+            ],
+        },
+        ProfileInfo {
+            name: "developer".to_string(),
+            description: "Developer specialist - Web, filesystem, exec, and development tools".to_string(),
+            allowed_groups: vec![
+                "web".to_string(),
+                "filesystem".to_string(),
+                "exec".to_string(),
+                "development".to_string(),
+                "system".to_string(),
+            ],
+        },
+        ProfileInfo {
+            name: "secretary".to_string(),
+            description: "Secretary specialist - Web, filesystem, messaging, and social tools".to_string(),
+            allowed_groups: vec![
+                "web".to_string(),
+                "filesystem".to_string(),
+                "messaging".to_string(),
+                "social".to_string(),
+                "system".to_string(),
             ],
         },
         ProfileInfo {

@@ -1,21 +1,25 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { Save, Bot, Shield, AlertCircle } from 'lucide-react';
+import { Save, Bot, Server } from 'lucide-react';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
-import { getBotSettings, updateBotSettings, BotSettings as BotSettingsType } from '@/lib/api';
+import { getBotSettings, updateBotSettings, getRpcProviders, BotSettings as BotSettingsType, RpcProvider } from '@/lib/api';
 
 export default function BotSettings() {
   const [, setSettings] = useState<BotSettingsType | null>(null);
   const [botName, setBotName] = useState('StarkBot');
   const [botEmail, setBotEmail] = useState('starkbot@users.noreply.github.com');
-  const [web3TxRequiresConfirmation, setWeb3TxRequiresConfirmation] = useState(true);
+  const [rpcProvider, setRpcProvider] = useState('defirelay');
+  const [customRpcBase, setCustomRpcBase] = useState('');
+  const [customRpcMainnet, setCustomRpcMainnet] = useState('');
+  const [rpcProviders, setRpcProviders] = useState<RpcProvider[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     loadSettings();
+    loadRpcProviders();
   }, []);
 
   const loadSettings = async () => {
@@ -24,11 +28,24 @@ export default function BotSettings() {
       setSettings(data);
       setBotName(data.bot_name);
       setBotEmail(data.bot_email);
-      setWeb3TxRequiresConfirmation(data.web3_tx_requires_confirmation);
+      setRpcProvider(data.rpc_provider || 'defirelay');
+      if (data.custom_rpc_endpoints) {
+        setCustomRpcBase(data.custom_rpc_endpoints.base || '');
+        setCustomRpcMainnet(data.custom_rpc_endpoints.mainnet || '');
+      }
     } catch (err) {
       setMessage({ type: 'error', text: 'Failed to load settings' });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadRpcProviders = async () => {
+    try {
+      const providers = await getRpcProviders();
+      setRpcProviders(providers);
+    } catch (err) {
+      console.error('Failed to load RPC providers:', err);
     }
   };
 
@@ -41,7 +58,6 @@ export default function BotSettings() {
       const updated = await updateBotSettings({
         bot_name: botName,
         bot_email: botEmail,
-        web3_tx_requires_confirmation: web3TxRequiresConfirmation,
       });
       setSettings(updated);
       setMessage({ type: 'success', text: 'Settings saved successfully' });
@@ -52,23 +68,31 @@ export default function BotSettings() {
     }
   };
 
-  const toggleConfirmation = async () => {
+  const handleRpcSubmit = async (e: FormEvent) => {
+    e.preventDefault();
     setIsSaving(true);
     setMessage(null);
 
     try {
+      const customEndpoints = rpcProvider === 'custom' ? {
+        base: customRpcBase,
+        mainnet: customRpcMainnet,
+      } : undefined;
+
       const updated = await updateBotSettings({
-        web3_tx_requires_confirmation: !web3TxRequiresConfirmation,
+        rpc_provider: rpcProvider,
+        custom_rpc_endpoints: customEndpoints,
       });
       setSettings(updated);
-      setWeb3TxRequiresConfirmation(updated.web3_tx_requires_confirmation);
-      setMessage({ type: 'success', text: 'Setting updated' });
+      setMessage({ type: 'success', text: 'RPC settings saved successfully' });
     } catch (err) {
-      setMessage({ type: 'error', text: 'Failed to update setting' });
+      setMessage({ type: 'error', text: 'Failed to save RPC settings' });
     } finally {
       setIsSaving(false);
     }
   };
+
+  const selectedProvider = rpcProviders.find(p => p.id === rpcProvider);
 
   if (isLoading) {
     return (
@@ -85,7 +109,7 @@ export default function BotSettings() {
     <div className="p-8">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-white mb-2">Bot Settings</h1>
-        <p className="text-slate-400">Configure bot identity and transaction security</p>
+        <p className="text-slate-400">Configure bot identity and RPC settings</p>
       </div>
 
       <div className="grid gap-6 max-w-2xl">
@@ -128,57 +152,66 @@ export default function BotSettings() {
           </CardContent>
         </Card>
 
-        {/* Transaction Security Section */}
+        {/* RPC Configuration Section */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="w-5 h-5 text-stark-400" />
-                Transaction Security
-              </CardTitle>
-              <button
-                onClick={toggleConfirmation}
-                disabled={isSaving}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  web3TxRequiresConfirmation ? 'bg-stark-500' : 'bg-slate-600'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    web3TxRequiresConfirmation ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
+            <CardTitle className="flex items-center gap-2">
+              <Server className="w-5 h-5 text-stark-400" />
+              RPC Configuration
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="bg-slate-800/50 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-stark-400 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-white mb-1">
-                    Require confirmation for Web3 transactions
+            <form onSubmit={handleRpcSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  RPC Provider
+                </label>
+                <select
+                  value={rpcProvider}
+                  onChange={(e) => setRpcProvider(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-stark-500 focus:outline-none"
+                >
+                  {rpcProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.display_name}
+                    </option>
+                  ))}
+                </select>
+                {selectedProvider && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    {selectedProvider.description}
+                    {selectedProvider.x402 && (
+                      <span className="ml-2 text-stark-400">(x402 payment enabled)</span>
+                    )}
                   </p>
-                  <p className="text-sm text-slate-400">
-                    When enabled, the bot will ask for confirmation before executing blockchain
-                    transactions (transfers, swaps, contract calls). You will need to reply{' '}
-                    <code className="text-stark-400">/confirm</code> to proceed or{' '}
-                    <code className="text-stark-400">/cancel</code> to abort.
-                  </p>
-                </div>
+                )}
               </div>
-            </div>
 
-            <div className="mt-4 flex items-center gap-2 text-sm">
-              <span className={web3TxRequiresConfirmation ? 'text-green-400' : 'text-yellow-400'}>
-                {web3TxRequiresConfirmation ? 'Confirmation required' : 'Auto-execute enabled'}
-              </span>
-              <span className="text-slate-500">
-                {web3TxRequiresConfirmation
-                  ? '- Transactions require manual approval'
-                  : '- Transactions execute immediately (use with caution)'}
-              </span>
-            </div>
+              {rpcProvider === 'custom' && (
+                <div className="space-y-4 p-4 bg-slate-800/50 rounded-lg">
+                  <p className="text-sm text-slate-400 mb-2">
+                    Enter your custom RPC endpoints. These will be used without x402 payment.
+                  </p>
+                  <Input
+                    label="Base Network RPC URL"
+                    value={customRpcBase}
+                    onChange={(e) => setCustomRpcBase(e.target.value)}
+                    placeholder="https://mainnet.base.org"
+                  />
+                  <Input
+                    label="Mainnet RPC URL"
+                    value={customRpcMainnet}
+                    onChange={(e) => setCustomRpcMainnet(e.target.value)}
+                    placeholder="https://eth-mainnet.g.alchemy.com/v2/..."
+                  />
+                </div>
+              )}
+
+              <Button type="submit" isLoading={isSaving} className="w-fit">
+                <Save className="w-4 h-4 mr-2" />
+                Save RPC Settings
+              </Button>
+            </form>
           </CardContent>
         </Card>
 

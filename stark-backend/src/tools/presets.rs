@@ -44,8 +44,11 @@ pub struct RpcPreset {
 pub struct Web3Preset {
     /// ABI file name (without .json)
     pub abi: String,
-    /// Contract address per network
+    /// Contract address per network (use this OR contract_register, not both)
+    #[serde(default)]
     pub contracts: HashMap<String, String>,
+    /// Register key to read contract address from (for dynamic contracts like any ERC20)
+    pub contract_register: Option<String>,
     /// Function name to call
     pub function: String,
     /// Register keys to read for function params (in order)
@@ -269,6 +272,8 @@ fn default_rpc_presets() -> HashMap<String, RpcPreset> {
         append_latest: true,
         description: "Get transaction count (nonce) of wallet".to_string(),
     });
+    // Note: get_token_balance requires eth_call with encoded balanceOf(address) data
+    // This is handled specially in x402_rpc.rs, not as a simple JSON-RPC preset
     map
 }
 
@@ -283,6 +288,7 @@ fn default_web3_presets() -> HashMap<String, Web3Preset> {
     map.insert("weth_deposit".to_string(), Web3Preset {
         abi: "weth".to_string(),
         contracts: weth_contracts.clone(),
+        contract_register: None,
         function: "deposit".to_string(),
         params_registers: vec![],
         value_register: Some("wrap_amount".to_string()),
@@ -293,6 +299,7 @@ fn default_web3_presets() -> HashMap<String, Web3Preset> {
     map.insert("weth_withdraw".to_string(), Web3Preset {
         abi: "weth".to_string(),
         contracts: weth_contracts,
+        contract_register: None,
         function: "withdraw".to_string(),
         params_registers: vec!["unwrap_amount".to_string()],
         value_register: None,

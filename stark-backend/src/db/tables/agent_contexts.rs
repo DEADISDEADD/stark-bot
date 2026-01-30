@@ -1,19 +1,12 @@
-//! Agent contexts table - multi-agent orchestrator state persistence
+//! Agent contexts table - agent state persistence
 //!
-//! Stores AgentContext between messages so the orchestrator can continue
+//! Stores AgentContext between messages so the agent can continue
 //! across a multi-turn conversation.
 
-use crate::ai::multi_agent::types::{AgentContext, AgentMode, Finding, Task, TaskList};
+use crate::ai::multi_agent::types::{ActiveSkill, AgentContext, AgentMode, AgentSubtype};
 use crate::db::Database;
 use chrono::Utc;
 use rusqlite::{params, Result as SqliteResult};
-use serde::{Deserialize, Serialize};
-
-/// Serializable wrapper for TaskList (since TaskList has private fields)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct TaskListJson {
-    tasks: Vec<Task>,
-}
 
 impl Database {
     /// Get agent context for a session (if exists)
@@ -21,9 +14,8 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT original_request, mode, context_sufficient, plan_ready,
-                    mode_iterations, total_iterations, exploration_notes,
-                    findings, plan_summary, scratchpad, tasks_json
+            "SELECT original_request, mode, mode_iterations, total_iterations,
+                    exploration_notes, scratchpad, subtype, active_skill_json
              FROM agent_contexts
              WHERE session_id = ?",
         )?;
@@ -31,42 +23,40 @@ impl Database {
         let result = stmt.query_row(params![session_id], |row| {
             let original_request: String = row.get(0)?;
             let mode_str: String = row.get(1)?;
-            let context_sufficient: bool = row.get::<_, i32>(2)? != 0;
-            let plan_ready: bool = row.get::<_, i32>(3)? != 0;
-            let mode_iterations: u32 = row.get(4)?;
-            let total_iterations: u32 = row.get(5)?;
-            let notes_json: String = row.get(6)?;
-            let findings_json: String = row.get(7)?;
-            let plan_summary: Option<String> = row.get(8)?;
-            let scratchpad: String = row.get(9)?;
-            let tasks_json: String = row.get(10)?;
+            let mode_iterations: u32 = row.get(2)?;
+            let total_iterations: u32 = row.get(3)?;
+            let notes_json: String = row.get(4)?;
+            let scratchpad: String = row.get(5)?;
+            let subtype_str: Option<String> = row.get(6).ok();
+            let active_skill_json: Option<String> = row.get(7).ok().flatten();
 
-            // Parse mode
+            // Parse mode (defaults to Assistant)
             let mode = AgentMode::from_str(&mode_str).unwrap_or_default();
+
+            // Parse subtype
+            let subtype = subtype_str
+                .and_then(|s| AgentSubtype::from_str(&s))
+                .unwrap_or_default();
 
             // Parse JSON fields
             let exploration_notes: Vec<String> =
                 serde_json::from_str(&notes_json).unwrap_or_default();
-            let findings: Vec<Finding> =
-                serde_json::from_str(&findings_json).unwrap_or_default();
 
-            // Parse tasks
-            let task_list_json: TaskListJson =
-                serde_json::from_str(&tasks_json).unwrap_or(TaskListJson { tasks: vec![] });
-            let tasks = TaskList::from_vec(task_list_json.tasks);
+            // Parse active skill
+            let active_skill: Option<ActiveSkill> = active_skill_json
+                .and_then(|json| serde_json::from_str(&json).ok());
 
             Ok(AgentContext {
                 original_request,
                 exploration_notes,
-                findings,
-                tasks,
-                plan_summary,
                 mode,
+                subtype,
                 mode_iterations,
                 total_iterations,
-                context_sufficient,
-                plan_ready,
                 scratchpad,
+                active_skill,
+                actual_tool_calls: 0,      // Reset on load
+                no_tool_warnings: 0,       // Reset on load
             })
         });
 
@@ -89,37 +79,33 @@ impl Database {
         // Serialize JSON fields
         let notes_json = serde_json::to_string(&context.exploration_notes)
             .unwrap_or_else(|_| "[]".to_string());
-        let findings_json = serde_json::to_string(&context.findings)
-            .unwrap_or_else(|_| "[]".to_string());
-        let tasks_json = serde_json::to_string(&TaskListJson {
-            tasks: context.tasks.all().to_vec(),
-        })
-        .unwrap_or_else(|_| "{\"tasks\":[]}".to_string());
+        let active_skill_json: Option<String> = context.active_skill.as_ref()
+            .and_then(|s| serde_json::to_string(s).ok());
 
         // Use INSERT OR REPLACE for upsert behavior
+        // Note: Using simplified schema - old columns will be NULL/defaults
         conn.execute(
             "INSERT OR REPLACE INTO agent_contexts (
-                session_id, original_request, mode, context_sufficient, plan_ready,
-                mode_iterations, total_iterations, exploration_notes, findings,
-                plan_summary, scratchpad, tasks_json, created_at, updated_at
+                session_id, original_request, mode, mode_iterations, total_iterations,
+                exploration_notes, scratchpad, subtype, active_skill_json,
+                context_sufficient, plan_ready, findings, plan_summary, tasks_json,
+                created_at, updated_at
             ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                COALESCE((SELECT created_at FROM agent_contexts WHERE session_id = ?1), ?13),
-                ?13
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                0, 0, '[]', NULL, '{\"tasks\":[]}',
+                COALESCE((SELECT created_at FROM agent_contexts WHERE session_id = ?1), ?10),
+                ?10
             )",
             params![
                 session_id,
                 context.original_request,
                 context.mode.to_string(),
-                context.context_sufficient as i32,
-                context.plan_ready as i32,
                 context.mode_iterations,
                 context.total_iterations,
                 notes_json,
-                findings_json,
-                context.plan_summary,
                 context.scratchpad,
-                tasks_json,
+                context.subtype.as_str(),
+                active_skill_json,
                 now,
             ],
         )?;

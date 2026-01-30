@@ -90,6 +90,9 @@ impl Database {
             ToolProfile::Minimal => "minimal",
             ToolProfile::Standard => "standard",
             ToolProfile::Messaging => "messaging",
+            ToolProfile::Finance => "finance",
+            ToolProfile::Developer => "developer",
+            ToolProfile::Secretary => "secretary",
             ToolProfile::Full => "full",
             ToolProfile::Custom => "custom",
         };

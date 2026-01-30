@@ -1,7 +1,7 @@
 use crate::ai::{
-    multi_agent::{Orchestrator, ProcessResult as OrchestratorResult},
-    AiClient, ArchetypeId, ArchetypeRegistry, Message, MessageRole, ModelArchetype,
-    ThinkingLevel, ToolCall, ToolHistoryEntry, ToolResponse, AiResponse,
+    multi_agent::{types::AgentSubtype, Orchestrator, ProcessResult as OrchestratorResult},
+    AiClient, ArchetypeId, ArchetypeRegistry, AiResponse, Message, MessageRole, ModelArchetype,
+    ThinkingLevel, ToolCall, ToolHistoryEntry, ToolResponse,
 };
 use crate::channels::types::{DispatchResult, NormalizedMessage};
 use crate::config::MemoryConfig;
@@ -10,8 +10,8 @@ use crate::db::Database;
 use crate::execution::ExecutionTracker;
 use crate::gateway::events::EventBroadcaster;
 use crate::gateway::protocol::GatewayEvent;
-use crate::models::{AgentSettings, MemoryType, SessionScope};
 use crate::models::session_message::MessageRole as DbMessageRole;
+use crate::models::{AgentSettings, MemoryType, SessionScope};
 use crate::tools::{ToolConfig, ToolContext, ToolDefinition, ToolExecution, ToolRegistry};
 use chrono::Utc;
 use regex::Regex;
@@ -404,7 +404,19 @@ impl MessageDispatcher {
 
         // Load bot config from bot_settings for git commits etc.
         if let Ok(bot_settings) = self.db.get_bot_settings() {
-            tool_context = tool_context.with_bot_config(bot_settings.bot_name, bot_settings.bot_email);
+            tool_context = tool_context.with_bot_config(bot_settings.bot_name.clone(), bot_settings.bot_email.clone());
+
+            // Add RPC configuration to context for x402_rpc tool
+            tool_context.extra.insert(
+                "rpc_provider".to_string(),
+                serde_json::json!(bot_settings.rpc_provider),
+            );
+            if let Some(ref endpoints) = bot_settings.custom_rpc_endpoints {
+                tool_context.extra.insert(
+                    "custom_rpc_endpoints".to_string(),
+                    serde_json::json!(endpoints),
+                );
+            }
         }
 
         // Generate response with optional tool execution loop
@@ -535,32 +547,14 @@ impl MessageDispatcher {
         archetype_id: ArchetypeId,
     ) -> Result<String, String> {
         // Load existing agent context or create new one
-        // IMPORTANT: Start fresh if previous work is complete (intelligent context clearing)
         let mut orchestrator = match self.db.get_agent_context(session_id) {
             Ok(Some(context)) => {
-                let stats = context.tasks.stats();
-                let all_tasks_done = stats.pending == 0 && stats.in_progress == 0;
-                let is_terminal = context.mode == crate::ai::multi_agent::AgentMode::Perform && all_tasks_done;
-
-                // Start fresh if: previous work completed OR it's a clearly new request
-                if is_terminal || (all_tasks_done && stats.total > 0) {
-                    log::info!(
-                        "[MULTI_AGENT] Previous work complete (tasks: {}), starting fresh for new request",
-                        stats.total
-                    );
-                    // Clear the old context from DB
-                    let _ = self.db.delete_agent_context(session_id);
-                    Orchestrator::new(original_message.text.clone())
-                } else {
-                    log::info!(
-                        "[MULTI_AGENT] Resuming session {} in {} mode ({} pending, {} in_progress)",
-                        session_id,
-                        context.mode,
-                        stats.pending,
-                        stats.in_progress
-                    );
-                    Orchestrator::from_context(context)
-                }
+                log::info!(
+                    "[MULTI_AGENT] Resuming session {} (iteration {})",
+                    session_id,
+                    context.mode_iterations
+                );
+                Orchestrator::from_context(context)
             }
             Ok(None) => {
                 log::info!(
@@ -584,27 +578,37 @@ impl MessageDispatcher {
             original_message.channel_id,
             &initial_mode.to_string(),
             initial_mode.label(),
-            Some(if initial_mode == crate::ai::multi_agent::AgentMode::Explore {
-                "Starting request processing"
-            } else {
-                "Resuming from previous state"
-            }),
+            Some("Processing request"),
         ));
 
         // Broadcast initial task state
         self.broadcast_tasks_update(original_message.channel_id, &orchestrator);
 
+        // Get the current subtype
+        let subtype = orchestrator.current_subtype();
+
         log::info!(
-            "[MULTI_AGENT] Started in {} mode for request: {}",
+            "[MULTI_AGENT] Started in {} mode ({} subtype) for request: {}",
             initial_mode,
+            subtype.label(),
             original_message.text.chars().take(50).collect::<String>()
         );
 
-        // Get regular tools from registry
-        let mut tools = self.tool_registry.get_tool_definitions(tool_config);
+        // Broadcast initial subtype
+        self.broadcaster.broadcast(GatewayEvent::agent_subtype_change(
+            original_message.channel_id,
+            subtype.as_str(),
+            subtype.label(),
+        ));
+
+        // Get regular tools from registry, filtered by subtype
+        let mut tools = self
+            .tool_registry
+            .get_tool_definitions_for_subtype(tool_config, subtype);
 
         // Add skills as a "use_skill" pseudo-tool if any are enabled
-        if let Some(skill_tool) = self.create_skill_tool_definition() {
+        // Skills are also filtered by subtype tags
+        if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(subtype) {
             tools.push(skill_tool);
         }
 
@@ -617,6 +621,14 @@ impl MessageDispatcher {
             "[TOOL_LOOP] Available tools ({}): {:?}",
             tools.len(),
             tools.iter().map(|t| &t.name).collect::<Vec<_>>()
+        );
+
+        // Broadcast toolset update to UI
+        self.broadcast_toolset_update(
+            original_message.channel_id,
+            &orchestrator.current_mode().to_string(),
+            orchestrator.current_subtype().as_str(),
+            &tools,
         );
 
         if tools.is_empty() {
@@ -665,12 +677,59 @@ impl MessageDispatcher {
         }
     }
 
+    /// Broadcast the current toolset to the UI for debug panel visibility
+    fn broadcast_toolset_update(
+        &self,
+        channel_id: i64,
+        mode: &str,
+        subtype: &str,
+        tools: &[ToolDefinition],
+    ) {
+        let tool_summaries: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "group": format!("{:?}", t.group),
+                })
+            })
+            .collect();
+
+        self.broadcaster.broadcast(GatewayEvent::agent_toolset_update(
+            channel_id,
+            mode,
+            subtype,
+            tool_summaries,
+        ));
+    }
+
     /// Create a "use_skill" tool definition if skills are enabled
     fn create_skill_tool_definition(&self) -> Option<ToolDefinition> {
+        // Default to Finance subtype for backwards compatibility
+        self.create_skill_tool_definition_for_subtype(AgentSubtype::Finance)
+    }
+
+    /// Create a "use_skill" tool definition filtered by agent subtype
+    fn create_skill_tool_definition_for_subtype(
+        &self,
+        subtype: AgentSubtype,
+    ) -> Option<ToolDefinition> {
         use crate::tools::{PropertySchema, ToolGroup, ToolInputSchema};
 
         let skills = self.db.list_enabled_skills().ok()?;
-        let active_skills: Vec<_> = skills.iter().filter(|s| s.enabled).collect();
+        let allowed_tags = subtype.allowed_skill_tags();
+
+        // Filter skills by subtype tags
+        let active_skills: Vec<_> = skills
+            .iter()
+            .filter(|s| {
+                s.enabled
+                    && s.tags
+                        .iter()
+                        .any(|t| allowed_tags.contains(&t.as_str()))
+            })
+            .collect();
 
         if active_skills.is_empty() {
             return None;
@@ -722,27 +781,23 @@ impl MessageDispatcher {
         })
     }
 
-    /// Broadcast task list update event for the debug panel
+    /// Broadcast status update event for the debug panel
     fn broadcast_tasks_update(&self, channel_id: i64, orchestrator: &Orchestrator) {
         let context = orchestrator.context();
         let mode = context.mode;
-        let stats = context.tasks.stats();
 
-        // Serialize tasks to JSON
-        let tasks_json = serde_json::to_value(context.tasks.all()).unwrap_or_default();
+        // Send simplified status (no task list anymore)
         let stats_json = serde_json::json!({
-            "total": stats.total,
-            "pending": stats.pending,
-            "in_progress": stats.in_progress,
-            "completed": stats.completed,
-            "failed": stats.failed
+            "iterations": context.mode_iterations,
+            "total_iterations": context.total_iterations,
+            "notes_count": context.exploration_notes.len()
         });
 
         self.broadcaster.broadcast(GatewayEvent::agent_tasks_update(
             channel_id,
             &mode.to_string(),
             mode.label(),
-            tasks_json,
+            serde_json::json!([]), // Empty tasks array
             stats_json,
         ));
     }
@@ -812,12 +867,23 @@ impl MessageDispatcher {
                     Some(&transition.reason),
                 ));
 
-                // Update tools for new mode
-                tools = self.tool_registry.get_tool_definitions(tool_config);
-                if let Some(skill_tool) = self.create_skill_tool_definition() {
+                // Update tools for new mode (using current subtype)
+                let subtype = orchestrator.current_subtype();
+                tools = self
+                    .tool_registry
+                    .get_tool_definitions_for_subtype(tool_config, subtype);
+                if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(subtype) {
                     tools.push(skill_tool);
                 }
                 tools.extend(orchestrator.get_mode_tools());
+
+                // Broadcast toolset update
+                self.broadcast_toolset_update(
+                    original_message.channel_id,
+                    &transition.to.to_string(),
+                    subtype.as_str(),
+                    &tools,
+                );
 
                 // Update system prompt for new mode
                 if let Some(system_msg) = conversation.first_mut() {
@@ -870,8 +936,31 @@ impl MessageDispatcher {
                 );
             }
 
-            // If no tool calls and orchestrator is complete, return content
+            // If no tool calls, check if this is allowed
             if ai_response.tool_calls.is_empty() {
+                // Check if the agent should have called tools but didn't
+                if let Some(warning_msg) = orchestrator.check_tool_call_required() {
+                    log::warn!(
+                        "[ORCHESTRATED_LOOP] Agent skipped tool calls, forcing back into loop"
+                    );
+
+                    // Add a system message telling the agent to call tools
+                    conversation.push(Message {
+                        role: MessageRole::Assistant,
+                        content: ai_response.content.clone(),
+                    });
+                    conversation.push(Message {
+                        role: MessageRole::User,
+                        content: format!(
+                            "[SYSTEM ERROR] {}\n\nYou MUST call tools to gather information. Do not respond with made-up data.",
+                            warning_msg
+                        ),
+                    });
+
+                    // Continue the loop to force tool calling
+                    continue;
+                }
+
                 if orchestrator_complete {
                     let response = if tool_call_log.is_empty() {
                         format!("{}\n\n{}", final_summary, ai_response.content)
@@ -919,42 +1008,6 @@ impl MessageDispatcher {
                 let orchestrator_result = orchestrator.process_tool_result(&call.name, &call.arguments);
 
                 match orchestrator_result {
-                    OrchestratorResult::Transition(transition) => {
-                        log::info!(
-                            "[ORCHESTRATOR] Mode transition: {} → {} ({})",
-                            transition.from, transition.to, transition.reason
-                        );
-                        self.broadcaster.broadcast(GatewayEvent::agent_mode_change(
-                            original_message.channel_id,
-                            &transition.to.to_string(),
-                            transition.to.label(),
-                            Some(&transition.reason),
-                        ));
-
-                        // Update tools for new mode
-                        tools = self.tool_registry.get_tool_definitions(tool_config);
-                        if let Some(skill_tool) = self.create_skill_tool_definition() {
-                            tools.push(skill_tool);
-                        }
-                        tools.extend(orchestrator.get_mode_tools());
-
-                        // Update system prompt
-                        if let Some(system_msg) = conversation.first_mut() {
-                            if system_msg.role == MessageRole::System {
-                                let orchestrator_prompt = orchestrator.get_system_prompt();
-                                system_msg.content = format!(
-                                    "{}\n\n---\n\n{}",
-                                    orchestrator_prompt,
-                                    archetype.enhance_system_prompt(&messages[0].content, &tools)
-                                );
-                            }
-                        }
-
-                        tool_responses.push(ToolResponse::success(
-                            call.id.clone(),
-                            format!("Mode transitioned to {}. {}", transition.to, transition.reason),
-                        ));
-                    }
                     OrchestratorResult::Complete(summary) => {
                         log::info!("[ORCHESTRATOR] Execution complete: {}", summary);
                         orchestrator_complete = true;
@@ -973,12 +1026,73 @@ impl MessageDispatcher {
                     OrchestratorResult::Continue => {
                         // Not an orchestrator tool, execute normally
                         let result = if call.name == "use_skill" {
-                            self.execute_skill_tool(&call.arguments).await
+                            // Execute skill and set active skill on orchestrator
+                            let skill_result = self.execute_skill_tool(&call.arguments, Some(session_id)).await;
+
+                            // Also set active skill directly on orchestrator (in-memory)
+                            if skill_result.success {
+                                if let Some(skill_name) = call.arguments.get("skill_name").and_then(|v| v.as_str()) {
+                                    if let Ok(Some(skill)) = self.db.get_enabled_skill_by_name(skill_name) {
+                                        let skills_dir = crate::config::skills_dir();
+                                        let skill_base_dir = format!("{}/{}", skills_dir, skill.name);
+                                        let instructions = skill.body.replace("{baseDir}", &skill_base_dir);
+
+                                        orchestrator.context_mut().active_skill = Some(crate::ai::multi_agent::types::ActiveSkill {
+                                            name: skill.name,
+                                            instructions,
+                                            activated_at: chrono::Utc::now().to_rfc3339(),
+                                            tool_calls_made: 0,
+                                        });
+                                        log::info!("[SKILL] Set active skill on orchestrator (tool_calls_made=0)");
+                                    }
+                                }
+                            }
+                            skill_result
                         } else {
-                            self.tool_registry
+                            // Execute regular tool and record the call for skill tracking
+                            let tool_result = self.tool_registry
                                 .execute(&call.name, call.arguments.clone(), tool_context, Some(tool_config))
-                                .await
+                                .await;
+
+                            // Record this tool call for active skill tracking
+                            if tool_result.success {
+                                orchestrator.record_tool_call(&call.name);
+                            }
+
+                            tool_result
                         };
+
+                        // Handle subtype change: update orchestrator and refresh tools
+                        if call.name == "set_agent_subtype" && result.success {
+                            if let Some(subtype_str) = call.arguments.get("subtype").and_then(|v| v.as_str()) {
+                                if let Some(new_subtype) = AgentSubtype::from_str(subtype_str) {
+                                    orchestrator.set_subtype(new_subtype);
+                                    log::info!(
+                                        "[SUBTYPE] Changed to {} mode",
+                                        new_subtype.label()
+                                    );
+
+                                    // Refresh tools for new subtype
+                                    tools = self
+                                        .tool_registry
+                                        .get_tool_definitions_for_subtype(tool_config, new_subtype);
+                                    if let Some(skill_tool) =
+                                        self.create_skill_tool_definition_for_subtype(new_subtype)
+                                    {
+                                        tools.push(skill_tool);
+                                    }
+                                    tools.extend(orchestrator.get_mode_tools());
+
+                                    // Broadcast toolset update
+                                    self.broadcast_toolset_update(
+                                        original_message.channel_id,
+                                        &orchestrator.current_mode().to_string(),
+                                        new_subtype.as_str(),
+                                        &tools,
+                                    );
+                                }
+                            }
+                        }
 
                         // Handle retry backoff
                         let result = if let Some(retry_secs) = result.retry_after_secs {
@@ -1116,12 +1230,23 @@ impl MessageDispatcher {
                     Some(&transition.reason),
                 ));
 
-                // Update tools
-                tools = self.tool_registry.get_tool_definitions(tool_config);
-                if let Some(skill_tool) = self.create_skill_tool_definition() {
+                // Update tools (using current subtype)
+                let subtype = orchestrator.current_subtype();
+                tools = self
+                    .tool_registry
+                    .get_tool_definitions_for_subtype(tool_config, subtype);
+                if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(subtype) {
                     tools.push(skill_tool);
                 }
                 tools.extend(orchestrator.get_mode_tools());
+
+                // Broadcast toolset update
+                self.broadcast_toolset_update(
+                    original_message.channel_id,
+                    &transition.to.to_string(),
+                    subtype.as_str(),
+                    &tools,
+                );
 
                 // Update system prompt
                 if let Some(system_msg) = conversation.first_mut() {
@@ -1183,23 +1308,6 @@ impl MessageDispatcher {
                         );
 
                         let tool_result_content = match orchestrator_result {
-                            OrchestratorResult::Transition(transition) => {
-                                self.broadcaster.broadcast(GatewayEvent::agent_mode_change(
-                                    original_message.channel_id,
-                                    &transition.to.to_string(),
-                                    transition.to.label(),
-                                    Some(&transition.reason),
-                                ));
-
-                                // Update tools
-                                tools = self.tool_registry.get_tool_definitions(tool_config);
-                                if let Some(skill_tool) = self.create_skill_tool_definition() {
-                                    tools.push(skill_tool);
-                                }
-                                tools.extend(orchestrator.get_mode_tools());
-
-                                format!("Mode transitioned to {}. {}", transition.to, transition.reason)
-                            }
                             OrchestratorResult::Complete(summary) => {
                                 orchestrator_complete = true;
                                 final_response = summary.clone();
@@ -1210,15 +1318,76 @@ impl MessageDispatcher {
                             OrchestratorResult::Continue => {
                                 // Execute regular tool
                                 let result = if tool_call.tool_name == "use_skill" {
-                                    self.execute_skill_tool(&tool_call.tool_params).await
+                                    // Execute skill and set active skill on orchestrator
+                                    let skill_result = self.execute_skill_tool(&tool_call.tool_params, Some(session_id)).await;
+
+                                    // Also set active skill directly on orchestrator (in-memory)
+                                    if skill_result.success {
+                                        if let Some(skill_name) = tool_call.tool_params.get("skill_name").and_then(|v| v.as_str()) {
+                                            if let Ok(Some(skill)) = self.db.get_enabled_skill_by_name(skill_name) {
+                                                let skills_dir = crate::config::skills_dir();
+                                                let skill_base_dir = format!("{}/{}", skills_dir, skill.name);
+                                                let instructions = skill.body.replace("{baseDir}", &skill_base_dir);
+
+                                                orchestrator.context_mut().active_skill = Some(crate::ai::multi_agent::types::ActiveSkill {
+                                                    name: skill.name,
+                                                    instructions,
+                                                    activated_at: chrono::Utc::now().to_rfc3339(),
+                                                    tool_calls_made: 0,
+                                                });
+                                                log::info!("[SKILL] Set active skill on orchestrator (tool_calls_made=0)");
+                                            }
+                                        }
+                                    }
+                                    skill_result
                                 } else {
-                                    self.tool_registry.execute(
+                                    // Execute regular tool and record the call for skill tracking
+                                    let tool_result = self.tool_registry.execute(
                                         &tool_call.tool_name,
                                         tool_call.tool_params.clone(),
                                         tool_context,
                                         Some(tool_config),
-                                    ).await
+                                    ).await;
+
+                                    // Record this tool call for active skill tracking
+                                    if tool_result.success {
+                                        orchestrator.record_tool_call(&tool_call.tool_name);
+                                    }
+
+                                    tool_result
                                 };
+
+                                // Handle subtype change: update orchestrator and refresh tools
+                                if tool_call.tool_name == "set_agent_subtype" && result.success {
+                                    if let Some(subtype_str) = tool_call.tool_params.get("subtype").and_then(|v| v.as_str()) {
+                                        if let Some(new_subtype) = AgentSubtype::from_str(subtype_str) {
+                                            orchestrator.set_subtype(new_subtype);
+                                            log::info!(
+                                                "[SUBTYPE] Changed to {} mode",
+                                                new_subtype.label()
+                                            );
+
+                                            // Refresh tools for new subtype
+                                            tools = self
+                                                .tool_registry
+                                                .get_tool_definitions_for_subtype(tool_config, new_subtype);
+                                            if let Some(skill_tool) =
+                                                self.create_skill_tool_definition_for_subtype(new_subtype)
+                                            {
+                                                tools.push(skill_tool);
+                                            }
+                                            tools.extend(orchestrator.get_mode_tools());
+
+                                            // Broadcast toolset update
+                                            self.broadcast_toolset_update(
+                                                original_message.channel_id,
+                                                &orchestrator.current_mode().to_string(),
+                                                new_subtype.as_str(),
+                                                &tools,
+                                            );
+                                        }
+                                    }
+                                }
 
                                 self.broadcaster.broadcast(GatewayEvent::tool_result(
                                     original_message.channel_id,
@@ -1300,7 +1469,10 @@ impl MessageDispatcher {
     }
 
     /// Execute the special "use_skill" tool
-    async fn execute_skill_tool(&self, params: &Value) -> crate::tools::ToolResult {
+    /// If session_id is provided, saves the active skill to the agent context for persistence
+    async fn execute_skill_tool(&self, params: &Value, session_id: Option<i64>) -> crate::tools::ToolResult {
+        use crate::ai::multi_agent::types::ActiveSkill;
+
         let skill_name = params.get("skill_name")
             .and_then(|v| v.as_str())
             .unwrap_or("");
@@ -1324,20 +1496,42 @@ impl MessageDispatcher {
                 let skills_dir = crate::config::skills_dir();
                 let skill_base_dir = format!("{}/{}", skills_dir, skill.name);
 
+                // Replace {baseDir} placeholder with actual skill directory
+                let instructions = if !skill.body.is_empty() {
+                    skill.body.replace("{baseDir}", &skill_base_dir)
+                } else {
+                    String::new()
+                };
+
+                // Save active skill to agent context for persistence
+                if let Some(sid) = session_id {
+                    if let Ok(Some(mut context)) = self.db.get_agent_context(sid) {
+                        context.active_skill = Some(ActiveSkill {
+                            name: skill.name.clone(),
+                            instructions: instructions.clone(),
+                            activated_at: chrono::Utc::now().to_rfc3339(),
+                            tool_calls_made: 0, // Reset counter - agent must call actual tools
+                        });
+                        if let Err(e) = self.db.save_agent_context(sid, &context) {
+                            log::warn!("[SKILL] Failed to save active skill to context: {}", e);
+                        } else {
+                            log::info!("[SKILL] Saved active skill '{}' to session {} (tool_calls_made=0)", skill.name, sid);
+                        }
+                    }
+                }
+
                 // Return the skill's instructions/body along with context
                 let mut result = format!("## Skill: {}\n\n", skill.name);
                 result.push_str(&format!("Description: {}\n\n", skill.description));
 
-                if !skill.body.is_empty() {
-                    // Replace {baseDir} placeholder with actual skill directory
-                    let body_with_paths = skill.body.replace("{baseDir}", &skill_base_dir);
+                if !instructions.is_empty() {
                     result.push_str("### Instructions:\n");
-                    result.push_str(&body_with_paths);
+                    result.push_str(&instructions);
                     result.push_str("\n\n");
                 }
 
                 result.push_str(&format!("### User Query:\n{}\n\n", input));
-                result.push_str("Use the appropriate tools (like `exec` for commands) to fulfill this skill request based on the instructions above.");
+                result.push_str("**IMPORTANT:** Now call the actual tools mentioned in the instructions above. Do NOT call use_skill again.");
 
                 crate::tools::ToolResult::success(&result)
             }
@@ -1362,7 +1556,7 @@ impl MessageDispatcher {
         tool_config: &ToolConfig,
         tool_context: &ToolContext,
         channel_id: i64,
-        _session_id: i64,
+        session_id: i64,
         _user_id: &str,
     ) -> Vec<ToolResponse> {
         let mut responses = Vec::new();
@@ -1389,7 +1583,7 @@ impl MessageDispatcher {
 
             // Execute the tool (handle special "use_skill" pseudo-tool)
             let result = if call.name == "use_skill" {
-                self.execute_skill_tool(&call.arguments).await
+                self.execute_skill_tool(&call.arguments, Some(session_id)).await
             } else {
                 self.tool_registry
                     .execute(&call.name, call.arguments.clone(), tool_context, Some(tool_config))

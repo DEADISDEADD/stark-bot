@@ -24,6 +24,7 @@ interface ConversationMessage {
 const STORAGE_KEY_MESSAGES = 'agentChat_messages';
 const STORAGE_KEY_HISTORY = 'agentChat_history';
 const STORAGE_KEY_MODE = 'agentChat_mode';
+const STORAGE_KEY_SUBTYPE = 'agentChat_subtype';
 
 // Helper to safely parse JSON from localStorage
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -61,6 +62,9 @@ export default function AgentChat() {
   const [agentMode, setAgentMode] = useState<{ mode: string; label: string } | null>(() =>
     loadFromStorage<{ mode: string; label: string } | null>(STORAGE_KEY_MODE, null)
   );
+  const [agentSubtype, setAgentSubtype] = useState<{ subtype: string; label: string } | null>(() =>
+    loadFromStorage<{ subtype: string; label: string } | null>(STORAGE_KEY_SUBTYPE, null)
+  );
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -78,6 +82,13 @@ export default function AgentChat() {
       localStorage.setItem(STORAGE_KEY_MODE, JSON.stringify(agentMode));
     }
   }, [agentMode]);
+
+  // Persist agent subtype to localStorage
+  useEffect(() => {
+    if (agentSubtype) {
+      localStorage.setItem(STORAGE_KEY_SUBTYPE, JSON.stringify(agentSubtype));
+    }
+  }, [agentSubtype]);
 
   // Helper to truncate address
   const truncateAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
@@ -115,7 +126,9 @@ export default function AgentChat() {
 
   // Listen for real-time tool call events from the agent
   useEffect(() => {
+    console.log('[AgentChat] Registering agent.tool_call listener');
     const handleToolCall = (data: unknown) => {
+      console.log('[AgentChat] Received agent.tool_call event:', data);
       const event = data as { tool_name: string; parameters: Record<string, unknown> };
       const paramsPretty = JSON.stringify(event.parameters, null, 2);
       const content = `🔧 **Tool Call:** \`${event.tool_name}\`\n\`\`\`json\n${paramsPretty}\n\`\`\``;
@@ -131,13 +144,16 @@ export default function AgentChat() {
 
     on('agent.tool_call', handleToolCall);
     return () => {
+      console.log('[AgentChat] Unregistering agent.tool_call listener');
       off('agent.tool_call', handleToolCall);
     };
   }, [on, off]);
 
   // Listen for tool result events to show success/failure in chat
   useEffect(() => {
+    console.log('[AgentChat] Registering tool.result listener');
     const handleToolResult = (data: unknown) => {
+      console.log('[AgentChat] Received tool.result event:', data);
       const event = data as { tool_name: string; success: boolean; duration_ms: number; content: string };
       const statusEmoji = event.success ? '✅' : '❌';
       const statusText = event.success ? 'Success' : 'Failed';
@@ -161,6 +177,7 @@ export default function AgentChat() {
 
     on('tool.result', handleToolResult);
     return () => {
+      console.log('[AgentChat] Unregistering tool.result listener');
       off('tool.result', handleToolResult);
     };
   }, [on, off]);
@@ -229,6 +246,20 @@ export default function AgentChat() {
     on('agent.mode_change', handleModeChange);
     return () => {
       off('agent.mode_change', handleModeChange);
+    };
+  }, [on, off]);
+
+  // Listen for agent subtype changes (Finance/CodeEngineer)
+  useEffect(() => {
+    const handleSubtypeChange = (data: unknown) => {
+      const event = data as { subtype: string; label: string };
+      console.log('[Agent] Subtype changed:', event.subtype, event.label);
+      setAgentSubtype({ subtype: event.subtype, label: event.label });
+    };
+
+    on('agent.subtype_change', handleSubtypeChange);
+    return () => {
+      off('agent.subtype_change', handleSubtypeChange);
     };
   }, [on, off]);
 
@@ -356,7 +387,9 @@ export default function AgentChat() {
       conversationHistory.current = [];
       localStorage.removeItem(STORAGE_KEY_HISTORY);
       localStorage.removeItem(STORAGE_KEY_MODE);
+      localStorage.removeItem(STORAGE_KEY_SUBTYPE);
       setAgentMode(null);
+      setAgentSubtype(null);
       addMessage('system', 'Conversation cleared. Starting fresh.');
     },
     [Command.Reset]: () => {
@@ -364,7 +397,9 @@ export default function AgentChat() {
       conversationHistory.current = [];
       localStorage.removeItem(STORAGE_KEY_HISTORY);
       localStorage.removeItem(STORAGE_KEY_MODE);
+      localStorage.removeItem(STORAGE_KEY_SUBTYPE);
       setAgentMode(null);
+      setAgentSubtype(null);
       addMessage('system', 'Conversation reset.');
     },
     [Command.Clear]: () => {
@@ -372,7 +407,9 @@ export default function AgentChat() {
       conversationHistory.current = [];
       localStorage.removeItem(STORAGE_KEY_HISTORY);
       localStorage.removeItem(STORAGE_KEY_MODE);
+      localStorage.removeItem(STORAGE_KEY_SUBTYPE);
       setAgentMode(null);
+      setAgentSubtype(null);
     },
     [Command.Skills]: async () => {
       try {
@@ -623,6 +660,22 @@ export default function AgentChat() {
               <span>{agentMode.label}</span>
             </div>
           )}
+          {/* Agent Subtype Badge */}
+          {agentSubtype && (
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${
+              agentSubtype.subtype === 'finance'
+                ? 'bg-purple-500/20 text-purple-400 border border-purple-500/50'
+                : agentSubtype.subtype === 'code_engineer'
+                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50'
+                : 'bg-pink-500/20 text-pink-400 border border-pink-500/50'
+            }`}>
+              <span>{
+                agentSubtype.subtype === 'finance' ? '💰' :
+                agentSubtype.subtype === 'code_engineer' ? '🛠️' : '📱'
+              }</span>
+              <span>{agentSubtype.label}</span>
+            </div>
+          )}
         </div>
 
         {/* Debug Toggle + Wallet Info */}
@@ -698,7 +751,9 @@ export default function AgentChat() {
               localStorage.removeItem(STORAGE_KEY_MESSAGES);
               localStorage.removeItem(STORAGE_KEY_HISTORY);
               localStorage.removeItem(STORAGE_KEY_MODE);
+              localStorage.removeItem(STORAGE_KEY_SUBTYPE);
               setAgentMode(null);
+              setAgentSubtype(null);
             }}
           >
             <RotateCcw className="w-4 h-4 mr-2" />

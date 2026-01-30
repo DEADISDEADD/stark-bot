@@ -7,7 +7,7 @@
 //! contain `tool_calls` in the message structure.
 
 use super::{AgentResponse, ArchetypeId, ModelArchetype};
-use crate::tools::ToolDefinition;
+use crate::tools::ToolDefinition; // Required by ModelArchetype trait
 
 /// Kimi archetype for native OpenAI-compatible tool calling
 pub struct KimiArchetype;
@@ -37,38 +37,11 @@ impl ModelArchetype for KimiArchetype {
         "kimi-k2-turbo-preview" // Kimi K2 turbo preview - supports native tool calling per docs
     }
 
-    fn enhance_system_prompt(&self, base_prompt: &str, tools: &[ToolDefinition]) -> String {
-        if tools.is_empty() {
-            return base_prompt.to_string();
-        }
-
-        let mut prompt = base_prompt.to_string();
-        prompt.push_str("\n\n## Available Tools\n\n");
-        prompt.push_str(
-            "You have access to the following tools. Use them to help the user:\n\n",
-        );
-
-        for tool in tools {
-            // Truncate long descriptions to first sentence for readability
-            let short_desc = tool
-                .description
-                .split(". ")
-                .next()
-                .unwrap_or(&tool.description);
-            prompt.push_str(&format!("- **{}**: {}\n", tool.name, short_desc));
-        }
-
-        prompt.push_str("\n**IMPORTANT**: When a user asks for something that a tool can provide, ");
-        prompt.push_str("USE the tool via the native tool_calls mechanism. ");
-        prompt.push_str("Do not output tool calls as text.\n\n");
-
-        prompt.push_str("**CRITICAL - NEVER HALLUCINATE TOOL RESULTS**:\n");
-        prompt.push_str("- Wait for actual tool results before reporting them\n");
-        prompt.push_str("- Report EXACTLY what tools return - never invent tx hashes, addresses, or data\n");
-        prompt.push_str("- If a tool fails, quote the actual error message verbatim\n");
-        prompt.push_str("- Never guess or assume what a tool will return\n");
-
-        prompt
+    fn enhance_system_prompt(&self, base_prompt: &str, _tools: &[ToolDefinition]) -> String {
+        // Don't list tools in the system prompt - they're passed via the API's `tools` parameter.
+        // Listing them as text confuses some models into outputting tool calls as formatted text
+        // instead of using the native tool_calls mechanism.
+        base_prompt.to_string()
     }
 
     fn parse_response(&self, content: &str) -> Option<AgentResponse> {

@@ -49,6 +49,7 @@ services:
       - backend
     environment:
       - NODE_ENV=development
+      - DOCKER=1
 
 volumes:
   cargo-target:

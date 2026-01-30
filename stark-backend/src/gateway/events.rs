@@ -35,6 +35,15 @@ impl EventBroadcaster {
         let event_name = event.event.clone();
         let mut failed_clients = Vec::new();
 
+        // Log tool call and result events at info level for visibility
+        if event_name == "agent.tool_call" || event_name == "tool.result" {
+            log::info!(
+                "[BROADCAST] '{}' to {} client(s)",
+                event_name,
+                self.clients.len()
+            );
+        }
+
         // Log the full event payload for debugging
         if let Ok(json) = serde_json::to_string_pretty(&event) {
             log::debug!(

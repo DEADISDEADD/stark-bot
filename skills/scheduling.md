@@ -1,7 +1,7 @@
 ---
 name: scheduling
 description: "Create scheduled tasks (cron jobs) that run at specific times or intervals. Use for recurring reports, reminders, and automated tasks."
-tags: [cron, schedule, automation, recurring]
+tags: [cron, schedule, automation, recurring, scheduling, social]
 ---
 
 # Scheduling Tasks
@@ -26,16 +26,14 @@ Cron jobs are managed through the API (not directly by the agent). To create a c
 2. Tell them to use the Scheduling page in the web UI to create it
 3. Or provide the cron job configuration they need:
 
-```json
-{
-  "name": "Daily PR Report",
-  "description": "Generate a summary of recent PRs and post to Discord",
-  "schedule_type": "every",
-  "schedule_value": "24h",
-  "message": "Generate a report of recent PRs on clawdbot/clawdbot and summarize them",
-  "channel_id": <discord_channel_id>,
-  "deliver": true
-}
+```config:cron_job
+name: Daily PR Report
+description: Generate a summary of recent PRs and post to Discord
+schedule_type: every
+schedule_value: "24h"
+message: Generate a report of recent PRs on clawdbot/clawdbot and summarize them
+channel_id: <discord_channel_id>
+deliver: true
 ```
 
 ## Schedule Types

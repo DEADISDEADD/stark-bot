@@ -50,7 +50,7 @@ impl ApplyPatchTool {
                     properties,
                     required: vec!["patch".to_string()],
                 },
-                group: ToolGroup::Filesystem,
+                group: ToolGroup::Development,
             },
         }
     }

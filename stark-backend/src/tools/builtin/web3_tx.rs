@@ -102,7 +102,7 @@ impl Web3TxTool {
                     properties,
                     required: vec!["from_register".to_string(), "max_fee_per_gas".to_string()],
                 },
-                group: ToolGroup::Web,
+                group: ToolGroup::Finance,
             },
         }
     }

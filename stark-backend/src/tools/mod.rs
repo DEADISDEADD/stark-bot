@@ -3,6 +3,7 @@ pub mod http_retry;
 pub mod presets;
 pub mod register;
 pub mod registry;
+pub mod rpc_config;
 pub mod types;
 
 pub use register::{PresetOrCustom, RegisterStore};
@@ -16,31 +17,42 @@ use std::sync::Arc;
 
 /// Register all built-in tools to a registry
 fn register_all_tools(registry: &mut ToolRegistry) {
-    // Web tools
+    // System tools (always available)
+    registry.register(Arc::new(builtin::SubagentTool::new()));
+    registry.register(Arc::new(builtin::SubagentStatusTool::new()));
+    registry.register(Arc::new(builtin::SetAgentSubtypeTool::new()));
+    registry.register(Arc::new(builtin::AskUserTool::new()));
+
+    // Web tools (shared)
     registry.register(Arc::new(builtin::WebFetchTool::new()));
+
+    // Finance tools (crypto/DeFi operations)
     registry.register(Arc::new(builtin::X402RpcTool::new()));
     registry.register(Arc::new(builtin::X402FetchTool::new()));
-    registry.register(Arc::new(builtin::LocalBurnerWalletTool::new()));
     registry.register(Arc::new(builtin::Web3TxTool::new()));
     registry.register(Arc::new(builtin::Web3FunctionCallTool::new()));
     registry.register(Arc::new(builtin::TokenLookupTool::new()));
     registry.register(Arc::new(builtin::RegisterSetTool::new()));
 
-    // Filesystem tools
+    // Filesystem tools (read-only, shared)
     registry.register(Arc::new(builtin::ReadFileTool::new()));
-    registry.register(Arc::new(builtin::WriteFileTool::new()));
     registry.register(Arc::new(builtin::ListFilesTool::new()));
-    registry.register(Arc::new(builtin::ApplyPatchTool::new()));
 
-    // Exec tool
+    // Development tools (code editing, git, search)
+    registry.register(Arc::new(builtin::WriteFileTool::new()));
+    registry.register(Arc::new(builtin::ApplyPatchTool::new()));
+    registry.register(Arc::new(builtin::EditFileTool::new()));
+    registry.register(Arc::new(builtin::DeleteFileTool::new()));
+    registry.register(Arc::new(builtin::RenameFileTool::new()));
+    registry.register(Arc::new(builtin::GrepTool::new()));
+    registry.register(Arc::new(builtin::GlobTool::new()));
+    registry.register(Arc::new(builtin::GitTool::new()));
+
+    // Exec tool (Development mode)
     registry.register(Arc::new(builtin::ExecTool::new()));
 
     // Messaging tools
     registry.register(Arc::new(builtin::AgentSendTool::new()));
-
-    // System tools (subagents)
-    registry.register(Arc::new(builtin::SubagentTool::new()));
-    registry.register(Arc::new(builtin::SubagentStatusTool::new()));
 }
 
 /// Create a new ToolRegistry with all built-in tools registered

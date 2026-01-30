@@ -338,27 +338,15 @@ impl ExecutionTracker {
                 (format!("Sending to {}", channel), "Sending message".to_string())
             }
 
-            // Wallet operations
-            "local_burner_wallet" => {
-                let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("query");
-                match action {
-                    "address" => ("Getting wallet address".to_string(), "Getting address".to_string()),
-                    "balance" => {
-                        let network = args.get("network").and_then(|v| v.as_str()).unwrap_or("base");
-                        (format!("Checking ETH balance on {}", network), "Checking balance".to_string())
-                    }
-                    "token_balance" => {
-                        let token = args.get("token").and_then(|v| v.as_str()).unwrap_or("");
-                        let short_token = if token.len() > 10 {
-                            format!("{}...", &token[..10])
-                        } else {
-                            token.to_string()
-                        };
-                        (format!("Checking token balance: {}", short_token), "Checking token".to_string())
-                    }
-                    "sign" => ("Signing message".to_string(), "Signing".to_string()),
-                    _ => (format!("Wallet: {}", action), "Wallet operation".to_string()),
-                }
+            // User interaction
+            "ask_user" => {
+                let question = args.get("question").and_then(|v| v.as_str()).unwrap_or("question");
+                let short_q = if question.len() > 30 {
+                    format!("{}...", &question[..30])
+                } else {
+                    question.to_string()
+                };
+                (format!("Asking: {}", short_q), "Asking user".to_string())
             }
 
             // RPC operations

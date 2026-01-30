@@ -1,6 +1,7 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use crate::ai::ArchetypeId;
 use crate::models::{AgentSettings, AgentSettingsResponse, UpdateAgentSettingsRequest, UpdateBotSettingsRequest};
+use crate::tools::rpc_config;
 use crate::AppState;
 
 /// Validate session token from request
@@ -230,13 +231,29 @@ pub async fn update_bot_settings(
     }
     let request = body.into_inner();
 
-    match state.db.update_bot_settings(
+    // Validate rpc_provider if provided
+    if let Some(ref provider) = request.rpc_provider {
+        if provider != "custom" && rpc_config::get_rpc_provider(provider).is_none() {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Invalid RPC provider: {}. Valid options: defirelay, custom", provider)
+            }));
+        }
+    }
+
+    match state.db.update_bot_settings_full(
         request.bot_name.as_deref(),
         request.bot_email.as_deref(),
         request.web3_tx_requires_confirmation,
+        request.rpc_provider.as_deref(),
+        request.custom_rpc_endpoints.as_ref(),
     ) {
         Ok(settings) => {
-            log::info!("Updated bot settings: name={}, email={}", settings.bot_name, settings.bot_email);
+            log::info!(
+                "Updated bot settings: name={}, email={}, rpc_provider={}",
+                settings.bot_name,
+                settings.bot_email,
+                settings.rpc_provider
+            );
             HttpResponse::Ok().json(settings)
         }
         Err(e) => {
@@ -246,6 +263,40 @@ pub async fn update_bot_settings(
             }))
         }
     }
+}
+
+/// Get available RPC providers
+pub async fn get_rpc_providers(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    let mut providers: Vec<serde_json::Value> = rpc_config::list_rpc_providers()
+        .into_iter()
+        .map(|(id, provider)| {
+            serde_json::json!({
+                "id": id,
+                "display_name": provider.display_name,
+                "description": provider.description,
+                "x402": provider.x402,
+                "networks": provider.endpoints.keys().collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+
+    // Add "custom" option
+    providers.push(serde_json::json!({
+        "id": "custom",
+        "display_name": "Custom",
+        "description": "User-provided RPC endpoints (no x402 payment)",
+        "x402": false,
+        "networks": ["base", "mainnet"],
+    }));
+
+    HttpResponse::Ok().json(providers)
 }
 
 /// Configure routes
@@ -262,5 +313,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         web::scope("/api/bot-settings")
             .route("", web::get().to(get_bot_settings))
             .route("", web::put().to(update_bot_settings))
+    );
+    cfg.service(
+        web::resource("/api/rpc-providers")
+            .route(web::get().to(get_rpc_providers))
     );
 }

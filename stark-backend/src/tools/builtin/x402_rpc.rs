@@ -1,10 +1,12 @@
 //! x402 RPC tool for making paid EVM RPC calls via DeFi Relay
 //!
 //! Uses presets to build RPC params from register values, preventing hallucination.
+//! Supports configurable RPC endpoints via bot settings.
 
 use crate::tools::http_retry::HttpRetryManager;
 use crate::tools::presets::{get_rpc_preset, list_rpc_presets};
 use crate::tools::registry::Tool;
+use crate::tools::rpc_config;
 use crate::tools::types::{
     PropertySchema, ToolContext, ToolDefinition, ToolGroup, ToolInputSchema, ToolResult,
 };
@@ -90,7 +92,7 @@ impl X402RpcTool {
                     properties,
                     required: vec!["preset".to_string()],
                 },
-                group: ToolGroup::Web,
+                group: ToolGroup::Finance,
             },
             client: Arc::new(RwLock::new(None)),
         }
@@ -184,8 +186,32 @@ impl Tool for X402RpcTool {
             params.network
         );
 
-        // Build the RPC URL
-        let url = format!("https://rpc.defirelay.com/rpc/light/{}", params.network);
+        // Get RPC configuration from context (set by dispatcher from bot_settings)
+        let rpc_provider = context.extra.get("rpc_provider")
+            .and_then(|v| v.as_str())
+            .unwrap_or("defirelay");
+
+        let custom_endpoints: Option<HashMap<String, String>> = context.extra.get("custom_rpc_endpoints")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+        // Resolve the RPC URL and whether to use x402
+        let (url, use_x402) = match rpc_config::resolve_rpc_config(
+            rpc_provider,
+            custom_endpoints.as_ref(),
+            &params.network,
+        ) {
+            Some(config) => config,
+            None => {
+                // Fallback to default defirelay URL
+                (format!("https://rpc.defirelay.com/rpc/light/{}", params.network), true)
+            }
+        };
+
+        log::info!(
+            "[x402_rpc] Using RPC URL: {} (x402={})",
+            url,
+            use_x402
+        );
 
         // Build JSON-RPC request
         let rpc_request = JsonRpcRequest {
@@ -205,8 +231,14 @@ impl Tool for X402RpcTool {
         let retry_key = format!("x402_rpc:{}:{}", params.network, params.preset);
         let retry_manager = HttpRetryManager::global();
 
-        // Make the request
-        let response = match client.post_with_payment(&url, &rpc_request).await {
+        // Make the request (with or without x402 payment based on config)
+        let response = if use_x402 {
+            client.post_with_payment(&url, &rpc_request).await
+        } else {
+            client.post_regular(&url, &rpc_request).await
+        };
+
+        let response = match response {
             Ok(r) => r,
             Err(e) => {
                 let error_msg = format!("RPC request failed: {}", e);

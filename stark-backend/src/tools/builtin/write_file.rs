@@ -68,7 +68,7 @@ impl WriteFileTool {
                     properties,
                     required: vec!["path".to_string(), "content".to_string()],
                 },
-                group: ToolGroup::Filesystem,
+                group: ToolGroup::Development,
             },
         }
     }

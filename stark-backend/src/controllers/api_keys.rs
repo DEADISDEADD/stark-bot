@@ -9,8 +9,7 @@ use crate::AppState;
 pub enum ApiKeyId {
     GithubToken,
     BankrApiKey,
-    TwitterClientId,
-    TwitterClientSecret,
+    TwitterToken,
     DiscordBotToken,
 }
 
@@ -20,8 +19,7 @@ impl ApiKeyId {
         match self {
             Self::GithubToken => "GITHUB_TOKEN",
             Self::BankrApiKey => "BANKR_API_KEY",
-            Self::TwitterClientId => "TWITTER_CLIENT_ID",
-            Self::TwitterClientSecret => "TWITTER_CLIENT_SECRET",
+            Self::TwitterToken => "TWITTER_TOKEN",
             Self::DiscordBotToken => "DISCORD_BOT_TOKEN",
         }
     }
@@ -32,8 +30,7 @@ impl ApiKeyId {
         match self {
             Self::GithubToken => Some(&["GH_TOKEN", "GITHUB_TOKEN"]),
             Self::BankrApiKey => Some(&["BANKR_API_KEY"]),
-            Self::TwitterClientId => Some(&["TWITTER_CLIENT_ID"]),
-            Self::TwitterClientSecret => Some(&["TWITTER_CLIENT_SECRET"]),
+            Self::TwitterToken => Some(&["TWITTER_TOKEN"]),
             Self::DiscordBotToken => Some(&["DISCORD_BOT_TOKEN", "DISCORD_TOKEN"]),
         }
     }
@@ -48,8 +45,7 @@ impl ApiKeyId {
         &[
             Self::GithubToken,
             Self::BankrApiKey,
-            Self::TwitterClientId,
-            Self::TwitterClientSecret,
+            Self::TwitterToken,
             Self::DiscordBotToken,
         ]
     }
@@ -59,8 +55,7 @@ impl ApiKeyId {
         match s {
             "GITHUB_TOKEN" => Some(Self::GithubToken),
             "BANKR_API_KEY" => Some(Self::BankrApiKey),
-            "TWITTER_CLIENT_ID" => Some(Self::TwitterClientId),
-            "TWITTER_CLIENT_SECRET" => Some(Self::TwitterClientSecret),
+            "TWITTER_TOKEN" => Some(Self::TwitterToken),
             "DISCORD_BOT_TOKEN" => Some(Self::DiscordBotToken),
             _ => None,
         }
@@ -102,17 +97,12 @@ pub fn get_service_configs() -> Vec<ServiceConfig> {
         ServiceConfig {
             group: "twitter",
             label: "Twitter/X",
-            description: "Get OAuth 2.0 credentials from the Developer Portal",
+            description: "Get a User Access Token from the Developer Portal to post tweets.",
             url: "https://developer.x.com/en/portal/dashboard",
             keys: vec![
                 KeyConfig {
-                    name: "TWITTER_CLIENT_ID",
-                    label: "Client ID",
-                    secret: false,
-                },
-                KeyConfig {
-                    name: "TWITTER_CLIENT_SECRET",
-                    label: "Client Secret",
+                    name: "TWITTER_TOKEN",
+                    label: "User Access Token",
                     secret: true,
                 },
             ],

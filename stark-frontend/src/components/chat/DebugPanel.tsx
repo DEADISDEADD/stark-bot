@@ -129,12 +129,28 @@ interface AgentTasksState {
   };
 }
 
+interface AgentToolInfo {
+  name: string;
+  description: string;
+  group: string;
+}
+
+interface AgentToolsetState {
+  mode: string;
+  subtype: string;
+  tools: AgentToolInfo[];
+  count: number;
+  timestamp: string;
+}
+
 export default function DebugPanel({ className }: DebugPanelProps) {
   const [executions, setExecutions] = useState<Map<string, DebugTask>>(new Map());
   const [payments, setPayments] = useState<X402PaymentEvent[]>([]);
   const [registers, setRegisters] = useState<Record<string, RegisterEntry>>({});
   const [agentTasks, setAgentTasks] = useState<AgentTasksState | null>(null);
+  const [agentToolset, setAgentToolset] = useState<AgentToolsetState | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [toolsCollapsed, setToolsCollapsed] = useState(true);
   const [activeTab, setActiveTab] = useState<'tasks' | 'payments' | 'registry' | 'agent'>('tasks');
   const [, forceUpdate] = useState(0);
   const { on, off } = useGateway();
@@ -398,6 +414,23 @@ export default function DebugPanel({ className }: DebugPanelProps) {
     });
   }, []);
 
+  const handleAgentToolsetUpdate = useCallback((data: unknown) => {
+    const event = data as {
+      mode: string;
+      subtype: string;
+      tools: AgentToolInfo[];
+      count: number;
+      timestamp: string;
+    };
+    setAgentToolset({
+      mode: event.mode,
+      subtype: event.subtype,
+      tools: event.tools || [],
+      count: event.count || 0,
+      timestamp: event.timestamp,
+    });
+  }, []);
+
   useEffect(() => {
     on('execution.started', handleExecutionStarted);
     on('execution.thinking', handleExecutionThinking);
@@ -410,6 +443,7 @@ export default function DebugPanel({ className }: DebugPanelProps) {
     on('x402.payment', handleX402Payment);
     on('register.update', handleRegisterUpdate);
     on('agent.tasks_update', handleAgentTasksUpdate);
+    on('agent.toolset_update', handleAgentToolsetUpdate);
 
     return () => {
       off('execution.started', handleExecutionStarted);
@@ -423,8 +457,9 @@ export default function DebugPanel({ className }: DebugPanelProps) {
       off('x402.payment', handleX402Payment);
       off('register.update', handleRegisterUpdate);
       off('agent.tasks_update', handleAgentTasksUpdate);
+      off('agent.toolset_update', handleAgentToolsetUpdate);
     };
-  }, [on, off, handleExecutionStarted, handleExecutionThinking, handleTaskStarted, handleTaskUpdated, handleTaskCompleted, handleExecutionCompleted, handleToolExecution, handleToolResult, handleX402Payment, handleRegisterUpdate, handleAgentTasksUpdate]);
+  }, [on, off, handleExecutionStarted, handleExecutionThinking, handleTaskStarted, handleTaskUpdated, handleTaskCompleted, handleExecutionCompleted, handleToolExecution, handleToolResult, handleX402Payment, handleRegisterUpdate, handleAgentTasksUpdate, handleAgentToolsetUpdate]);
 
   const toggleCollapse = (taskId: string) => {
     setCollapsed((prev) => {
@@ -713,13 +748,18 @@ export default function DebugPanel({ className }: DebugPanelProps) {
         >
           <ListTodo className="w-4 h-4 inline mr-2" />
           Agent
-          {agentTasks && agentTasks.stats.total > 0 && (
-            <span className="ml-2 text-xs">
-              {agentTasks.stats.in_progress > 0 && <span className="text-cyan-400">{agentTasks.stats.in_progress}</span>}
-              {agentTasks.stats.completed > 0 && <span className="text-green-400 ml-1">✓{agentTasks.stats.completed}</span>}
-              {agentTasks.stats.failed > 0 && <span className="text-red-400 ml-1">✗{agentTasks.stats.failed}</span>}
-            </span>
-          )}
+          <span className="ml-2 text-xs">
+            {agentToolset && agentToolset.count > 0 && (
+              <span className="text-purple-400">{agentToolset.count} tools</span>
+            )}
+            {agentTasks && agentTasks.stats.total > 0 && (
+              <>
+                {agentTasks.stats.in_progress > 0 && <span className="text-cyan-400 ml-1">{agentTasks.stats.in_progress}</span>}
+                {agentTasks.stats.completed > 0 && <span className="text-green-400 ml-1">✓{agentTasks.stats.completed}</span>}
+                {agentTasks.stats.failed > 0 && <span className="text-red-400 ml-1">✗{agentTasks.stats.failed}</span>}
+              </>
+            )}
+          </span>
         </button>
       </div>
 
@@ -850,12 +890,66 @@ export default function DebugPanel({ className }: DebugPanelProps) {
 
         {activeTab === 'agent' && (
           <div className="p-2">
-            {!agentTasks || agentTasks.tasks.length === 0 ? (
-              <div className="text-center text-slate-500 py-8">
-                <ListTodo className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p>No agent tasks</p>
-                <p className="text-xs mt-1">Tasks appear during multi-agent execution</p>
+            {/* Toolset section - always show if we have toolset data */}
+            {agentToolset && agentToolset.tools.length > 0 && (
+              <div className="mb-4">
+                <button
+                  onClick={() => setToolsCollapsed(!toolsCollapsed)}
+                  className="w-full p-3 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 rounded-lg border border-purple-500/20 hover:border-purple-500/40 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Wrench className="w-4 h-4 text-purple-400" />
+                      <span className="text-sm font-semibold text-purple-400">
+                        Available Tools
+                      </span>
+                      <span className="text-xs px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded">
+                        {agentToolset.count}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500">
+                        {agentToolset.mode} · {agentToolset.subtype}
+                      </span>
+                      {toolsCollapsed ? (
+                        <ChevronRight className="w-4 h-4 text-slate-500" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-slate-500" />
+                      )}
+                    </div>
+                  </div>
+                </button>
+                {!toolsCollapsed && (
+                  <div className="mt-2 max-h-48 overflow-y-auto space-y-1 px-1">
+                    {agentToolset.tools.map((tool, idx) => (
+                      <div
+                        key={idx}
+                        className="p-2 bg-slate-800/50 rounded border border-slate-700/50 hover:border-slate-600/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-mono text-purple-300">{tool.name}</span>
+                          <span className="text-[10px] px-1 py-0.5 bg-slate-700/50 text-slate-400 rounded">
+                            {tool.group}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 line-clamp-2">
+                          {tool.description}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+            )}
+
+            {!agentTasks || agentTasks.tasks.length === 0 ? (
+              !agentToolset || agentToolset.tools.length === 0 ? (
+                <div className="text-center text-slate-500 py-8">
+                  <ListTodo className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p>No agent data</p>
+                  <p className="text-xs mt-1">Agent info appears during execution</p>
+                </div>
+              ) : null
             ) : (
               <>
                 {/* Mode indicator and stats */}

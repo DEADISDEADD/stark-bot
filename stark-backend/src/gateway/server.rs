@@ -116,11 +116,13 @@ async fn handle_connection(
     // Phase 2: Full access after authentication
     // Subscribe to events
     let (client_id, mut event_rx) = broadcaster.subscribe();
+    log::info!("Gateway client {} subscribed to events (total: {} clients)", client_id, broadcaster.client_count());
 
     // Create a channel for sending messages to the WebSocket
     let (tx, mut rx) = mpsc::channel::<Message>(100);
 
     // Task to forward messages to WebSocket
+    let client_id_clone = client_id.clone();
     let send_task = tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -135,9 +137,15 @@ async fn handle_connection(
                 }
                 // Forward events
                 Some(event) = event_rx.recv() => {
+                    let event_name = event.event.clone();
                     if let Ok(json) = serde_json::to_string(&event) {
-                        log::debug!("[DATAGRAM] >>> TO AGENT (event: {}):\n{}", event.event, json);
+                        // Log tool-related events at info level for debugging
+                        if event_name == "agent.tool_call" || event_name == "tool.result" {
+                            log::info!("[WEBSOCKET] Sending '{}' event to client {}", event_name, client_id_clone);
+                        }
+                        log::debug!("[DATAGRAM] >>> TO AGENT (event: {}):\n{}", event_name, json);
                         if ws_sender.send(Message::Text(json)).await.is_err() {
+                            log::warn!("[WEBSOCKET] Failed to send event to client {}", client_id_clone);
                             break;
                         }
                     }

@@ -38,4 +38,14 @@
         static_params: [],
         description: "Get WETH balance of wallet",
     ),
+    "erc20_balance": (
+        abi: "erc20",
+        contracts: {},
+        contract_register: Some("token_address"),
+        function: "balanceOf",
+        params_registers: ["wallet_address"],
+        value_register: None,
+        static_params: [],
+        description: "Get ERC20 token balance. Set token_address register first.",
+    ),
 }

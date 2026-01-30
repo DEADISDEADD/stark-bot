@@ -1,6 +1,6 @@
 [package]
 name = "stark-backend"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 default-run = "stark-backend"
 
@@ -59,6 +59,11 @@ lazy_static = "1.4"
 
 # Tools system
 which = "5"
+glob = "0.3"
+walkdir = "2"
+
+# Enum utilities
+strum = { version = "0.26", features = ["derive"] }
 
 # Skills ZIP upload
 zip = "0.6"

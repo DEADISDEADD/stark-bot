@@ -1,7 +1,7 @@
 //! X402-backed EVM RPC client
 //!
 //! Provides high-level EVM RPC methods using defirelay.com with x402 payments.
-//! All RPC calls go through the x402 payment protocol.
+//! RPC calls can go through x402 payment protocol or regular HTTP depending on config.
 
 use ethers::types::{Address, Bytes, H256, U256, U64};
 use serde::{Deserialize, Serialize};
@@ -10,14 +10,18 @@ use std::time::Duration;
 
 use super::client::X402Client;
 
-/// RPC endpoint for defirelay
-const DEFIRELAY_RPC_BASE: &str = "https://rpc.defirelay.com/rpc/light/base";
-const DEFIRELAY_RPC_MAINNET: &str = "https://rpc.defirelay.com/rpc/light/mainnet";
+/// Default RPC endpoints for defirelay (used when no custom config)
+const DEFAULT_RPC_BASE: &str = "https://rpc.defirelay.com/rpc/light/base";
+const DEFAULT_RPC_MAINNET: &str = "https://rpc.defirelay.com/rpc/light/mainnet";
 
 /// X402-backed EVM RPC client
 pub struct X402EvmRpc {
     client: X402Client,
     network: String,
+    /// Custom RPC URL (overrides default based on network)
+    rpc_url: Option<String>,
+    /// Whether to use x402 payment for RPC calls
+    use_x402: bool,
 }
 
 /// JSON-RPC request structure
@@ -60,21 +64,48 @@ pub struct TransactionReceipt {
 }
 
 impl X402EvmRpc {
-    /// Create a new X402 EVM RPC client
+    /// Create a new X402 EVM RPC client with default settings (x402 enabled)
     pub fn new(private_key: &str, network: &str) -> Result<Self, String> {
         let client = X402Client::new(private_key)?;
         Ok(Self {
             client,
             network: network.to_string(),
+            rpc_url: None,
+            use_x402: true,
+        })
+    }
+
+    /// Create a new X402 EVM RPC client with custom configuration
+    pub fn new_with_config(
+        private_key: &str,
+        network: &str,
+        rpc_url: Option<String>,
+        use_x402: bool,
+    ) -> Result<Self, String> {
+        let client = X402Client::new(private_key)?;
+        Ok(Self {
+            client,
+            network: network.to_string(),
+            rpc_url,
+            use_x402,
         })
     }
 
     /// Get the RPC endpoint URL for the current network
-    fn rpc_url(&self) -> &'static str {
-        match self.network.as_str() {
-            "mainnet" => DEFIRELAY_RPC_MAINNET,
-            _ => DEFIRELAY_RPC_BASE,
+    fn rpc_url(&self) -> String {
+        if let Some(ref url) = self.rpc_url {
+            url.clone()
+        } else {
+            match self.network.as_str() {
+                "mainnet" => DEFAULT_RPC_MAINNET.to_string(),
+                _ => DEFAULT_RPC_BASE.to_string(),
+            }
         }
+    }
+
+    /// Check if x402 payment is enabled
+    pub fn uses_x402(&self) -> bool {
+        self.use_x402
     }
 
     /// Get the chain ID for the current network
@@ -85,7 +116,7 @@ impl X402EvmRpc {
         }
     }
 
-    /// Make a JSON-RPC call via x402
+    /// Make a JSON-RPC call via x402 or regular HTTP depending on config
     async fn rpc_call(&self, method: &str, params: Value) -> Result<Value, String> {
         let request = JsonRpcRequest {
             jsonrpc: "2.0",
@@ -95,9 +126,13 @@ impl X402EvmRpc {
         };
 
         let url = self.rpc_url();
-        log::debug!("[X402EvmRpc] {} to {} with params: {:?}", method, url, request.params);
+        log::debug!("[X402EvmRpc] {} to {} with params: {:?} (x402={})", method, url, request.params, self.use_x402);
 
-        let response = self.client.post_with_payment(url, &request).await?;
+        let response = if self.use_x402 {
+            self.client.post_with_payment(&url, &request).await?
+        } else {
+            self.client.post_regular(&url, &request).await?
+        };
 
         let status = response.response.status();
         let body = response.response.text().await

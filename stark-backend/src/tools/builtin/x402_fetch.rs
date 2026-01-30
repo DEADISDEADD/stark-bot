@@ -65,7 +65,7 @@ impl X402FetchTool {
                     properties,
                     required: vec!["preset".to_string()],
                 },
-                group: ToolGroup::Web,
+                group: ToolGroup::Finance,
             },
         }
     }

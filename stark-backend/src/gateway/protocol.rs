@@ -12,10 +12,11 @@ pub enum EventType {
     ChannelMessage,
     // Agent events
     AgentResponse,
-    AgentToolCall,  // Real-time tool call notification for chat display
-    AgentModeChange,  // Multi-agent mode transition
-    AgentThinking,    // Progress update during long AI calls
-    AgentError,       // Error notification (timeout, etc.)
+    AgentToolCall,     // Real-time tool call notification for chat display
+    AgentModeChange,   // Multi-agent mode transition (Explore/Plan/Perform)
+    AgentSubtypeChange, // Agent subtype change (Finance/CodeEngineer)
+    AgentThinking,     // Progress update during long AI calls
+    AgentError,        // Error notification (timeout, etc.)
     // Tool events
     ToolExecution,
     ToolResult,
@@ -43,6 +44,7 @@ pub enum EventType {
     RegisterUpdate,
     // Multi-agent task events
     AgentTasksUpdate,
+    AgentToolsetUpdate,  // Current tools available to agent
 }
 
 impl EventType {
@@ -55,6 +57,7 @@ impl EventType {
             Self::AgentResponse => "agent.response",
             Self::AgentToolCall => "agent.tool_call",
             Self::AgentModeChange => "agent.mode_change",
+            Self::AgentSubtypeChange => "agent.subtype_change",
             Self::AgentThinking => "agent.thinking",
             Self::AgentError => "agent.error",
             Self::ToolExecution => "tool.execution",
@@ -76,6 +79,7 @@ impl EventType {
             Self::TxConfirmed => "tx.confirmed",
             Self::RegisterUpdate => "register.update",
             Self::AgentTasksUpdate => "agent.tasks_update",
+            Self::AgentToolsetUpdate => "agent.toolset_update",
         }
     }
 }
@@ -267,6 +271,19 @@ impl GatewayEvent {
                 "mode": mode,
                 "label": label,
                 "reason": reason,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        )
+    }
+
+    /// Emit agent subtype change for UI header display (Finance/CodeEngineer)
+    pub fn agent_subtype_change(channel_id: i64, subtype: &str, label: &str) -> Self {
+        Self::new(
+            EventType::AgentSubtypeChange,
+            serde_json::json!({
+                "channel_id": channel_id,
+                "subtype": subtype,
+                "label": label,
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }),
         )
@@ -611,6 +628,26 @@ impl GatewayEvent {
                 "mode_label": mode_label,
                 "tasks": tasks,
                 "stats": stats,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        )
+    }
+
+    /// Agent toolset updated - broadcast current tools available to the agent
+    pub fn agent_toolset_update(
+        channel_id: i64,
+        mode: &str,
+        subtype: &str,
+        tools: Vec<Value>,
+    ) -> Self {
+        Self::new(
+            EventType::AgentToolsetUpdate,
+            serde_json::json!({
+                "channel_id": channel_id,
+                "mode": mode,
+                "subtype": subtype,
+                "tools": tools,
+                "count": tools.len(),
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }),
         )

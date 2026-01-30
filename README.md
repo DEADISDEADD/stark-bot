@@ -79,19 +79,50 @@ API keys are managed through the web UI, not environment variables:
 
 ### Run Locally
 
+There are three ways to run StarkBot locally:
+
+#### Option 1: Backend serves frontend (simplest)
+
 ```bash
-# Run the server (reads from .env automatically via dotenv)
+# Build frontend first
+cd stark-frontend && npm install && npm run build && cd ..
+
+# Run the server (serves API + frontend on port 8080)
 cargo run -p stark-backend
 ```
 
 The server starts at `http://localhost:8080`
 
+#### Option 2: Separate frontend dev server (for frontend development)
 
+This gives you hot-reload for frontend changes:
+
+```bash
+# Terminal 1: Run backend only (API on 8080, WebSocket on 8081)
+DISABLE_FRONTEND=1 cargo run -p stark-backend
+
+# Terminal 2: Run frontend dev server (on 5173, proxies to backend)
+cd stark-frontend && npm run dev
 ```
-                                                                                                                 
-  docker compose down && docker compose build --no-cache && docker compose up                                                                                                                
-                                                                                
+
+Open `http://localhost:5173` for hot-reloading frontend.
+
+#### Option 3: Docker dev environment
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
 ```
+
+Open `http://localhost:8080`
+
+### Development Modes Summary
+
+| Environment | Command | API | WebSocket | Frontend |
+|-------------|---------|-----|-----------|----------|
+| **Local (combined)** | `cargo run -p stark-backend` | localhost:8080 | localhost:8081 | localhost:8080 |
+| **Local (separate)** | `DISABLE_FRONTEND=1 cargo run` + `npm run dev` | localhost:8080 | localhost:8081 | localhost:5173 |
+| **Docker dev** | `docker compose -f docker-compose.dev.yml up` | internal:8082 | localhost:8081 | localhost:8080 |
+| **Docker prod** | `docker compose up` | localhost:8080 | localhost:8081 | localhost:8080 |
 
 
 ### Test Endpoints

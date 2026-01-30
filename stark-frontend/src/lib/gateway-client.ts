@@ -27,16 +27,18 @@ export class GatewayClient {
       this.url = url;
     } else {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      // In development (Vite dev server on port 3001), use the /ws proxy path
+      // In development (Vite dev server on port 5173), use the /ws proxy path
       // In production (served from backend on port 8080), connect directly to gateway port
-      const isDev = window.location.port === '3001';
+      const isDev = window.location.port === '5173';
       if (isDev) {
-        // Use Vite proxy
+        // Use Vite proxy - this forwards /ws to ws://localhost:8081
         this.url = `${protocol}//${window.location.host}/ws`;
+        console.log('[Gateway] Using Vite proxy for WebSocket:', this.url);
       } else {
         // Direct connection to gateway (production or when served from backend)
         const gatewayPort = '8081';
         this.url = `${protocol}//${window.location.hostname}:${gatewayPort}`;
+        console.log('[Gateway] Direct WebSocket connection:', this.url);
       }
     }
   }
@@ -232,9 +234,15 @@ export class GatewayClient {
   }
 
   private emitEvent(event: string, data: unknown): void {
+    // Log all events for debugging (except high-frequency ones)
+    if (!['agent.thinking'].includes(event)) {
+      console.log(`[Gateway] Event received: ${event}`, data);
+    }
+
     // Notify specific listeners
     const listeners = this.eventListeners.get(event);
     if (listeners) {
+      console.log(`[Gateway] Found ${listeners.size} listener(s) for event: ${event}`);
       listeners.forEach((callback) => {
         try {
           callback(data);
@@ -242,6 +250,8 @@ export class GatewayClient {
           console.error(`[Gateway] Event handler error for ${event}:`, error);
         }
       });
+    } else {
+      console.log(`[Gateway] No listeners for event: ${event}`);
     }
 
     // Notify wildcard listeners

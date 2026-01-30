@@ -1,3 +1,4 @@
+use crate::ai::multi_agent::types::AgentSubtype;
 use crate::tools::types::{ToolConfig, ToolContext, ToolDefinition, ToolGroup, ToolResult};
 use async_trait::async_trait;
 use serde_json::Value;
@@ -67,6 +68,40 @@ impl ToolRegistry {
             .values()
             .filter(|tool| config.is_tool_allowed(&tool.definition().name, tool.group()))
             .cloned()
+            .collect()
+    }
+
+    /// Get tools that are allowed for a specific agent subtype
+    /// System tools are always included regardless of subtype
+    pub fn get_allowed_tools_for_subtype(
+        &self,
+        config: &ToolConfig,
+        subtype: AgentSubtype,
+    ) -> Vec<Arc<dyn Tool>> {
+        let allowed_groups = subtype.allowed_tool_groups();
+        self.tools
+            .values()
+            .filter(|tool| {
+                let group = tool.group();
+                // System tools are always available
+                let group_allowed =
+                    group == ToolGroup::System || allowed_groups.contains(&group);
+                // Also check against the tool config
+                group_allowed && config.is_tool_allowed(&tool.definition().name, group)
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Get tool definitions for a specific agent subtype
+    pub fn get_tool_definitions_for_subtype(
+        &self,
+        config: &ToolConfig,
+        subtype: AgentSubtype,
+    ) -> Vec<ToolDefinition> {
+        self.get_allowed_tools_for_subtype(config, subtype)
+            .iter()
+            .map(|tool| tool.definition())
             .collect()
     }
 

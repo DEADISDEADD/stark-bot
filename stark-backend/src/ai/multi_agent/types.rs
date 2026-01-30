@@ -1,33 +1,145 @@
-//! Multi-agent system types
+//! Agent types
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
-/// The current mode/phase of the multi-agent system
+use crate::tools::types::ToolGroup;
+
+/// The specialized mode/persona of the agent
+/// Controls which tools and skills are available (acts as a "toolbox")
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentSubtype {
+    /// Finance/DeFi specialist - crypto swaps, transfers, web3 operations
+    #[default]
+    Finance,
+    /// Code engineer - software development, git, code editing
+    CodeEngineer,
+    /// Secretary - social media, marketing, messaging, scheduling
+    Secretary,
+}
+
+impl AgentSubtype {
+    /// Get all available subtypes
+    pub fn all() -> Vec<AgentSubtype> {
+        vec![
+            AgentSubtype::Finance,
+            AgentSubtype::CodeEngineer,
+            AgentSubtype::Secretary,
+        ]
+    }
+
+    /// Get the tool groups allowed for this subtype
+    /// Note: System, Web, and Filesystem are always available as "core" tools
+    pub fn allowed_tool_groups(&self) -> Vec<ToolGroup> {
+        // Core groups available to all subtypes
+        let mut groups = vec![
+            ToolGroup::System,     // set_agent_subtype, subagent
+            ToolGroup::Web,        // web_fetch
+            ToolGroup::Filesystem, // read_file, list_files
+        ];
+
+        // Add subtype-specific groups
+        match self {
+            AgentSubtype::Finance => {
+                groups.push(ToolGroup::Finance); // web3_tx, token_lookup, x402_*, etc.
+            }
+            AgentSubtype::CodeEngineer => {
+                groups.push(ToolGroup::Development); // edit_file, grep, glob, git, etc.
+                groups.push(ToolGroup::Exec);        // exec command
+            }
+            AgentSubtype::Secretary => {
+                groups.push(ToolGroup::Messaging); // agent_send
+                groups.push(ToolGroup::Social);    // twitter, scheduling tools
+            }
+        }
+
+        groups
+    }
+
+    /// Get the skill tags allowed for this subtype
+    pub fn allowed_skill_tags(&self) -> Vec<&'static str> {
+        match self {
+            AgentSubtype::Finance => vec!["crypto", "defi", "transfer", "swap", "finance", "wallet", "token"],
+            AgentSubtype::CodeEngineer => vec!["development", "git", "testing", "debugging", "review", "code", "github"],
+            AgentSubtype::Secretary => vec!["social", "marketing", "messaging", "twitter", "scheduling", "communication", "social-media"],
+        }
+    }
+
+    /// Human-readable label for UI display
+    pub fn label(&self) -> &'static str {
+        match self {
+            AgentSubtype::Finance => "Finance",
+            AgentSubtype::CodeEngineer => "CodeEngineer",
+            AgentSubtype::Secretary => "Secretary",
+        }
+    }
+
+    /// Get description of what this subtype does
+    pub fn description(&self) -> &'static str {
+        match self {
+            AgentSubtype::Finance => "Crypto swaps, transfers, DeFi operations, token lookups",
+            AgentSubtype::CodeEngineer => "Code editing, git operations, testing, debugging",
+            AgentSubtype::Secretary => "Social media, messaging, scheduling, marketing",
+        }
+    }
+
+    /// Get the string representation
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AgentSubtype::Finance => "finance",
+            AgentSubtype::CodeEngineer => "code_engineer",
+            AgentSubtype::Secretary => "secretary",
+        }
+    }
+
+    /// Parse from string
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "finance" | "defi" | "crypto" | "swap" | "transfer" => Some(AgentSubtype::Finance),
+            "code_engineer" | "codeengineer" | "code" | "dev" | "developer" | "git" => {
+                Some(AgentSubtype::CodeEngineer)
+            }
+            "secretary" | "social" | "marketing" | "messaging" | "twitter" => {
+                Some(AgentSubtype::Secretary)
+            }
+            _ => None,
+        }
+    }
+
+    /// Get emoji for this subtype
+    pub fn emoji(&self) -> &'static str {
+        match self {
+            AgentSubtype::Finance => "💰",
+            AgentSubtype::CodeEngineer => "🛠️",
+            AgentSubtype::Secretary => "📱",
+        }
+    }
+}
+
+impl std::fmt::Display for AgentSubtype {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// The current mode of the agent (simplified - single mode)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentMode {
-    /// Exploration phase - gather information, read files, understand context
-    Explore,
-    /// Planning phase - create a detailed plan from gathered context
-    Plan,
-    /// Execution phase - perform the planned actions using tools
-    Perform,
+    /// Active assistant mode - handles all tasks
+    Assistant,
 }
 
 impl Default for AgentMode {
     fn default() -> Self {
-        AgentMode::Explore
+        AgentMode::Assistant
     }
 }
 
 impl std::fmt::Display for AgentMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AgentMode::Explore => write!(f, "explore"),
-            AgentMode::Plan => write!(f, "plan"),
-            AgentMode::Perform => write!(f, "perform"),
+            AgentMode::Assistant => write!(f, "assistant"),
         }
     }
 }
@@ -35,400 +147,82 @@ impl std::fmt::Display for AgentMode {
 impl AgentMode {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
-            "explore" | "exploration" => Some(AgentMode::Explore),
-            "plan" | "planning" => Some(AgentMode::Plan),
-            "perform" | "execute" | "execution" => Some(AgentMode::Perform),
+            "assistant" | "explore" | "plan" | "perform" | "execute" => Some(AgentMode::Assistant),
             _ => None,
         }
     }
 
     /// Check if skills are available in this mode
     pub fn allows_skills(&self) -> bool {
-        matches!(self, AgentMode::Explore | AgentMode::Plan)
+        true // Always allow skills
     }
 
     /// Check if action tools (swap, transfer, etc.) are available in this mode
     pub fn allows_action_tools(&self) -> bool {
-        matches!(self, AgentMode::Perform)
+        true // Always allow action tools
     }
 
     /// Human-readable label for UI display
     pub fn label(&self) -> &'static str {
         match self {
-            AgentMode::Explore => "Exploring",
-            AgentMode::Plan => "Planning",
-            AgentMode::Perform => "Executing",
+            AgentMode::Assistant => "Assistant",
         }
     }
 }
 
-/// Task status in the task list
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskStatus {
-    Pending,
-    InProgress,
-    Completed,
-    Failed,
-}
-
-impl Default for TaskStatus {
-    fn default() -> Self {
-        TaskStatus::Pending
-    }
-}
-
-impl std::fmt::Display for TaskStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TaskStatus::Pending => write!(f, "pending"),
-            TaskStatus::InProgress => write!(f, "in_progress"),
-            TaskStatus::Completed => write!(f, "completed"),
-            TaskStatus::Failed => write!(f, "failed"),
-        }
-    }
-}
-
-impl TaskStatus {
-    pub fn emoji(&self) -> &'static str {
-        match self {
-            TaskStatus::Pending => "⏳",
-            TaskStatus::InProgress => "🔄",
-            TaskStatus::Completed => "✅",
-            TaskStatus::Failed => "❌",
-        }
-    }
-}
-
-/// A note attached to a task
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskNote {
-    pub content: String,
-    pub timestamp: DateTime<Utc>,
-}
-
-impl TaskNote {
-    pub fn new(content: impl Into<String>) -> Self {
-        Self {
-            content: content.into(),
-            timestamp: Utc::now(),
-        }
-    }
-}
-
-/// A task in the agent's plan
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Task {
-    /// Unique identifier (UUID)
-    pub id: String,
-    /// Short description of the task
-    pub subject: String,
-    /// Current status
-    pub status: TaskStatus,
-    /// Notes/updates about this task (grows over time)
-    pub notes: Vec<TaskNote>,
-    /// Result output after completion
-    pub result: Option<String>,
-    /// Error message if failed
-    pub error: Option<String>,
-    /// When this task was created
-    pub created_at: DateTime<Utc>,
-    /// When status was last updated
-    pub updated_at: DateTime<Utc>,
-}
-
-impl Task {
-    pub fn new(subject: impl Into<String>) -> Self {
-        let now = Utc::now();
-        Self {
-            id: Uuid::new_v4().to_string(),
-            subject: subject.into(),
-            status: TaskStatus::Pending,
-            notes: Vec::new(),
-            result: None,
-            error: None,
-            created_at: now,
-            updated_at: now,
-        }
-    }
-
-    /// Add a note to this task
-    pub fn add_note(&mut self, content: impl Into<String>) {
-        self.notes.push(TaskNote::new(content));
-        self.updated_at = Utc::now();
-    }
-
-    /// Update status and optionally add a note
-    pub fn set_status(&mut self, status: TaskStatus, note: Option<&str>) {
-        self.status = status;
-        self.updated_at = Utc::now();
-        if let Some(n) = note {
-            self.notes.push(TaskNote::new(n));
-        }
-    }
-
-    /// Mark as completed with result
-    pub fn complete(&mut self, result: impl Into<String>) {
-        self.status = TaskStatus::Completed;
-        self.result = Some(result.into());
-        self.updated_at = Utc::now();
-    }
-
-    /// Mark as failed with error
-    pub fn fail(&mut self, error: impl Into<String>) {
-        self.status = TaskStatus::Failed;
-        self.error = Some(error.into());
-        self.updated_at = Utc::now();
-    }
-
-    /// Short ID for display (first 8 chars)
-    pub fn short_id(&self) -> &str {
-        &self.id[..8]
-    }
-
-    /// Format for display to the agent (full detail)
-    pub fn format_display(&self) -> String {
-        let mut out = format!(
-            "{} [{}] {}: {}",
-            self.status.emoji(),
-            self.short_id(),
-            self.status,
-            self.subject
-        );
-        if let Some(ref result) = self.result {
-            out.push_str(&format!("\n   → Result: {}", result));
-        }
-        if let Some(ref error) = self.error {
-            out.push_str(&format!("\n   ✗ Error: {}", error));
-        }
-        if !self.notes.is_empty() {
-            out.push_str("\n   Notes:");
-            for note in &self.notes {
-                out.push_str(&format!("\n   - {}", note.content));
-            }
-        }
-        out
-    }
-
-    /// Format compact display (for completed/failed tasks to save context)
-    pub fn format_compact(&self) -> String {
-        let result_summary = match (&self.result, &self.error) {
-            (Some(r), _) => format!(" → {}", truncate_str(r, 60)),
-            (_, Some(e)) => format!(" ✗ {}", truncate_str(e, 60)),
-            _ => String::new(),
-        };
-        format!(
-            "{} [{}] {}{}",
-            self.status.emoji(),
-            self.short_id(),
-            self.subject,
-            result_summary
-        )
-    }
-}
-
-/// Truncate a string with ellipsis
-fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
-    }
-}
-
-/// The task list for agent planning and execution
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TaskList {
-    tasks: Vec<Task>,
-}
-
-impl TaskList {
-    pub fn new() -> Self {
-        Self { tasks: Vec::new() }
-    }
-
-    /// Create from a vector of tasks (for deserialization)
-    pub fn from_vec(tasks: Vec<Task>) -> Self {
-        Self { tasks }
-    }
-
-    /// Add a new task (returns the ID)
-    pub fn add(&mut self, subject: impl Into<String>) -> String {
-        let task = Task::new(subject);
-        let id = task.id.clone();
-        self.tasks.push(task);
-        id
-    }
-
-    /// Get a task by ID (supports partial ID match)
-    pub fn get(&self, id: &str) -> Option<&Task> {
-        self.tasks.iter().find(|t| t.id == id || t.id.starts_with(id))
-    }
-
-    /// Get mutable task by ID (supports partial ID match)
-    pub fn get_mut(&mut self, id: &str) -> Option<&mut Task> {
-        self.tasks.iter_mut().find(|t| t.id == id || t.id.starts_with(id))
-    }
-
-    /// Get the next pending task (FIFO)
-    pub fn next_pending(&mut self) -> Option<&mut Task> {
-        self.tasks.iter_mut().find(|t| t.status == TaskStatus::Pending)
-    }
-
-    /// Get all tasks
-    pub fn all(&self) -> &[Task] {
-        &self.tasks
-    }
-
-    /// Check if there's work remaining
-    pub fn has_pending(&self) -> bool {
-        self.tasks.iter().any(|t| {
-            t.status == TaskStatus::Pending || t.status == TaskStatus::InProgress
-        })
-    }
-
-    /// Check if empty
-    pub fn is_empty(&self) -> bool {
-        self.tasks.is_empty()
-    }
-
-    /// Get stats
-    pub fn stats(&self) -> TaskStats {
-        let mut stats = TaskStats::default();
-        for task in &self.tasks {
-            match task.status {
-                TaskStatus::Pending => stats.pending += 1,
-                TaskStatus::InProgress => stats.in_progress += 1,
-                TaskStatus::Completed => stats.completed += 1,
-                TaskStatus::Failed => stats.failed += 1,
-            }
-        }
-        stats.total = self.tasks.len();
-        stats
-    }
-
-    /// Format the entire list for agent display (context-optimized)
-    /// Shows full detail for pending/in_progress, compact for completed/failed
-    pub fn format_display(&self) -> String {
-        if self.tasks.is_empty() {
-            return "📋 Task List: (empty)".to_string();
-        }
-
-        let stats = self.stats();
-        let mut out = format!(
-            "📋 Task List: {} total ({} pending, {} in progress, {} completed, {} failed)\n",
-            stats.total, stats.pending, stats.in_progress, stats.completed, stats.failed
-        );
-
-        // Show active tasks (pending/in_progress) with full detail
-        let active: Vec<_> = self.tasks.iter()
-            .filter(|t| t.status == TaskStatus::Pending || t.status == TaskStatus::InProgress)
-            .collect();
-
-        if !active.is_empty() {
-            out.push_str("\n**Active:**\n");
-            for task in active {
-                out.push_str(&format!("{}\n", task.format_display()));
-            }
-        }
-
-        // Show completed/failed tasks in compact form (most recent 5 only)
-        let done: Vec<_> = self.tasks.iter()
-            .filter(|t| t.status == TaskStatus::Completed || t.status == TaskStatus::Failed)
-            .collect();
-
-        if !done.is_empty() {
-            out.push_str("\n**Done:**\n");
-            // Show only last 5 completed tasks to save context
-            for task in done.iter().rev().take(5).rev() {
-                out.push_str(&format!("{}\n", task.format_compact()));
-            }
-            if done.len() > 5 {
-                out.push_str(&format!("  ... and {} more completed\n", done.len() - 5));
-            }
-        }
-
-        out
-    }
-}
-
-/// Statistics for the task list
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TaskStats {
-    pub total: usize,
-    pub pending: usize,
-    pub in_progress: usize,
-    pub completed: usize,
-    pub failed: usize,
-}
-
-impl std::fmt::Display for TaskStats {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}/{} complete ({} pending, {} in progress, {} failed)",
-            self.completed, self.total, self.pending, self.in_progress, self.failed
-        )
-    }
-}
-
-/// Context accumulated during the multi-agent flow
+/// Context accumulated during the agent session
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentContext {
     /// Original user request
     pub original_request: String,
 
-    /// Notes gathered during exploration
+    /// Notes gathered during the session
     pub exploration_notes: Vec<String>,
 
-    /// Key findings from exploration
-    pub findings: Vec<Finding>,
-
-    /// Task list for planning and execution
-    #[serde(default)]
-    pub tasks: TaskList,
-
-    /// Plan summary/goal
-    pub plan_summary: Option<String>,
-
-    /// Current mode
+    /// Current mode (always Assistant)
     pub mode: AgentMode,
 
-    /// Number of iterations in current mode
+    /// Current agent subtype/specialization
+    #[serde(default)]
+    pub subtype: AgentSubtype,
+
+    /// Number of iterations in current session
     pub mode_iterations: u32,
 
-    /// Total iterations across all modes
+    /// Total iterations
     pub total_iterations: u32,
 
-    /// Whether the agent believes it has enough context
-    pub context_sufficient: bool,
-
-    /// Whether the plan is ready for execution
-    pub plan_ready: bool,
-
-    /// Scratchpad for agent notes during execution
+    /// Scratchpad for agent notes
     pub scratchpad: String,
+
+    /// Currently active skill context
+    #[serde(default)]
+    pub active_skill: Option<ActiveSkill>,
+
+    /// Total actual tool calls made (excludes orchestrator tools)
+    #[serde(default)]
+    pub actual_tool_calls: u32,
+
+    /// Number of times the agent tried to respond without calling tools
+    #[serde(default)]
+    pub no_tool_warnings: u32,
 }
 
-/// A finding discovered during exploration
+/// Active skill context that persists across turns
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Finding {
-    pub category: String,
-    pub content: String,
-    pub relevance: Relevance,
-    /// Related file paths
-    pub files: Vec<String>,
+pub struct ActiveSkill {
+    /// Name of the skill
+    pub name: String,
+    /// Skill instructions/body
+    pub instructions: String,
+    /// When the skill was activated
+    pub activated_at: String,
+    /// Number of actual tool calls made since this skill was activated
+    #[serde(default)]
+    pub tool_calls_made: u32,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Relevance {
-    High,
-    Medium,
-    Low,
-}
-
-/// Transition decision from the agent
+/// Mode transition (kept for API compatibility)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModeTransition {
     pub from: AgentMode,

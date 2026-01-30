@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Bot settings stored in database
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -8,6 +9,10 @@ pub struct BotSettings {
     pub bot_name: String,
     pub bot_email: String,
     pub web3_tx_requires_confirmation: bool,
+    /// RPC provider name: "defirelay" or "custom"
+    pub rpc_provider: String,
+    /// Custom RPC endpoints per network (only used when rpc_provider == "custom")
+    pub custom_rpc_endpoints: Option<HashMap<String, String>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -19,6 +24,8 @@ impl Default for BotSettings {
             bot_name: "StarkBot".to_string(),
             bot_email: "starkbot@users.noreply.github.com".to_string(),
             web3_tx_requires_confirmation: false,
+            rpc_provider: "defirelay".to_string(),
+            custom_rpc_endpoints: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -31,4 +38,6 @@ pub struct UpdateBotSettingsRequest {
     pub bot_name: Option<String>,
     pub bot_email: Option<String>,
     pub web3_tx_requires_confirmation: Option<bool>,
+    pub rpc_provider: Option<String>,
+    pub custom_rpc_endpoints: Option<HashMap<String, String>>,
 }

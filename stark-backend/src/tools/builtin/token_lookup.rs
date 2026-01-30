@@ -91,8 +91,8 @@ impl TokenLookupTool {
             "cache_as".to_string(),
             PropertySchema {
                 schema_type: "string".to_string(),
-                description: "REQUIRED. Register name to cache the token address. Use 'sell_token' or 'buy_token' for swaps.".to_string(),
-                default: None,
+                description: "Register name to cache the token address. Defaults to 'token_address'. Use 'sell_token' or 'buy_token' for swaps.".to_string(),
+                default: Some(serde_json::json!("token_address")),
                 items: None,
                 enum_values: None,
             },
@@ -101,13 +101,13 @@ impl TokenLookupTool {
         TokenLookupTool {
             definition: ToolDefinition {
                 name: "token_lookup".to_string(),
-                description: "Look up a token's contract address by symbol and cache it in a register. IMPORTANT: cache_as is required - use 'sell_token' or 'buy_token' for swaps.".to_string(),
+                description: "Look up a token's contract address by symbol. Returns address, decimals, and name. The address is cached in a register (default: 'token_address') for use by other tools.".to_string(),
                 input_schema: ToolInputSchema {
                     schema_type: "object".to_string(),
                     properties,
-                    required: vec!["symbol".to_string(), "cache_as".to_string()],
+                    required: vec!["symbol".to_string()],
                 },
-                group: ToolGroup::Web,
+                group: ToolGroup::Finance,
             },
         }
     }
@@ -116,11 +116,25 @@ impl TokenLookupTool {
         let symbol_upper = symbol.to_uppercase();
         let tokens = get_tokens();
 
-        tokens
+        log::debug!(
+            "[token_lookup] Looking up '{}' (uppercase: '{}') on network '{}'. Available networks: {:?}",
+            symbol, symbol_upper, network, tokens.keys().collect::<Vec<_>>()
+        );
+
+        let result = tokens
             .get(network)
             .or_else(|| tokens.get("base"))
-            .and_then(|network_tokens| network_tokens.get(&symbol_upper))
-            .cloned()
+            .and_then(|network_tokens| {
+                log::debug!(
+                    "[token_lookup] Network '{}' has tokens: {:?}",
+                    network, network_tokens.keys().collect::<Vec<_>>()
+                );
+                network_tokens.get(&symbol_upper)
+            })
+            .cloned();
+
+        log::info!("[token_lookup] Lookup '{}' on '{}': {:?}", symbol_upper, network, result.is_some());
+        result
     }
 
     fn list_available(network: &str) -> Vec<String> {
@@ -149,11 +163,16 @@ struct TokenLookupParams {
     symbol: String,
     #[serde(default = "default_network")]
     network: String,
+    #[serde(default = "default_cache_as")]
     cache_as: String,
 }
 
 fn default_network() -> String {
     "base".to_string()
+}
+
+fn default_cache_as() -> String {
+    "token_address".to_string()
 }
 
 #[async_trait]

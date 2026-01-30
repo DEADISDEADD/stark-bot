@@ -188,6 +188,50 @@ impl X402Client {
     }
 }
 
+impl X402Client {
+    /// Make a regular POST request without x402 payment handling
+    /// Used for custom RPC endpoints that don't require payment
+    pub async fn post_regular<T: Serialize>(
+        &self,
+        url: &str,
+        body: &T,
+    ) -> Result<X402Response, String> {
+        log::info!("[X402] Making regular POST request to {} (no payment)", url);
+
+        let response = self.client
+            .post(url)
+            .header(header::CONTENT_TYPE, "application/json")
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e))?;
+
+        Ok(X402Response {
+            response,
+            payment: None,
+        })
+    }
+
+    /// Make a regular GET request without x402 payment handling
+    pub async fn get_regular(
+        &self,
+        url: &str,
+    ) -> Result<X402Response, String> {
+        log::info!("[X402] Making regular GET request to {} (no payment)", url);
+
+        let response = self.client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e))?;
+
+        Ok(X402Response {
+            response,
+            payment: None,
+        })
+    }
+}
+
 /// Check if a URL is a defirelay endpoint that uses x402
 pub fn is_x402_endpoint(url: &str) -> bool {
     url.contains("defirelay.com") || url.contains("defirelay.io")

@@ -1,92 +1,186 @@
 ---
 name: local_wallet
-description: "Access the local burner wallet for on-chain queries and signing."
-version: 1.0.0
+description: "Check balances and interact with the local burner wallet using RPC calls."
+version: 2.2.0
 author: starkbot
-metadata: {"clawdbot":{"emoji":"wallet","requires":{"tools":["local_burner_wallet"]}}}
-tags: [wallet, crypto, local, burner, address, base, ethereum]
+metadata: {"clawdbot":{"emoji":"wallet","requires":{"tools":["x402_rpc", "web3_function_call", "register_set", "ask_user", "token_lookup"]}}}
+tags: [wallet, crypto, finance, local, burner, address, base, ethereum, rpc]
 ---
 
 # Local Wallet Access
 
-Access the local burner wallet configured via `BURNER_WALLET_BOT_PRIVATE_KEY` environment variable.
+Check balances and interact with the local burner wallet via RPC calls.
 
-## Default Behavior
+## CRITICAL: YOU MUST CALL THE ACTUAL TOOLS
 
-When a user asks about their local wallet, **always include**:
-1. Wallet address
-2. ETH balance on Base
-3. USDC balance on Base (contract: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`)
+**DO NOT call `use_skill` again.** This skill file contains instructions. You must now:
+1. Read these instructions
+2. Call the actual tools directly (e.g., `x402_rpc`, `ask_user`, `register_set`, `web3_function_call`)
 
-## Using the local_burner_wallet Tool
-
-### Get Wallet Address
-
-```json
-{
-  "action": "address"
-}
+**Example:** To check ETH balance, call `x402_rpc`:
+```tool:x402_rpc
+preset: get_balance
+network: base
 ```
 
-Returns the public address derived from the private key.
+---
 
-### Check ETH Balance
+## IMPORTANT: Intrinsic Registers
 
-```json
-{
-  "action": "balance",
-  "network": "base"
-}
+The `wallet_address` register is **always available** - it's automatically derived from the configured private key. You do NOT need to fetch it separately.
+
+## Step 1: Ask Which Network (REQUIRED)
+
+If the user doesn't specify a network, **ALWAYS** use `ask_user` first:
+
+```tool:ask_user
+question: Which network would you like to check your balance on?
+options: ["Base", "Ethereum Mainnet"]
+context: Your wallet address is the same across all EVM networks, but balances differ.
 ```
 
-Networks: `base` (default), `mainnet`
+## Step 2: Check ETH Balance
 
-### Check Token Balance (ERC20)
+Use `x402_rpc` with the `get_balance` preset. It automatically reads `wallet_address` from registers:
 
-```json
-{
-  "action": "token_balance",
-  "network": "base",
-  "token": "0x22aF33FE49fD1Fa80c7149773dDe5890D3c76F3b"
-}
+```tool:x402_rpc
+preset: get_balance
+network: base
 ```
 
-**Common tokens on Base:**
-- BNKR: `0x22aF33FE49fD1Fa80c7149773dDe5890D3c76F3b`
-- USDC: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
-- WETH: `0x4200000000000000000000000000000000000006`
+The result is a hex value in wei. Convert to ETH by dividing by 10^18.
 
-### Sign a Message
+## Step 3: Check ERC20 Token Balance
 
-```json
-{
-  "action": "sign",
-  "message": "Hello, world!"
-}
+**⚠️ CRITICAL: ALWAYS use the `erc20_balance` preset - NEVER manually construct a balanceOf call!**
+
+The preset automatically uses your `wallet_address` (from intrinsic register). If you manually call balanceOf with the wrong address, you'll get incorrect results.
+
+### 3a. Look up the token address using `token_lookup`
+
+**ALWAYS use `token_lookup` to get the token address** - never hardcode or guess addresses:
+
+```tool:token_lookup
+symbol: STARKBOT
+network: base
+cache_as: token_address
 ```
 
-Returns the wallet address and signature.
+This will automatically cache the address in the `token_address` register for the next step.
 
-## Example: Check BNKR Balance
+### 3b. Get the balance using `web3_function_call`
 
-```json
-{
-  "action": "token_balance",
-  "network": "base",
-  "token": "0x22aF33FE49fD1Fa80c7149773dDe5890D3c76F3b"
-}
+```tool:web3_function_call
+preset: erc20_balance
+network: base
+call_only: true
 ```
 
-Response:
+The preset reads `wallet_address` and `token_address` from registers automatically.
+
+## Available Tokens (use `token_lookup` to get addresses)
+
+### Base
+STARKBOT, USDC, WETH, USDbC, DAI, cbBTC, BNKR, AERO, DEGEN, BRETT, TOSHI, ETH
+
+### Ethereum Mainnet
+ETH, WETH, USDC, USDT, DAI, WBTC
+
+## Example Flow: "How much ETH do I have?"
+
+1. **Ask user for network:**
+```tool:ask_user
+question: Which network would you like me to check?
+options: ["Base", "Ethereum Mainnet"]
+default: Base
 ```
-Wallet: 0x57bf3C9d7e9ec12d02B63D645da1714e2eb1D989
-Token: 0x22aF33FE49fD1Fa80c7149773dDe5890D3c76F3b (BNKR)
-Balance: 1000.0 (base)
+
+2. **After user responds**, call `x402_rpc`:
+```tool:x402_rpc
+preset: get_balance
+network: base
 ```
+
+3. **Convert and report**: Result is hex wei (e.g., `"0x2386f26fc10000"` = 0.01 ETH).
+
+## Example Flow: "Show me my USDC balance on Base"
+
+1. **Look up token:**
+```tool:token_lookup
+symbol: USDC
+network: base
+cache_as: token_address
+```
+
+2. **Get balance:**
+```tool:web3_function_call
+preset: erc20_balance
+network: base
+call_only: true
+```
+
+3. **Convert**: USDC has 6 decimals, so divide result by 10^6.
+
+## Example Flow: "How much STARKBOT do I have?"
+
+1. **Look up STARKBOT token:**
+```tool:token_lookup
+symbol: STARKBOT
+network: base
+cache_as: token_address
+```
+
+2. **Get balance:**
+```tool:web3_function_call
+preset: erc20_balance
+network: base
+call_only: true
+```
+
+3. **Convert**: STARKBOT has 18 decimals, so divide result by 10^18.
+
+## Available Presets
+
+### x402_rpc presets
+| Preset | Description | Registers Used |
+|--------|-------------|----------------|
+| `get_balance` | Get ETH balance | `wallet_address` (intrinsic) |
+| `get_nonce` | Get transaction count | `wallet_address` (intrinsic) |
+| `gas_price` | Get current gas price | none |
+| `block_number` | Get current block | none |
+
+### web3_function_call presets
+| Preset | Description | Registers Used |
+|--------|-------------|----------------|
+| `erc20_balance` | Get any ERC20 token balance | `wallet_address`, `token_address` |
+| `weth_balance` | Get WETH balance specifically | `wallet_address` |
 
 ## Important Notes
 
 - This is a **burner wallet** - only use for testing/small amounts
-- The private key is used for signing - use with caution
-- Balance checks use public RPC endpoints (no cost)
-- For paid RPC calls, use the `x402_rpc` tool instead
+- The wallet address is the same across all EVM networks
+- `wallet_address` is an **intrinsic register** - always available automatically
+- **ALWAYS ask for network if not specified** - don't assume!
+- Remember decimals: ETH/WETH = 18, USDC = 6
+
+## ⚠️ COMMON MISTAKE TO AVOID
+
+**NEVER manually construct a balanceOf call like this:**
+```tool:web3_function_call
+# ❌ WRONG - This checks the CONTRACT's balance, not YOUR wallet!
+abi: erc20
+contract: "0x587..."
+function: balanceOf
+params: ["0x587..."]  # <- WRONG: This is the contract address!
+call_only: true
+```
+
+**ALWAYS use the preset instead:**
+```tool:web3_function_call
+# ✅ CORRECT - Preset automatically uses wallet_address register
+preset: erc20_balance
+network: base
+call_only: true
+```
+
+The `erc20_balance` preset reads `wallet_address` from registers automatically, ensuring you always check YOUR wallet balance.

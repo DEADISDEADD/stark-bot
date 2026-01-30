@@ -5,48 +5,91 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use strum::{EnumIter, IntoEnumIterator};
 
 /// Tool groups for access control
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, EnumIter)]
 #[serde(rename_all = "lowercase")]
 pub enum ToolGroup {
+    /// System tools - always available (set_agent_subtype, ask_user, etc.)
+    System,
+    /// Web tools - web_fetch, etc.
     #[default]
     Web,
+    /// Filesystem tools - read_file, list_files, etc.
     Filesystem,
+    /// Finance/DeFi tools - web3_tx, x402_*, token_lookup, etc.
+    Finance,
+    /// Development tools - grep, glob, edit_file, git, etc.
+    Development,
+    /// Exec tools - exec command
     Exec,
+    /// Messaging tools - agent_send, etc.
     Messaging,
-    System,
+    /// Social/Marketing tools - twitter, scheduling, etc.
+    Social,
 }
 
 impl ToolGroup {
+    /// Get all tool groups (using strum iterator)
     pub fn all() -> Vec<ToolGroup> {
-        vec![
-            ToolGroup::Web,
-            ToolGroup::Filesystem,
-            ToolGroup::Exec,
-            ToolGroup::Messaging,
-            ToolGroup::System,
-        ]
+        ToolGroup::iter().collect()
     }
 
+    /// Human-readable label for UI display
+    pub fn label(&self) -> &'static str {
+        match self {
+            ToolGroup::System => "System Tools",
+            ToolGroup::Web => "Web Tools",
+            ToolGroup::Filesystem => "Filesystem Tools",
+            ToolGroup::Finance => "Finance/DeFi Tools",
+            ToolGroup::Development => "Development Tools",
+            ToolGroup::Exec => "Execution Tools",
+            ToolGroup::Messaging => "Messaging Tools",
+            ToolGroup::Social => "Social/Marketing Tools",
+        }
+    }
+
+    /// Description of what this group contains
+    pub fn description(&self) -> &'static str {
+        match self {
+            ToolGroup::System => "Core agent tools like subtype switching and user interaction",
+            ToolGroup::Web => "HTTP requests and web fetching",
+            ToolGroup::Filesystem => "File reading and directory listing",
+            ToolGroup::Finance => "Crypto transactions, DeFi operations, token lookups",
+            ToolGroup::Development => "Code editing, git, grep, glob, and development utilities",
+            ToolGroup::Exec => "Shell command execution",
+            ToolGroup::Messaging => "Inter-agent and external messaging",
+            ToolGroup::Social => "Social media and marketing integrations",
+        }
+    }
+
+    /// Parse from string (case-insensitive, with aliases)
     pub fn from_str(s: &str) -> Option<ToolGroup> {
         match s.to_lowercase().as_str() {
+            "system" => Some(ToolGroup::System),
             "web" => Some(ToolGroup::Web),
             "filesystem" | "fs" => Some(ToolGroup::Filesystem),
+            "finance" | "defi" | "crypto" => Some(ToolGroup::Finance),
+            "development" | "dev" | "code" => Some(ToolGroup::Development),
             "exec" => Some(ToolGroup::Exec),
             "messaging" => Some(ToolGroup::Messaging),
-            "system" => Some(ToolGroup::System),
+            "social" | "marketing" | "twitter" => Some(ToolGroup::Social),
             _ => None,
         }
     }
 
+    /// Get the string key (for serialization/API)
     pub fn as_str(&self) -> &'static str {
         match self {
+            ToolGroup::System => "system",
             ToolGroup::Web => "web",
             ToolGroup::Filesystem => "filesystem",
+            ToolGroup::Finance => "finance",
+            ToolGroup::Development => "development",
             ToolGroup::Exec => "exec",
             ToolGroup::Messaging => "messaging",
-            ToolGroup::System => "system",
+            ToolGroup::Social => "social",
         }
     }
 }
@@ -63,6 +106,12 @@ pub enum ToolProfile {
     Standard,
     /// Standard + messaging tools
     Messaging,
+    /// Finance specialist - Web + Filesystem + Finance tools
+    Finance,
+    /// Developer specialist - Web + Filesystem + Exec + Development tools
+    Developer,
+    /// Secretary specialist - Web + Filesystem + Messaging + Social tools
+    Secretary,
     /// All tools enabled
     Full,
     /// Custom configuration
@@ -84,7 +133,38 @@ impl ToolProfile {
             // (deny list for dangerous commands, no shell metacharacters allowed)
             ToolProfile::Standard => vec![ToolGroup::Web, ToolGroup::Filesystem, ToolGroup::Exec],
             ToolProfile::Messaging => {
-                vec![ToolGroup::Web, ToolGroup::Filesystem, ToolGroup::Exec, ToolGroup::Messaging]
+                vec![
+                    ToolGroup::Web,
+                    ToolGroup::Filesystem,
+                    ToolGroup::Exec,
+                    ToolGroup::Messaging,
+                ]
+            }
+            ToolProfile::Finance => {
+                vec![
+                    ToolGroup::Web,
+                    ToolGroup::Filesystem,
+                    ToolGroup::Finance,
+                    ToolGroup::System,
+                ]
+            }
+            ToolProfile::Developer => {
+                vec![
+                    ToolGroup::Web,
+                    ToolGroup::Filesystem,
+                    ToolGroup::Exec,
+                    ToolGroup::Development,
+                    ToolGroup::System,
+                ]
+            }
+            ToolProfile::Secretary => {
+                vec![
+                    ToolGroup::Web,
+                    ToolGroup::Filesystem,
+                    ToolGroup::Messaging,
+                    ToolGroup::Social,
+                    ToolGroup::System,
+                ]
             }
             ToolProfile::Full => ToolGroup::all(),
             ToolProfile::Custom => vec![], // Custom profile uses explicit allow/deny lists
@@ -97,6 +177,9 @@ impl ToolProfile {
             "minimal" => Some(ToolProfile::Minimal),
             "standard" => Some(ToolProfile::Standard),
             "messaging" => Some(ToolProfile::Messaging),
+            "finance" => Some(ToolProfile::Finance),
+            "developer" | "dev" => Some(ToolProfile::Developer),
+            "secretary" | "social" | "marketing" => Some(ToolProfile::Secretary),
             "full" => Some(ToolProfile::Full),
             "custom" => Some(ToolProfile::Custom),
             _ => None,
@@ -396,13 +479,16 @@ pub struct ToolConfig {
 
 impl Default for ToolConfig {
     fn default() -> Self {
+        // Default to Full profile since AgentSubtype already controls which tools
+        // are visible to the agent. The ToolConfig should not block tools that
+        // the subtype system expects to be available.
         ToolConfig {
             id: None,
             channel_id: None,
-            profile: ToolProfile::Standard,
+            profile: ToolProfile::Full,
             allow_list: vec![],
             deny_list: vec![],
-            allowed_groups: vec!["web".to_string(), "filesystem".to_string(), "exec".to_string()],
+            allowed_groups: ToolGroup::all().iter().map(|g| g.as_str().to_string()).collect(),
             denied_groups: vec![],
         }
     }

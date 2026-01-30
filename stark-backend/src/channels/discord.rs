@@ -9,9 +9,52 @@ use serenity::all::{
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
+/// Format a tool call event for Discord display
+fn format_tool_call_for_discord(tool_name: &str, parameters: &serde_json::Value) -> String {
+    let params_str = serde_json::to_string_pretty(parameters)
+        .unwrap_or_else(|_| parameters.to_string());
+    // Truncate params if too long for Discord
+    let params_display = if params_str.len() > 800 {
+        format!("{}...", &params_str[..800])
+    } else {
+        params_str
+    };
+    format!("🔧 **Tool Call:** `{}`\n```json\n{}\n```", tool_name, params_display)
+}
+
+/// Format a tool result event for Discord display
+fn format_tool_result_for_discord(tool_name: &str, success: bool, duration_ms: i64, content: &str) -> String {
+    let status = if success { "✅" } else { "❌" };
+    // Truncate content if too long
+    let content_display = if content.len() > 1200 {
+        format!("{}...", &content[..1200])
+    } else {
+        content.to_string()
+    };
+    format!(
+        "{} **Tool Result:** `{}` ({} ms)\n```\n{}\n```",
+        status, tool_name, duration_ms, content_display
+    )
+}
+
+/// Format an agent mode change for Discord display
+fn format_mode_change_for_discord(mode: &str, label: &str, reason: Option<&str>) -> String {
+    let emoji = match mode {
+        "explore" => "🔍",
+        "plan" => "📋",
+        "perform" => "⚡",
+        _ => "🔄",
+    };
+    match reason {
+        Some(r) => format!("{} **Mode:** {} - {}", emoji, label, r),
+        None => format!("{} **Mode:** {}", emoji, label),
+    }
+}
+
 struct DiscordHandler {
     channel_id: i64,
     dispatcher: Arc<MessageDispatcher>,
+    broadcaster: Arc<EventBroadcaster>,
 }
 
 #[serenity::async_trait]
@@ -52,12 +95,103 @@ impl EventHandler for DiscordHandler {
             message_id: Some(msg.id.to_string()),
         };
 
+        // Subscribe to events for real-time tool call forwarding
+        let (client_id, mut event_rx) = self.broadcaster.subscribe();
+        log::info!("Discord: Subscribed to events as client {}", client_id);
+
+        // Clone context and channel info for the event forwarder task
+        let http = ctx.http.clone();
+        let discord_channel_id = msg.channel_id;
+        let channel_id_for_events = self.channel_id;
+
+        // Spawn task to forward events to Discord in real-time
+        let event_task = tokio::spawn(async move {
+            while let Some(event) = event_rx.recv().await {
+                // Only forward events for this channel
+                if let Some(event_channel_id) = event.data.get("channel_id").and_then(|v| v.as_i64()) {
+                    if event_channel_id != channel_id_for_events {
+                        continue;
+                    }
+                }
+
+                let message_text = match event.event.as_str() {
+                    "agent.tool_call" => {
+                        let tool_name = event.data.get("tool_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let params = event.data.get("parameters")
+                            .cloned()
+                            .unwrap_or(serde_json::json!({}));
+                        Some(format_tool_call_for_discord(tool_name, &params))
+                    }
+                    "tool.result" => {
+                        let tool_name = event.data.get("tool_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let success = event.data.get("success")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let duration_ms = event.data.get("duration_ms")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0);
+                        let content = event.data.get("content")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        Some(format_tool_result_for_discord(tool_name, success, duration_ms, content))
+                    }
+                    "agent.mode_change" => {
+                        let mode = event.data.get("mode")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let label = event.data.get("label")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Unknown");
+                        let reason = event.data.get("reason")
+                            .and_then(|v| v.as_str());
+                        Some(format_mode_change_for_discord(mode, label, reason))
+                    }
+                    "execution.task_started" => {
+                        let task_type = event.data.get("type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("task");
+                        let name = event.data.get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Unknown task");
+                        Some(format!("▶️ **{}:** {}", task_type, name))
+                    }
+                    "execution.task_completed" => {
+                        let status = event.data.get("status")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("completed");
+                        let emoji = if status == "completed" { "✅" } else { "❌" };
+                        Some(format!("{} Task {}", emoji, status))
+                    }
+                    _ => None,
+                };
+
+                if let Some(text) = message_text {
+                    // Split message if too long for Discord
+                    let chunks = split_message(&text, 2000);
+                    for chunk in chunks {
+                        if let Err(e) = discord_channel_id.say(&http, &chunk).await {
+                            log::error!("Discord: Failed to send event message: {}", e);
+                        }
+                    }
+                }
+            }
+        });
+
         // Dispatch to AI
         log::info!("Discord: Dispatching message to AI for user {}", user_name);
         let result = self.dispatcher.dispatch(normalized).await;
         log::info!("Discord: Dispatch complete, error={:?}", result.error);
 
-        // Send response
+        // Unsubscribe and stop event forwarding
+        self.broadcaster.unsubscribe(&client_id);
+        event_task.abort();
+        log::info!("Discord: Unsubscribed from events, client {}", client_id);
+
+        // Send final response
         if result.error.is_none() && !result.response.is_empty() {
             // Discord has a 2000 character limit per message
             let response = &result.response;
@@ -144,6 +278,7 @@ pub async fn start_discord_listener(
     let handler = DiscordHandler {
         channel_id,
         dispatcher,
+        broadcaster: broadcaster.clone(),
     };
 
     // Create client

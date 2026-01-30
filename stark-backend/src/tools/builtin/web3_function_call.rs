@@ -145,7 +145,7 @@ impl Web3FunctionCallTool {
                     properties,
                     required: vec![], // No required fields - either preset or abi/contract/function
                 },
-                group: ToolGroup::Web,
+                group: ToolGroup::Finance,
             },
             abis_dir,
         }
@@ -533,14 +533,31 @@ impl Tool for Web3FunctionCallTool {
                 }
             };
 
-            // Get contract address for network
-            let contract = match preset.contracts.get(&params.network) {
-                Some(c) => c.clone(),
-                None => {
-                    return ToolResult::error(format!(
-                        "Preset '{}' has no contract for network '{}'",
-                        preset_name, params.network
-                    ));
+            // Get contract address - either from register or hardcoded per network
+            let contract = if let Some(ref contract_reg) = preset.contract_register {
+                // Read contract address from register
+                match context.registers.get(contract_reg) {
+                    Some(v) => match v.as_str() {
+                        Some(s) => s.to_string(),
+                        None => v.to_string().trim_matches('"').to_string(),
+                    },
+                    None => {
+                        return ToolResult::error(format!(
+                            "Preset '{}' requires register '{}' for contract address but it's not set",
+                            preset_name, contract_reg
+                        ));
+                    }
+                }
+            } else {
+                // Use hardcoded contract for network
+                match preset.contracts.get(&params.network) {
+                    Some(c) => c.clone(),
+                    None => {
+                        return ToolResult::error(format!(
+                            "Preset '{}' has no contract for network '{}'",
+                            preset_name, params.network
+                        ));
+                    }
                 }
             };
 
@@ -638,6 +655,27 @@ impl Tool for Web3FunctionCallTool {
             Ok(a) => a,
             Err(_) => return ToolResult::error(format!("Invalid contract address: {}", contract_addr)),
         };
+
+        // SAFETY CHECK: Detect common mistake of passing contract address to balanceOf
+        // When checking token balance, you want balanceOf(wallet_address), NOT balanceOf(contract_address)
+        if function_name == "balanceOf" && call_params.len() == 1 {
+            let param_str = match &call_params[0] {
+                Value::String(s) => s.to_lowercase(),
+                _ => call_params[0].to_string().trim_matches('"').to_lowercase(),
+            };
+            let contract_str = contract_addr.to_lowercase();
+
+            if param_str == contract_str {
+                return ToolResult::error(format!(
+                    "ERROR: You're calling balanceOf on the token contract with the contract's OWN address as the parameter. \
+                    This checks how many tokens the contract itself holds, NOT your wallet balance!\n\n\
+                    To check YOUR token balance, use the erc20_balance preset which automatically uses your wallet address:\n\
+                    {{\n  \"preset\": \"erc20_balance\",\n  \"network\": \"{}\",\n  \"call_only\": true\n}}\n\n\
+                    Make sure to first set the token_address register using token_lookup.",
+                    params.network
+                ));
+            }
+        }
 
         log::info!(
             "[web3_function_call] {}::{}({:?}) on {} (call_only={})",

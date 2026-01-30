@@ -63,7 +63,7 @@ impl RegisterSetTool {
                     properties,
                     required: vec!["key".to_string()],  // value OR json_value required, enforced in execute
                 },
-                group: ToolGroup::Web,
+                group: ToolGroup::Finance,
             },
         }
     }

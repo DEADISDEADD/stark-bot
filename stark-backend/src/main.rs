@@ -45,7 +45,12 @@ pub struct AppState {
 
 /// SPA fallback handler - serves index.html for client-side routing
 async fn spa_fallback() -> actix_web::Result<NamedFile> {
-    Ok(NamedFile::open("./stark-frontend/dist/index.html")?)
+    // Check both possible locations for frontend dist
+    if std::path::Path::new("./stark-frontend/dist/index.html").exists() {
+        Ok(NamedFile::open("./stark-frontend/dist/index.html")?)
+    } else {
+        Ok(NamedFile::open("../stark-frontend/dist/index.html")?)
+    }
 }
 
 #[actix_web::main]
@@ -54,11 +59,21 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
 
     // Load presets and tokens from config directory
-    let config_dir = std::path::Path::new("./config");
+    // Check ./config first, then ../config (for running from subdirectory)
+    let config_dir = if std::path::Path::new("./config").exists() {
+        std::path::Path::new("./config")
+    } else if std::path::Path::new("../config").exists() {
+        std::path::Path::new("../config")
+    } else {
+        panic!("Config directory not found in ./config or ../config");
+    };
+    log::info!("Using config directory: {:?}", config_dir);
     log::info!("Loading presets from config directory");
     tools::presets::load_presets(config_dir);
     log::info!("Loading token configs from config directory");
     tools::builtin::token_lookup::load_tokens(config_dir);
+    log::info!("Loading RPC provider configs from config directory");
+    tools::rpc_config::load_rpc_providers(config_dir);
 
     let config = Config::from_env();
     let port = config.port;
@@ -133,15 +148,33 @@ async fn main() -> std::io::Result<()> {
         scheduler_handle.start(scheduler_shutdown_rx).await;
     });
 
+    // Determine frontend dist path (check both locations)
+    // Set DISABLE_FRONTEND=1 to disable static file serving (for separate dev server)
+    let frontend_dist = if std::env::var("DISABLE_FRONTEND").map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false) {
+        log::info!("Frontend serving disabled via DISABLE_FRONTEND env var");
+        ""
+    } else if std::path::Path::new("./stark-frontend/dist").exists() {
+        "./stark-frontend/dist"
+    } else if std::path::Path::new("../stark-frontend/dist").exists() {
+        "../stark-frontend/dist"
+    } else {
+        log::warn!("Frontend dist not found in ./stark-frontend/dist or ../stark-frontend/dist - static file serving disabled");
+        ""
+    };
+
     log::info!("Starting StarkBot server on port {}", port);
     log::info!("Gateway WebSocket server on port {}", gateway_port);
     log::info!("Scheduler started with cron and heartbeat support");
+    if !frontend_dist.is_empty() {
+        log::info!("Serving frontend from: {}", frontend_dist);
+    }
 
     let tool_reg = tool_registry.clone();
     let skill_reg = skill_registry.clone();
     let disp = dispatcher.clone();
     let exec_tracker = execution_tracker.clone();
     let sched = scheduler.clone();
+    let frontend_dist = frontend_dist.to_string();
 
     HttpServer::new(move || {
         let cors = Cors::default()
@@ -150,7 +183,7 @@ async fn main() -> std::io::Result<()> {
             .allow_any_header()
             .max_age(3600);
 
-        App::new()
+        let mut app = App::new()
             .app_data(web::Data::new(AppState {
                 db: Arc::clone(&db),
                 config: config.clone(),
@@ -179,13 +212,18 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::cron::config)
             .configure(controllers::gmail::config)
             .configure(controllers::payments::config)
-            .configure(controllers::eip8004::config)
-            // Serve static files, with SPA fallback to index.html for client-side routing
-            .service(
-                Files::new("/", "./stark-frontend/dist")
+            .configure(controllers::eip8004::config);
+
+        // Serve static files only if frontend dist exists
+        if !frontend_dist.is_empty() {
+            app = app.service(
+                Files::new("/", frontend_dist.clone())
                     .index_file("index.html")
                     .default_handler(actix_web::web::to(spa_fallback))
-            )
+            );
+        }
+
+        app
     })
     .bind(("0.0.0.0", port))?
     .run()
