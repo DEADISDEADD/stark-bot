@@ -6,7 +6,6 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::Path;
 
 /// Tool for the agent to modify its own soul document
 pub struct ModifySoulTool {
@@ -75,17 +74,10 @@ struct ModifySoulParams {
     content: Option<String>,
 }
 
-/// Get the path to SOUL.md
+/// Get the path to SOUL.md in the workspace
+/// The agent can only modify the workspace copy, not the original
 fn soul_path() -> std::path::PathBuf {
-    // Check common locations
-    if Path::new("./SOUL.md").exists() {
-        Path::new("./SOUL.md").to_path_buf()
-    } else if Path::new("../SOUL.md").exists() {
-        Path::new("../SOUL.md").to_path_buf()
-    } else {
-        // Default to current directory
-        Path::new("./SOUL.md").to_path_buf()
-    }
+    crate::config::soul_document_path()
 }
 
 #[async_trait]

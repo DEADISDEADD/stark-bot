@@ -1,4 +1,5 @@
 use std::env;
+use std::path::{Path, PathBuf};
 
 /// Environment variable names - single source of truth
 pub mod env_vars {
@@ -136,4 +137,50 @@ impl MemoryConfig {
 /// Get the memory configuration
 pub fn memory_config() -> MemoryConfig {
     MemoryConfig::from_env()
+}
+
+/// Get the path to SOUL.md in the workspace
+pub fn soul_document_path() -> PathBuf {
+    PathBuf::from(workspace_dir()).join("SOUL.md")
+}
+
+/// Find the original SOUL.md in the repo root
+fn find_original_soul() -> Option<PathBuf> {
+    let candidates = [".", "..", "../..", "../../.."];
+    for candidate in candidates {
+        let path = PathBuf::from(candidate).join("SOUL.md");
+        if path.exists() {
+            return path.canonicalize().ok();
+        }
+    }
+    None
+}
+
+/// Initialize the workspace directory and copy SOUL.md
+/// This should be called at startup before any agent processing begins
+/// SOUL.md is copied fresh on every startup from the original to the workspace
+/// This protects the original from agent modifications while allowing the user
+/// to edit the original (via web UI) with changes propagating on restart
+pub fn initialize_workspace() -> std::io::Result<()> {
+    let workspace = workspace_dir();
+    let workspace_path = Path::new(&workspace);
+
+    // Create workspace directory if it doesn't exist
+    std::fs::create_dir_all(workspace_path)?;
+
+    // Copy SOUL.md from repo root to workspace on every boot
+    // This ensures the agent always starts with the user's current version
+    let workspace_soul = workspace_path.join("SOUL.md");
+    if let Some(original_soul) = find_original_soul() {
+        log::info!(
+            "Copying SOUL.md from {:?} to {:?}",
+            original_soul,
+            workspace_soul
+        );
+        std::fs::copy(&original_soul, &workspace_soul)?;
+    } else {
+        log::warn!("Original SOUL.md not found - workspace will not have a soul document");
+    }
+
+    Ok(())
 }

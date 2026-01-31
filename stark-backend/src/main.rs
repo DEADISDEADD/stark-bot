@@ -83,6 +83,12 @@ async fn main() -> std::io::Result<()> {
     let config = Config::from_env();
     let port = config.port;
 
+    // Initialize workspace directory and copy SOUL.md
+    log::info!("Initializing workspace");
+    if let Err(e) = config::initialize_workspace() {
+        log::error!("Failed to initialize workspace: {}", e);
+    }
+
     log::info!("Initializing database at {}", config.database_url);
     let db = Database::new(&config.database_url).expect("Failed to initialize database");
     let db = Arc::new(db);

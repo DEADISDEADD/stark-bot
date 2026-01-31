@@ -14,19 +14,6 @@ const INTRINSIC_FILES: &[(&str, &str)] = &[
     ("SOUL.md", "SOUL.md"),
 ];
 
-/// Get the repo root directory (where SOUL.md lives)
-fn get_repo_root() -> Option<PathBuf> {
-    // Check common locations
-    let candidates = [".", "..", "../..", "../../.."];
-    for candidate in candidates {
-        let path = PathBuf::from(candidate).join("SOUL.md");
-        if path.exists() {
-            return PathBuf::from(candidate).canonicalize().ok();
-        }
-    }
-    None
-}
-
 /// Read file tool - reads contents of files within a sandboxed directory
 pub struct ReadFileTool {
     definition: ToolDefinition,
@@ -110,25 +97,24 @@ impl Tool for ReadFileTool {
         let max_lines = params.max_lines.unwrap_or(500);
         let offset = params.offset.unwrap_or(0);
 
-        // Check if this is an intrinsic file
+        // Check if this is an intrinsic file (e.g., SOUL.md)
         let intrinsic_match = INTRINSIC_FILES.iter().find(|(name, _)| *name == params.path);
 
-        let content = if let Some((_, actual_path)) = intrinsic_match {
-            // Read from repo root for intrinsic files
-            let repo_root = match get_repo_root() {
-                Some(r) => r,
-                None => return ToolResult::error(format!(
-                    "Cannot find repo root to read intrinsic file '{}'. SOUL.md not found in parent directories.",
-                    params.path
-                )),
-            };
+        let content = if let Some((name, _)) = intrinsic_match {
+            // Read intrinsic files from workspace (the agent's working copy)
+            // SOUL.md is copied to workspace on startup to protect the original
+            let workspace = context
+                .workspace_dir
+                .as_ref()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(crate::config::workspace_dir()));
 
-            let full_path = repo_root.join(actual_path);
+            let full_path = workspace.join(name);
             match tokio::fs::read_to_string(&full_path).await {
                 Ok(c) => c,
                 Err(e) => return ToolResult::error(format!(
-                    "Failed to read intrinsic file '{}': {}",
-                    params.path, e
+                    "Failed to read '{}' from workspace: {}. Make sure the workspace was initialized properly.",
+                    name, e
                 )),
             }
         } else {
