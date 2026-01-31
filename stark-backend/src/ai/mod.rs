@@ -62,15 +62,15 @@ impl AiClient {
 
     /// Create an AI client from agent settings with optional burner wallet for x402
     ///
-    /// All x402 endpoints use the OpenAI-compatible client.
-    /// The archetype determines model behavior, not the client type.
+    /// Uses ClaudeClient for Claude archetype (requires x-api-key auth),
+    /// OpenAI-compatible client for all other archetypes.
     pub fn from_settings_with_wallet(
         settings: &AgentSettings,
         burner_private_key: Option<&str>,
     ) -> Result<Self, String> {
         use crate::x402::is_x402_endpoint;
 
-        // Get archetype to determine default model
+        // Get archetype to determine client type and default model
         let archetype_id = Self::infer_archetype(settings);
         let registry = ArchetypeRegistry::new();
         let archetype = registry.get(archetype_id).unwrap_or_else(|| registry.default_archetype());
@@ -83,7 +83,17 @@ impl AiClient {
             settings.secret_key.as_deref().unwrap_or("")
         };
 
-        // All endpoints use OpenAI-compatible client
+        // Use ClaudeClient for Claude archetype (native Anthropic API with x-api-key header)
+        if archetype_id == ArchetypeId::Claude {
+            let client = ClaudeClient::new(
+                api_key,
+                Some(&settings.endpoint),
+                Some(model),
+            )?;
+            return Ok(AiClient::Claude(client));
+        }
+
+        // All other archetypes use OpenAI-compatible client
         let client = OpenAIClient::new_with_x402_and_tokens(
             api_key,
             Some(&settings.endpoint),

@@ -1,7 +1,10 @@
 ---
 name: scheduling
 description: "Create scheduled tasks (cron jobs) that run at specific times or intervals. Use for recurring reports, reminders, and automated tasks."
-tags: [cron, schedule, automation, recurring, scheduling, social]
+version: 1.0.0
+author: starkbot
+metadata: {"clawdbot":{"emoji":"⏰"}}
+tags: [cron, schedule, automation, recurring, scheduling, general]
 ---
 
 # Scheduling Tasks

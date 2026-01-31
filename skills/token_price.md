@@ -1,6 +1,8 @@
 ---
 name: token_price
-description: Get cryptocurrency and token prices using CoinGecko (no API key required). Supports price lookup, market data, trending coins, and token search.
+description: "Get cryptocurrency and token prices using CoinGecko (no API key required). Supports price lookup, market data, trending coins, and token search."
+version: 1.0.0
+author: starkbot
 homepage: https://www.coingecko.com/en/api
 metadata: {"clawdbot":{"emoji":"💰"}}
 tags: [crypto, finance, price, token, coingecko, market]

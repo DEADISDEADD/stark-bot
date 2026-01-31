@@ -1,10 +1,12 @@
 ---
 name: github
 description: "Advanced GitHub operations with safe commits, PR creation, deployment, and quality checks."
+version: 1.0.0
+author: starkbot
 homepage: https://cli.github.com/manual/
-metadata: {"requires_auth": true}
+metadata: {"requires_auth": true, "clawdbot":{"emoji":"🐙"}}
 requires_tools: [git, committer, deploy, pr_quality, github_user, api_keys_check]
-tags: [github, git, pr, version-control, deployment, ci-cd]
+tags: [github, git, pr, version-control, deployment, ci-cd, development]
 ---
 
 # GitHub Operations Guide

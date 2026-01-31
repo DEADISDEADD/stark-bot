@@ -122,6 +122,8 @@ pub struct MessageDispatcher {
     memory_config: MemoryConfig,
     /// SubAgent manager for spawning background AI agents
     subagent_manager: Option<Arc<SubAgentManager>>,
+    /// Skill registry for managing skills
+    skill_registry: Option<Arc<crate::skills::SkillRegistry>>,
 }
 
 impl MessageDispatcher {
@@ -140,6 +142,24 @@ impl MessageDispatcher {
         tool_registry: Arc<ToolRegistry>,
         execution_tracker: Arc<ExecutionTracker>,
         burner_wallet_private_key: Option<String>,
+    ) -> Self {
+        Self::new_with_wallet_and_skills(
+            db,
+            broadcaster,
+            tool_registry,
+            execution_tracker,
+            burner_wallet_private_key,
+            None,
+        )
+    }
+
+    pub fn new_with_wallet_and_skills(
+        db: Arc<Database>,
+        broadcaster: Arc<EventBroadcaster>,
+        tool_registry: Arc<ToolRegistry>,
+        execution_tracker: Arc<ExecutionTracker>,
+        burner_wallet_private_key: Option<String>,
+        skill_registry: Option<Arc<crate::skills::SkillRegistry>>,
     ) -> Self {
         let memory_config = MemoryConfig::from_env();
         let context_manager = ContextManager::new(db.clone())
@@ -167,6 +187,7 @@ impl MessageDispatcher {
             thinking_directive_pattern: Regex::new(r"(?i)^/(?:t|think|thinking)(?::(\w+))?$").unwrap(),
             memory_config,
             subagent_manager: Some(subagent_manager),
+            skill_registry,
         }
     }
 
@@ -189,6 +210,7 @@ impl MessageDispatcher {
             thinking_directive_pattern: Regex::new(r"(?i)^/(?:t|think|thinking)(?::(\w+))?$").unwrap(),
             memory_config,
             subagent_manager: None, // No tools = no subagent support
+            skill_registry: None,   // No skills without tools
         }
     }
 
@@ -436,6 +458,12 @@ impl MessageDispatcher {
         if let Some(ref manager) = self.subagent_manager {
             tool_context = tool_context.with_subagent_manager(manager.clone());
             log::debug!("[DISPATCH] SubAgentManager attached to tool context");
+        }
+
+        // Add SkillRegistry for skill management
+        if let Some(ref registry) = self.skill_registry {
+            tool_context = tool_context.with_skill_registry(registry.clone());
+            log::debug!("[DISPATCH] SkillRegistry attached to tool context");
         }
 
         // Ensure workspace directory exists
@@ -1258,17 +1286,34 @@ impl MessageDispatcher {
                             }
                             skill_result
                         } else {
-                            // Execute regular tool and record the call for skill tracking
-                            let tool_result = self.tool_registry
-                                .execute(&call.name, call.arguments.clone(), tool_context, Some(tool_config))
-                                .await;
+                            // Check if subtype is None - only allow set_agent_subtype in that case
+                            let current_subtype = orchestrator.current_subtype();
+                            if !current_subtype.is_selected() && call.name != "set_agent_subtype" {
+                                log::warn!(
+                                    "[SUBTYPE] Blocked tool '{}' - no subtype selected. Must call set_agent_subtype first.",
+                                    call.name
+                                );
+                                crate::tools::ToolResult::error(format!(
+                                    "❌ No toolbox selected! You MUST call `set_agent_subtype` FIRST before using '{}'.\n\n\
+                                    Choose based on the user's request:\n\
+                                    • set_agent_subtype(subtype=\"finance\") - for crypto/DeFi operations\n\
+                                    • set_agent_subtype(subtype=\"code_engineer\") - for code/git operations\n\
+                                    • set_agent_subtype(subtype=\"secretary\") - for social/messaging",
+                                    call.name
+                                ))
+                            } else {
+                                // Execute regular tool and record the call for skill tracking
+                                let tool_result = self.tool_registry
+                                    .execute(&call.name, call.arguments.clone(), tool_context, Some(tool_config))
+                                    .await;
 
-                            // Record this tool call for active skill tracking
-                            if tool_result.success {
-                                orchestrator.record_tool_call(&call.name);
+                                // Record this tool call for active skill tracking
+                                if tool_result.success {
+                                    orchestrator.record_tool_call(&call.name);
+                                }
+
+                                tool_result
                             }
-
-                            tool_result
                         };
 
                         // Handle subtype change: update orchestrator and refresh tools
@@ -1667,20 +1712,37 @@ impl MessageDispatcher {
                                     }
                                     skill_result
                                 } else {
-                                    // Execute regular tool and record the call for skill tracking
-                                    let tool_result = self.tool_registry.execute(
-                                        &tool_call.tool_name,
-                                        tool_call.tool_params.clone(),
-                                        tool_context,
-                                        Some(tool_config),
-                                    ).await;
+                                    // Check if subtype is None - only allow set_agent_subtype in that case
+                                    let current_subtype = orchestrator.current_subtype();
+                                    if !current_subtype.is_selected() && tool_call.tool_name != "set_agent_subtype" {
+                                        log::warn!(
+                                            "[SUBTYPE] Blocked tool '{}' - no subtype selected. Must call set_agent_subtype first.",
+                                            tool_call.tool_name
+                                        );
+                                        crate::tools::ToolResult::error(format!(
+                                            "❌ No toolbox selected! You MUST call `set_agent_subtype` FIRST before using '{}'.\n\n\
+                                            Choose based on the user's request:\n\
+                                            • set_agent_subtype(subtype=\"finance\") - for crypto/DeFi operations\n\
+                                            • set_agent_subtype(subtype=\"code_engineer\") - for code/git operations\n\
+                                            • set_agent_subtype(subtype=\"secretary\") - for social/messaging",
+                                            tool_call.tool_name
+                                        ))
+                                    } else {
+                                        // Execute regular tool and record the call for skill tracking
+                                        let tool_result = self.tool_registry.execute(
+                                            &tool_call.tool_name,
+                                            tool_call.tool_params.clone(),
+                                            tool_context,
+                                            Some(tool_config),
+                                        ).await;
 
-                                    // Record this tool call for active skill tracking
-                                    if tool_result.success {
-                                        orchestrator.record_tool_call(&tool_call.tool_name);
+                                        // Record this tool call for active skill tracking
+                                        if tool_result.success {
+                                            orchestrator.record_tool_call(&tool_call.tool_name);
+                                        }
+
+                                        tool_result
                                     }
-
-                                    tool_result
                                 };
 
                                 // Handle subtype change: update orchestrator and refresh tools

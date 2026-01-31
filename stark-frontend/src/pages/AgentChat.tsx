@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, RotateCcw, Copy, Check, Wallet, Bug, Square, Loader2 } from 'lucide-react';
+import { Send, RotateCcw, Copy, Check, Wallet, Bug, Square, Loader2, ChevronDown } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import ChatMessage from '@/components/chat/ChatMessage';
 import TypingIndicator from '@/components/chat/TypingIndicator';
@@ -29,6 +29,13 @@ const STORAGE_KEY_HISTORY = 'agentChat_history';
 const STORAGE_KEY_MODE = 'agentChat_mode';
 const STORAGE_KEY_SUBTYPE = 'agentChat_subtype';
 const STORAGE_KEY_SESSION_ID = 'agentChat_sessionId';
+
+// Available agent subtypes with their styling
+const AGENT_SUBTYPES = [
+  { subtype: 'finance', label: 'Finance', emoji: '💰', bgClass: 'bg-purple-500/20', textClass: 'text-purple-400', borderClass: 'border-purple-500/50', hoverClass: 'hover:bg-purple-500/30' },
+  { subtype: 'code_engineer', label: 'CodeEngineer', emoji: '🛠️', bgClass: 'bg-cyan-500/20', textClass: 'text-cyan-400', borderClass: 'border-cyan-500/50', hoverClass: 'hover:bg-cyan-500/30' },
+  { subtype: 'secretary', label: 'Secretary', emoji: '📱', bgClass: 'bg-pink-500/20', textClass: 'text-pink-400', borderClass: 'border-pink-500/50', hoverClass: 'hover:bg-pink-500/30' },
+] as const;
 
 // Generate a new session ID
 function generateSessionId(): string {
@@ -76,6 +83,8 @@ export default function AgentChat() {
   const [agentSubtype, setAgentSubtype] = useState<{ subtype: string; label: string } | null>(() =>
     loadFromStorage<{ subtype: string; label: string } | null>(STORAGE_KEY_SUBTYPE, null)
   );
+  const [subtypeDropdownOpen, setSubtypeDropdownOpen] = useState(false);
+  const subtypeDropdownRef = useRef<HTMLDivElement>(null);
   const [sessionId, setSessionId] = useState<string>(() => {
     const stored = localStorage.getItem(STORAGE_KEY_SESSION_ID);
     if (stored) return stored;
@@ -110,6 +119,17 @@ export default function AgentChat() {
       localStorage.setItem(STORAGE_KEY_SUBTYPE, JSON.stringify(agentSubtype));
     }
   }, [agentSubtype]);
+
+  // Close subtype dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (subtypeDropdownRef.current && !subtypeDropdownRef.current.contains(event.target as Node)) {
+        setSubtypeDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Helper to truncate address
   const truncateAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
@@ -906,22 +926,51 @@ export default function AgentChat() {
               <span>{agentMode.label}</span>
             </div>
           )}
-          {/* Agent Subtype Badge */}
-          {agentSubtype && (
-            <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${
-              agentSubtype.subtype === 'finance'
-                ? 'bg-purple-500/20 text-purple-400 border border-purple-500/50'
-                : agentSubtype.subtype === 'code_engineer'
-                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50'
-                : 'bg-pink-500/20 text-pink-400 border border-pink-500/50'
-            }`}>
+          {/* Agent Subtype Dropdown */}
+          <div className="relative" ref={subtypeDropdownRef}>
+            <button
+              onClick={() => setSubtypeDropdownOpen(!subtypeDropdownOpen)}
+              className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium cursor-pointer transition-colors ${
+                agentSubtype
+                  ? agentSubtype.subtype === 'finance'
+                    ? 'bg-purple-500/20 text-purple-400 border border-purple-500/50 hover:bg-purple-500/30'
+                    : agentSubtype.subtype === 'code_engineer'
+                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50 hover:bg-cyan-500/30'
+                    : 'bg-pink-500/20 text-pink-400 border border-pink-500/50 hover:bg-pink-500/30'
+                  : 'bg-slate-500/20 text-slate-400 border border-slate-500/50 hover:bg-slate-500/30'
+              }`}
+            >
               <span>{
-                agentSubtype.subtype === 'finance' ? '💰' :
-                agentSubtype.subtype === 'code_engineer' ? '🛠️' : '📱'
+                agentSubtype
+                  ? agentSubtype.subtype === 'finance' ? '💰' :
+                    agentSubtype.subtype === 'code_engineer' ? '🛠️' : '📱'
+                  : '🔧'
               }</span>
-              <span>{agentSubtype.label}</span>
-            </div>
-          )}
+              <span>{agentSubtype?.label || 'Select Toolbox'}</span>
+              <ChevronDown className={`w-3 h-3 transition-transform ${subtypeDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {subtypeDropdownOpen && (
+              <div className="absolute top-full left-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-50 min-w-[160px] py-1">
+                {AGENT_SUBTYPES.map((st) => (
+                  <button
+                    key={st.subtype}
+                    onClick={() => {
+                      setAgentSubtype({ subtype: st.subtype, label: st.label });
+                      setSubtypeDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
+                      agentSubtype?.subtype === st.subtype
+                        ? `${st.bgClass} ${st.textClass}`
+                        : 'text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    <span>{st.emoji}</span>
+                    <span>{st.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Debug Toggle + Wallet Info */}

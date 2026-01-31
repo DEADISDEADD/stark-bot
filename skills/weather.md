@@ -1,8 +1,11 @@
 ---
 name: weather
 description: Get current weather and forecasts (no API key required).
+version: 1.0.0
+author: starkbot
 homepage: https://wttr.in/:help
 metadata: {"clawdbot":{"emoji":"🌤️"}}
+tags: [general, weather, utility]
 requires_tools: [exec]
 ---
 

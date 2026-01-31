@@ -6,6 +6,7 @@
 //!
 //! This module provides a unified interface for handling both approaches.
 
+pub mod claude;
 pub mod kimi;
 pub mod llama;
 
@@ -108,6 +109,7 @@ impl ArchetypeRegistry {
         // Register default archetypes
         registry.register(Box::new(llama::LlamaArchetype::new()));
         registry.register(Box::new(kimi::KimiArchetype::new()));
+        registry.register(Box::new(claude::ClaudeArchetype::new()));
 
         registry
     }
