@@ -148,13 +148,21 @@ export default function AgentChat() {
             const transcript = await getSessionTranscript(webSession.id);
             if (transcript.messages.length > 0) {
               // Convert DB messages to frontend format
-              const dbMessages: ChatMessageType[] = transcript.messages.map((msg, index) => ({
-                id: `db-${msg.id || index}`,
-                role: msg.role as MessageRole,
-                content: msg.content,
-                timestamp: new Date(msg.created_at),
-                sessionId: sessionId,
-              }));
+              // Map tool_call and tool_result to 'tool' role for consistent styling
+              const dbMessages: ChatMessageType[] = transcript.messages.map((msg, index) => {
+                let role: MessageRole = msg.role as MessageRole;
+                // Map DB roles to display roles
+                if (msg.role === 'tool_call' || msg.role === 'tool_result') {
+                  role = 'tool';
+                }
+                return {
+                  id: `db-${msg.id || index}`,
+                  role,
+                  content: msg.content,
+                  timestamp: new Date(msg.created_at),
+                  sessionId: sessionId,
+                };
+              });
 
               // Replace localStorage messages with DB messages
               setMessages(dbMessages);

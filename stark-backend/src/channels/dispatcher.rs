@@ -1170,7 +1170,7 @@ impl MessageDispatcher {
 
                 // Save tool call to session
                 let tool_call_content = format!(
-                    "**Tool:** `{}`\n```json\n{}\n```",
+                    "🔧 **Tool Call:** `{}`\n```json\n{}\n```",
                     call.name,
                     args_pretty
                 );
@@ -1591,7 +1591,7 @@ impl MessageDispatcher {
 
                         // Save tool call to session
                         let tool_call_content = format!(
-                            "**Tool:** `{}`\n```json\n{}\n```",
+                            "🔧 **Tool Call:** `{}`\n```json\n{}\n```",
                             tool_call.tool_name,
                             args_pretty
                         );

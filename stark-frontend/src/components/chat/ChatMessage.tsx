@@ -1,5 +1,11 @@
+import { useState } from 'react';
 import clsx from 'clsx';
+import { Wrench, CheckCircle, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import type { MessageRole } from '@/types';
+
+// Threshold for collapsing large content
+const COLLAPSE_CHAR_THRESHOLD = 400;
+const COLLAPSE_LINE_THRESHOLD = 8;
 
 interface ChatMessageProps {
   role: MessageRole;
@@ -15,23 +21,23 @@ function parseMarkdown(text: string): string {
     .replace(/>/g, '&gt;');
 
   // Bold: **text**
-  parsed = parsed.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>');
+  parsed = parsed.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-slate-100">$1</strong>');
 
   // Italic: *text* (but not inside **)
   parsed = parsed.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
 
   // Code blocks: ```code```
-  parsed = parsed.replace(/```([\s\S]*?)```/g, '<pre class="bg-slate-900 p-3 rounded-lg my-2 overflow-x-auto text-sm font-mono">$1</pre>');
+  parsed = parsed.replace(/```([\s\S]*?)```/g, '<pre class="bg-slate-900/80 p-3 rounded-lg my-2 overflow-x-auto text-sm font-mono text-slate-200">$1</pre>');
 
   // Inline code: `text`
-  parsed = parsed.replace(/`([^`]+)`/g, '<code class="bg-slate-700 px-1.5 py-0.5 rounded text-cyan-300 text-sm font-mono">$1</code>');
+  parsed = parsed.replace(/`([^`]+)`/g, '<code class="bg-slate-700/80 px-1.5 py-0.5 rounded text-cyan-300 text-sm font-mono">$1</code>');
 
   // Headers: ## text
-  parsed = parsed.replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold text-white mt-4 mb-2">$1</h3>');
-  parsed = parsed.replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold text-white mt-4 mb-2">$1</h2>');
+  parsed = parsed.replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold text-slate-100 mt-4 mb-2">$1</h3>');
+  parsed = parsed.replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold text-slate-100 mt-4 mb-2">$1</h2>');
 
   // Bullet points: - text or • text
-  parsed = parsed.replace(/^[-•] (.+)$/gm, '<li class="ml-4 list-disc">$1</li>');
+  parsed = parsed.replace(/^[-•] (.+)$/gm, '<li class="ml-4 list-disc text-slate-200">$1</li>');
 
   // Wrap consecutive <li> in <ul>
   parsed = parsed.replace(/(<li[^>]*>.*?<\/li>\n?)+/g, '<ul class="space-y-1 my-2">$&</ul>');
@@ -47,20 +53,168 @@ function parseMarkdown(text: string): string {
   return parsed;
 }
 
+// Separate component for tool messages with accordion state
+function ToolMessage({
+  content,
+  timestamp,
+  isToolCall,
+  isToolSuccess,
+  isToolError,
+  getToolBorderColor,
+}: {
+  content: string;
+  timestamp?: Date;
+  isToolCall: boolean;
+  isToolSuccess: boolean;
+  isToolError: boolean;
+  getToolBorderColor: () => string;
+}) {
+  // Remove emoji from content for cleaner display since we're using icons
+  const cleanContent = content.replace(/^[✅❌🔧]\s*/, '');
+
+  // Check if content is large enough to collapse
+  const lineCount = cleanContent.split('\n').length;
+  const isLargeContent = cleanContent.length > COLLAPSE_CHAR_THRESHOLD || lineCount > COLLAPSE_LINE_THRESHOLD;
+
+  const [isExpanded, setIsExpanded] = useState(!isLargeContent);
+
+  // Determine icon and colors based on status
+  const getIcon = () => {
+    if (isToolError) return <XCircle className="w-4 h-4 text-red-400" />;
+    if (isToolSuccess) return <CheckCircle className="w-4 h-4 text-green-400" />;
+    if (isToolCall) return <Wrench className="w-4 h-4 text-amber-400" />;
+    return <Wrench className="w-4 h-4 text-slate-400" />;
+  };
+
+  const getTitle = () => {
+    if (isToolCall) return 'Tool';
+    return 'Result';
+  };
+
+  const getTitleColor = () => {
+    if (isToolError) return 'text-red-300';
+    if (isToolSuccess) return 'text-green-300';
+    if (isToolCall) return 'text-amber-300';
+    return 'text-slate-300';
+  };
+
+  // Get preview content (first few lines)
+  const getPreviewContent = () => {
+    const lines = cleanContent.split('\n');
+    const previewLines = lines.slice(0, 3);
+    return previewLines.join('\n') + (lines.length > 3 ? '...' : '');
+  };
+
+  return (
+    <div className="flex mb-4 justify-start">
+      <div
+        className={clsx(
+          'w-full px-4 py-3 rounded-r-xl rounded-l-sm border-l-4 bg-slate-800/95 text-slate-100 border border-slate-700/60',
+          getToolBorderColor()
+        )}
+      >
+        {/* Icon header with title and expand/collapse button */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            {getIcon()}
+            <span className={clsx('text-sm font-semibold', getTitleColor())}>
+              {getTitle()}
+            </span>
+            {/* Show status badge for results */}
+            {!isToolCall && (
+              <span className={clsx(
+                'text-xs px-1.5 py-0.5 rounded',
+                isToolSuccess && 'bg-green-900/50 text-green-300',
+                isToolError && 'bg-red-900/50 text-red-300',
+                !isToolSuccess && !isToolError && 'bg-green-900/50 text-green-300'
+              )}>
+                {isToolSuccess ? 'success' : isToolError ? 'error' : 'complete'}
+              </span>
+            )}
+          </div>
+
+          {/* Expand/Collapse button for large content */}
+          {isLargeContent && (
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors px-2 py-1 rounded hover:bg-slate-700/50"
+            >
+              {isExpanded ? (
+                <>
+                  <ChevronUp className="w-3 h-3" />
+                  <span>Collapse</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-3 h-3" />
+                  <span>Expand</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* Content in dark box */}
+        <div className={clsx(
+          'bg-slate-900/80 rounded-lg p-3 mt-2 overflow-hidden transition-all duration-200',
+          !isExpanded && 'max-h-24'
+        )}>
+          <div
+            className="prose prose-sm prose-invert max-w-none leading-relaxed text-slate-200"
+            dangerouslySetInnerHTML={{
+              __html: parseMarkdown(isExpanded ? cleanContent : getPreviewContent())
+            }}
+          />
+        </div>
+
+        {/* Show "click to expand" hint when collapsed */}
+        {isLargeContent && !isExpanded && (
+          <button
+            onClick={() => setIsExpanded(true)}
+            className="w-full mt-1 text-xs text-slate-500 hover:text-slate-300 text-center py-1 transition-colors"
+          >
+            Click to show full content ({lineCount} lines)
+          </button>
+        )}
+
+        {timestamp && (
+          <p className="text-xs mt-2 text-slate-500">
+            {timestamp.toLocaleTimeString()}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ChatMessage({ role, content, timestamp }: ChatMessageProps) {
   const isUser = role === 'user' || role === 'command';
   const isToolIndicator = role === 'tool-indicator';
+  const isToolMessage = role === 'tool' || role === 'tool_call' || role === 'tool_result';
+
+  // Detect success/failure for tool results
+  const isToolSuccess = isToolMessage && (content.includes('✅') || content.includes('Success'));
+  const isToolError = isToolMessage && (content.includes('❌') || content.includes('Failed') || content.includes('Error'));
+  const isToolCall = role === 'tool_call' || (isToolMessage && content.includes('Tool Call'));
 
   const roleStyles: Record<MessageRole, string> = {
     user: 'bg-stark-500 text-white',
     assistant: 'bg-slate-800 text-slate-100',
     system: 'bg-slate-800/50 text-slate-300 border border-slate-700',
-    error: 'bg-red-500/20 text-red-400 border border-red-500/50',
-    command: 'bg-slate-700 text-stark-400',
-    'tool-indicator': 'bg-amber-500/20 text-amber-400 border border-amber-500/50',
-    tool: 'bg-purple-500/20 text-purple-300 border border-purple-500/50',
-    tool_call: 'bg-amber-500/20 text-amber-400 border border-amber-500/50',
-    tool_result: 'bg-green-500/20 text-green-400 border border-green-500/50',
+    error: 'bg-red-950/60 text-red-100 border border-red-900/50',
+    command: 'bg-slate-700 text-slate-200',
+    'tool-indicator': 'bg-slate-700/80 text-amber-300 border border-slate-600',
+    tool: 'bg-slate-850 text-slate-100 border border-slate-700/60',
+    tool_call: 'bg-slate-850 text-slate-100 border border-slate-700/60',
+    tool_result: 'bg-slate-850 text-slate-100 border border-slate-700/60',
+  };
+
+  // Determine border color for tool messages
+  const getToolBorderColor = () => {
+    if (isToolError) return 'border-l-red-500';
+    if (isToolSuccess) return 'border-l-green-500';
+    if (isToolCall) return 'border-l-amber-500';
+    return 'border-l-slate-500';
   };
 
   if (isToolIndicator) {
@@ -79,6 +233,20 @@ export default function ChatMessage({ role, content, timestamp }: ChatMessagePro
     );
   }
 
+  // Render tool messages with icon header
+  if (isToolMessage) {
+    return (
+      <ToolMessage
+        content={content}
+        timestamp={timestamp}
+        isToolCall={isToolCall}
+        isToolSuccess={isToolSuccess}
+        isToolError={isToolError}
+        getToolBorderColor={getToolBorderColor}
+      />
+    );
+  }
+
   return (
     <div
       className={clsx(
@@ -93,7 +261,7 @@ export default function ChatMessage({ role, content, timestamp }: ChatMessagePro
           isUser ? 'rounded-br-md' : 'rounded-bl-md'
         )}
       >
-        {role === 'assistant' || role === 'system' || role === 'tool' ? (
+        {role === 'assistant' || role === 'system' ? (
           <div
             className="prose prose-sm prose-invert max-w-none leading-relaxed"
             dangerouslySetInnerHTML={{ __html: parseMarkdown(content) }}
