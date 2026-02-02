@@ -6,7 +6,7 @@
 use crate::tools::http_retry::HttpRetryManager;
 use crate::tools::presets::{get_rpc_preset, list_rpc_presets};
 use crate::tools::registry::Tool;
-use crate::tools::rpc_config;
+use crate::tools::rpc_config::resolve_rpc_from_context;
 use crate::tools::types::{
     PropertySchema, ToolContext, ToolDefinition, ToolGroup, ToolInputSchema, ToolResult,
 };
@@ -178,39 +178,16 @@ impl Tool for X402RpcTool {
             param_values.push(json!("latest"));
         }
 
+        // Resolve RPC configuration from context (respects custom RPC settings)
+        let rpc_config = resolve_rpc_from_context(&context.extra, &params.network);
+
         log::info!(
-            "[x402_rpc] Preset '{}' -> {} with {} params on {}",
+            "[x402_rpc] Preset '{}' -> {} with {} params on {} (rpc={})",
             params.preset,
             preset.method,
             param_values.len(),
-            params.network
-        );
-
-        // Get RPC configuration from context (set by dispatcher from bot_settings)
-        let rpc_provider = context.extra.get("rpc_provider")
-            .and_then(|v| v.as_str())
-            .unwrap_or("defirelay");
-
-        let custom_endpoints: Option<HashMap<String, String>> = context.extra.get("custom_rpc_endpoints")
-            .and_then(|v| serde_json::from_value(v.clone()).ok());
-
-        // Resolve the RPC URL and whether to use x402
-        let (url, use_x402) = match rpc_config::resolve_rpc_config(
-            rpc_provider,
-            custom_endpoints.as_ref(),
-            &params.network,
-        ) {
-            Some(config) => config,
-            None => {
-                // Fallback to default defirelay URL
-                (format!("https://rpc.defirelay.com/rpc/light/{}", params.network), true)
-            }
-        };
-
-        log::info!(
-            "[x402_rpc] Using RPC URL: {} (x402={})",
-            url,
-            use_x402
+            params.network,
+            rpc_config.url
         );
 
         // Build JSON-RPC request
@@ -232,10 +209,10 @@ impl Tool for X402RpcTool {
         let retry_manager = HttpRetryManager::global();
 
         // Make the request (with or without x402 payment based on config)
-        let response = if use_x402 {
-            client.post_with_payment(&url, &rpc_request).await
+        let response = if rpc_config.use_x402 {
+            client.post_with_payment(&rpc_config.url, &rpc_request).await
         } else {
-            client.post_regular(&url, &rpc_request).await
+            client.post_regular(&rpc_config.url, &rpc_request).await
         };
 
         let response = match response {

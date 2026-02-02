@@ -11,6 +11,7 @@
 use crate::tools::builtin::web3_tx::parse_u256;
 use crate::tools::presets::{get_web3_preset, list_web3_presets};
 use crate::tools::registry::Tool;
+use crate::tools::rpc_config::{resolve_rpc_from_context, ResolvedRpcConfig};
 use crate::tools::types::{
     PropertySchema, ToolContext, ToolDefinition, ToolGroup, ToolInputSchema, ToolResult,
 };
@@ -334,9 +335,15 @@ impl Web3FunctionCallTool {
         network: &str,
         to: Address,
         calldata: Vec<u8>,
+        rpc_config: &ResolvedRpcConfig,
     ) -> Result<Vec<u8>, String> {
         let private_key = Self::get_private_key()?;
-        let rpc = X402EvmRpc::new(&private_key, network)?;
+        let rpc = X402EvmRpc::new_with_config(
+            &private_key,
+            network,
+            Some(rpc_config.url.clone()),
+            rpc_config.use_x402,
+        )?;
 
         rpc.call(to, &calldata).await
     }
@@ -347,9 +354,15 @@ impl Web3FunctionCallTool {
         to: Address,
         calldata: Vec<u8>,
         value: U256,
+        rpc_config: &ResolvedRpcConfig,
     ) -> Result<SignedTxForQueue, String> {
         let private_key = Self::get_private_key()?;
-        let rpc = X402EvmRpc::new(&private_key, network)?;
+        let rpc = X402EvmRpc::new_with_config(
+            &private_key,
+            network,
+            Some(rpc_config.url.clone()),
+            rpc_config.use_x402,
+        )?;
         let chain_id = rpc.chain_id();
 
         let wallet = Self::get_wallet(chain_id)?;
@@ -662,14 +675,17 @@ impl Tool for Web3FunctionCallTool {
             }
         }
 
+        // Resolve RPC configuration from context (respects custom RPC settings)
+        let rpc_config = resolve_rpc_from_context(&context.extra, &params.network);
+
         log::info!(
-            "[web3_function_call] {}::{}({:?}) on {} (call_only={})",
-            abi_name, function_name, call_params, params.network, params.call_only
+            "[web3_function_call] {}::{}({:?}) on {} (call_only={}, rpc={})",
+            abi_name, function_name, call_params, params.network, params.call_only, rpc_config.url
         );
 
         if params.call_only {
             // Read-only call
-            match Self::call_function(&params.network, contract, calldata).await {
+            match Self::call_function(&params.network, contract, calldata, &rpc_config).await {
                 Ok(result) => {
                     let decoded = self.decode_return(function, &result)
                         .unwrap_or_else(|_| json!(format!("0x{}", hex::encode(&result))));
@@ -704,6 +720,7 @@ impl Tool for Web3FunctionCallTool {
                 contract,
                 calldata,
                 tx_value,
+                &rpc_config,
             ).await {
                 Ok(signed) => {
                     // Generate UUID for this queued transaction

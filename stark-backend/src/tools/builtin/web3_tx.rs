@@ -12,6 +12,7 @@
 
 use crate::domain_types::DomainUint256;
 use crate::tools::registry::Tool;
+use crate::tools::rpc_config::{resolve_rpc_from_context, ResolvedRpcConfig};
 use crate::tools::types::{
     PropertySchema, ToolContext, ToolDefinition, ToolGroup, ToolInputSchema, ToolResult,
 };
@@ -134,9 +135,15 @@ impl Web3TxTool {
         gas_limit: Option<U256>,
         max_fee_per_gas: Option<U256>,
         max_priority_fee_per_gas: Option<U256>,
+        rpc_config: &ResolvedRpcConfig,
     ) -> Result<SignedTxResult, String> {
         let private_key = Self::get_private_key()?;
-        let rpc = X402EvmRpc::new(&private_key, network)?;
+        let rpc = X402EvmRpc::new_with_config(
+            &private_key,
+            network,
+            Some(rpc_config.url.clone()),
+            rpc_config.use_x402,
+        )?;
         let chain_id = rpc.chain_id();
 
         let wallet = Self::get_wallet(chain_id)?;
@@ -477,6 +484,9 @@ impl Tool for Web3TxTool {
             None => return ToolResult::error("Transaction queue not available. Contact administrator."),
         };
 
+        // Resolve RPC configuration from context (respects custom RPC settings)
+        let rpc_config = resolve_rpc_from_context(&context.extra, &params.network);
+
         // Sign the transaction (but don't broadcast)
         match Self::sign_transaction(
             &params.network,
@@ -486,6 +496,7 @@ impl Tool for Web3TxTool {
             tx_data.gas_limit,
             params.max_fee_per_gas.as_ref().map(|g| g.0),
             params.max_priority_fee_per_gas.as_ref().map(|g| g.0),
+            &rpc_config,
         ).await {
             Ok(signed) => {
                 // Generate UUID for this queued transaction

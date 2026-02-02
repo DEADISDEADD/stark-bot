@@ -1,6 +1,6 @@
 ---
 name: transfer
-description: "Transfer ETH or ERC20 tokens on Base/Ethereum using the burner wallet"
+description: "Transfer (Send) ETH or ERC20 tokens on Base/Ethereum using the burner wallet"
 version: 3.1.0
 author: starkbot
 homepage: https://basescan.org
@@ -9,9 +9,9 @@ tags: [crypto, transfer, send, eth, erc20, base, wallet]
 requires_tools: [web, x, register_set]
 ---
 
-# Token Transfer Skill
+# Token Transfer/Send Skill
 
-Transfer ETH or ERC20 tokens from the burner wallet to any address.
+Transfer or Send ETH or ERC20 tokens from the burner wallet to any address.
 
 > **IMPORTANT: This skill uses the REGISTER PATTERN to prevent hallucination of transaction data.**
 >

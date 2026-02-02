@@ -147,3 +147,48 @@ pub fn resolve_rpc_config(
     // Fall back to provider
     get_rpc_endpoint(provider_name, network)
 }
+
+/// Resolved RPC configuration ready for use
+#[derive(Debug, Clone)]
+pub struct ResolvedRpcConfig {
+    pub url: String,
+    pub use_x402: bool,
+}
+
+/// Extract and resolve RPC configuration from ToolContext.extra
+/// This is the canonical way to get RPC config in any tool.
+pub fn resolve_rpc_from_context(
+    extra: &HashMap<String, serde_json::Value>,
+    network: &str,
+) -> ResolvedRpcConfig {
+    let rpc_provider = extra
+        .get("rpc_provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("defirelay");
+
+    let custom_endpoints: Option<HashMap<String, String>> = extra
+        .get("custom_rpc_endpoints")
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+    match resolve_rpc_config(rpc_provider, custom_endpoints.as_ref(), network) {
+        Some((url, use_x402)) => {
+            log::info!(
+                "[rpc_config] Resolved RPC for {}: {} (x402={})",
+                network,
+                url,
+                use_x402
+            );
+            ResolvedRpcConfig { url, use_x402 }
+        }
+        None => {
+            // Fallback to default defirelay URL
+            let url = format!("https://rpc.defirelay.com/rpc/light/{}", network);
+            log::info!(
+                "[rpc_config] Using fallback RPC for {}: {} (x402=true)",
+                network,
+                url
+            );
+            ResolvedRpcConfig { url, use_x402: true }
+        }
+    }
+}

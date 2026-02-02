@@ -5,6 +5,7 @@
 use crate::gateway::protocol::GatewayEvent;
 use crate::tools::builtin::web3_tx::Web3TxTool;
 use crate::tools::registry::Tool;
+use crate::tools::rpc_config::resolve_rpc_from_context;
 use crate::tools::types::{
     PropertySchema, ToolContext, ToolDefinition, ToolGroup, ToolInputSchema, ToolResult,
 };
@@ -132,7 +133,13 @@ impl Tool for BroadcastWeb3TxTool {
         // Mark as broadcasting
         tx_queue.mark_broadcasting(&params.uuid);
 
-        log::info!("[broadcast_web3_tx] Broadcasting transaction {} on {}", params.uuid, queued_tx.network);
+        // Resolve RPC configuration from context (respects custom RPC settings)
+        let rpc_config = resolve_rpc_from_context(&context.extra, &queued_tx.network);
+
+        log::info!(
+            "[broadcast_web3_tx] Broadcasting transaction {} on {} (rpc={})",
+            params.uuid, queued_tx.network, rpc_config.url
+        );
 
         // Initialize RPC client
         let private_key = match Self::get_private_key() {
@@ -143,7 +150,12 @@ impl Tool for BroadcastWeb3TxTool {
             }
         };
 
-        let rpc = match X402EvmRpc::new(&private_key, &queued_tx.network) {
+        let rpc = match X402EvmRpc::new_with_config(
+            &private_key,
+            &queued_tx.network,
+            Some(rpc_config.url.clone()),
+            rpc_config.use_x402,
+        ) {
             Ok(r) => r,
             Err(e) => {
                 tx_queue.mark_failed(&params.uuid, &e);
