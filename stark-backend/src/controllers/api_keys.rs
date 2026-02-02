@@ -3,10 +3,9 @@ use ethers::signers::{LocalWallet, Signer};
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
 
+use crate::keystore_client::KEYSTORE_CLIENT;
 use crate::models::ApiKeyResponse;
 use crate::AppState;
-
-const KEYSTORE_API: &str = "https://keystore.defirelay.com";
 
 /// Derive wallet address from private key
 fn get_wallet_address(private_key: &str) -> Option<String> {
@@ -333,6 +332,25 @@ pub struct BackupResponse {
     pub error: Option<String>,
 }
 
+/// Key preview for cloud keys preview
+#[derive(Serialize)]
+pub struct CloudKeyPreview {
+    pub key_name: String,
+    pub key_preview: String,
+}
+
+/// Response for preview cloud keys
+#[derive(Serialize)]
+pub struct PreviewKeysResponse {
+    pub success: bool,
+    pub key_count: usize,
+    pub keys: Vec<CloudKeyPreview>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// Request/response for keystore API
 #[derive(Serialize, Deserialize)]
 struct KeystoreBackupRequest {
@@ -353,8 +371,9 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("", web::post().to(upsert_api_key))
             .route("", web::delete().to(delete_api_key))
             .route("/config", web::get().to(get_configs))
-            .route("/backup", web::post().to(backup_to_cloud))
-            .route("/restore", web::post().to(restore_from_cloud)),
+            .route("/cloud_backup", web::post().to(backup_to_cloud))
+            .route("/cloud_restore", web::post().to(restore_from_cloud))
+            .route("/cloud_preview", web::get().to(preview_cloud_keys)),
     );
 }
 
@@ -540,19 +559,6 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
         }
     };
 
-    // Get wallet address for identification
-    let wallet_address = match get_wallet_address(&private_key) {
-        Some(addr) => addr.to_lowercase(),
-        None => {
-            return HttpResponse::InternalServerError().json(BackupResponse {
-                success: false,
-                key_count: None,
-                message: None,
-                error: Some("Failed to derive wallet address".to_string()),
-            });
-        }
-    };
-
     // Get all keys with values
     let keys = match state.db.list_api_keys_with_values() {
         Ok(k) => k,
@@ -611,21 +617,9 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
         }
     };
 
-    // Upload to keystore API
-    let client = reqwest::Client::new();
-    let backup_request = KeystoreBackupRequest {
-        wallet_id: wallet_address,
-        encrypted_data,
-        key_count: keys.len(),
-    };
-
-    match client
-        .post(format!("{}/api/backup", KEYSTORE_API))
-        .json(&backup_request)
-        .send()
-        .await
-    {
-        Ok(resp) if resp.status().is_success() => {
+    // Upload to keystore API (with SIWE authentication)
+    match KEYSTORE_CLIENT.store_keys(&private_key, &encrypted_data, keys.len()).await {
+        Ok(resp) if resp.success => {
             HttpResponse::Ok().json(BackupResponse {
                 success: true,
                 key_count: Some(keys.len()),
@@ -634,13 +628,12 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
             })
         }
         Ok(resp) => {
-            let error_text = resp.text().await.unwrap_or_default();
-            log::error!("Keystore API error: {}", error_text);
+            log::error!("Keystore store_keys failed: {:?}", resp.error);
             HttpResponse::BadGateway().json(BackupResponse {
                 success: false,
                 key_count: None,
                 message: None,
-                error: Some("Failed to upload to keystore".to_string()),
+                error: resp.error.or(Some("Failed to upload to keystore".to_string())),
             })
         }
         Err(e) => {
@@ -649,7 +642,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 success: false,
                 key_count: None,
                 message: None,
-                error: Some("Failed to connect to keystore service".to_string()),
+                error: Some(format!("Keystore error: {}", e)),
             })
         }
     }
@@ -674,26 +667,8 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
         }
     };
 
-    // Get wallet address for identification
-    let wallet_address = match get_wallet_address(&private_key) {
-        Some(addr) => addr.to_lowercase(),
-        None => {
-            return HttpResponse::InternalServerError().json(BackupResponse {
-                success: false,
-                key_count: None,
-                message: None,
-                error: Some("Failed to derive wallet address".to_string()),
-            });
-        }
-    };
-
-    // Fetch from keystore API
-    let client = reqwest::Client::new();
-    let response = match client
-        .get(format!("{}/api/backup/{}", KEYSTORE_API, wallet_address))
-        .send()
-        .await
-    {
+    // Fetch from keystore API (with SIWE authentication)
+    let keystore_resp = match KEYSTORE_CLIENT.get_keys(&private_key).await {
         Ok(resp) => resp,
         Err(e) => {
             log::error!("Failed to connect to keystore: {}", e);
@@ -701,44 +676,43 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 success: false,
                 key_count: None,
                 message: None,
-                error: Some("Failed to connect to keystore service".to_string()),
+                error: Some(format!("Keystore error: {}", e)),
             });
         }
     };
 
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return HttpResponse::NotFound().json(BackupResponse {
-            success: false,
-            key_count: None,
-            message: None,
-            error: Some("No backup found for this wallet".to_string()),
-        });
-    }
-
-    if !response.status().is_success() {
+    if !keystore_resp.success {
+        let error = keystore_resp.error.unwrap_or_else(|| "Unknown error".to_string());
+        if error.contains("No backup found") {
+            return HttpResponse::NotFound().json(BackupResponse {
+                success: false,
+                key_count: None,
+                message: None,
+                error: Some(error),
+            });
+        }
         return HttpResponse::BadGateway().json(BackupResponse {
             success: false,
             key_count: None,
             message: None,
-            error: Some("Failed to fetch backup from keystore".to_string()),
+            error: Some(error),
         });
     }
 
-    let backup_data: KeystoreBackupResponse = match response.json().await {
-        Ok(data) => data,
-        Err(e) => {
-            log::error!("Failed to parse keystore response: {}", e);
+    let encrypted_data = match keystore_resp.encrypted_data {
+        Some(data) => data,
+        None => {
             return HttpResponse::BadGateway().json(BackupResponse {
                 success: false,
                 key_count: None,
                 message: None,
-                error: Some("Invalid response from keystore".to_string()),
+                error: Some("No encrypted data in response".to_string()),
             });
         }
     };
 
     // Decrypt with ECIES using the burner wallet's private key
-    let decrypted_json = match decrypt_with_private_key(&private_key, &backup_data.encrypted_data) {
+    let decrypted_json = match decrypt_with_private_key(&private_key, &encrypted_data) {
         Ok(data) => data,
         Err(e) => {
             log::error!("Failed to decrypt backup: {}", e);
@@ -826,4 +800,131 @@ fn decrypt_with_private_key(private_key: &str, encrypted_hex: &str) -> Result<St
         .map_err(|e| format!("Decryption failed: {:?}", e))?;
 
     String::from_utf8(decrypted).map_err(|e| format!("Invalid UTF-8 in decrypted data: {}", e))
+}
+
+/// Create a preview string from an API key value (e.g., "sk-abc...xyz")
+fn create_key_preview(value: &str) -> String {
+    if value.len() <= 8 {
+        "*".repeat(value.len())
+    } else {
+        format!("{}...{}", &value[..4], &value[value.len()-4..])
+    }
+}
+
+/// Preview API keys from cloud backup (without restoring)
+async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    // Get burner wallet private key from config
+    let private_key = match &state.config.burner_wallet_private_key {
+        Some(pk) => pk.clone(),
+        None => {
+            return HttpResponse::BadRequest().json(PreviewKeysResponse {
+                success: false,
+                key_count: 0,
+                keys: vec![],
+                message: None,
+                error: Some("Burner wallet not configured".to_string()),
+            });
+        }
+    };
+
+    // Fetch from keystore API (with SIWE authentication)
+    let keystore_resp = match KEYSTORE_CLIENT.get_keys(&private_key).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            log::error!("Failed to connect to keystore: {}", e);
+            return HttpResponse::BadGateway().json(PreviewKeysResponse {
+                success: false,
+                key_count: 0,
+                keys: vec![],
+                message: None,
+                error: Some(format!("Keystore error: {}", e)),
+            });
+        }
+    };
+
+    if !keystore_resp.success {
+        let error = keystore_resp.error.unwrap_or_else(|| "Unknown error".to_string());
+        if error.contains("No backup found") {
+            return HttpResponse::NotFound().json(PreviewKeysResponse {
+                success: false,
+                key_count: 0,
+                keys: vec![],
+                message: None,
+                error: Some(error),
+            });
+        }
+        return HttpResponse::BadGateway().json(PreviewKeysResponse {
+            success: false,
+            key_count: 0,
+            keys: vec![],
+            message: None,
+            error: Some(error),
+        });
+    }
+
+    let encrypted_data = match keystore_resp.encrypted_data {
+        Some(data) => data,
+        None => {
+            return HttpResponse::BadGateway().json(PreviewKeysResponse {
+                success: false,
+                key_count: 0,
+                keys: vec![],
+                message: None,
+                error: Some("No encrypted data in response".to_string()),
+            });
+        }
+    };
+
+    // Decrypt with ECIES using the burner wallet's private key
+    let decrypted_json = match decrypt_with_private_key(&private_key, &encrypted_data) {
+        Ok(data) => data,
+        Err(e) => {
+            log::error!("Failed to decrypt backup: {}", e);
+            return HttpResponse::BadRequest().json(PreviewKeysResponse {
+                success: false,
+                key_count: 0,
+                keys: vec![],
+                message: None,
+                error: Some("Failed to decrypt backup (wrong wallet?)".to_string()),
+            });
+        }
+    };
+
+    // Parse the decrypted keys
+    let cloud_keys: Vec<BackupKey> = match serde_json::from_str(&decrypted_json) {
+        Ok(keys) => keys,
+        Err(e) => {
+            log::error!("Failed to parse decrypted keys: {}", e);
+            return HttpResponse::BadRequest().json(PreviewKeysResponse {
+                success: false,
+                key_count: 0,
+                keys: vec![],
+                message: None,
+                error: Some("Invalid backup data format".to_string()),
+            });
+        }
+    };
+
+    // Convert to previews (only valid key names, with masked values)
+    let valid_keys = get_valid_key_names();
+    let previews: Vec<CloudKeyPreview> = cloud_keys
+        .iter()
+        .filter(|k| valid_keys.contains(&k.key_name.as_str()))
+        .map(|k| CloudKeyPreview {
+            key_name: k.key_name.clone(),
+            key_preview: create_key_preview(&k.key_value),
+        })
+        .collect();
+
+    HttpResponse::Ok().json(PreviewKeysResponse {
+        success: true,
+        key_count: previews.len(),
+        keys: previews,
+        message: Some("Cloud keys retrieved successfully".to_string()),
+        error: None,
+    })
 }

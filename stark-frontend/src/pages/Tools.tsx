@@ -37,7 +37,7 @@ export default function Tools() {
 
   if (isLoading) {
     return (
-      <div className="p-8 flex items-center justify-center">
+      <div className="p-4 sm:p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
           <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-slate-400">Loading tools...</span>
@@ -66,10 +66,10 @@ export default function Tools() {
   const groupOrder = [...groups.map(g => g.key), 'other'];
 
   return (
-    <div className="p-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white mb-2">Tools</h1>
-        <p className="text-slate-400">Available tools for your agent</p>
+    <div className="p-4 sm:p-8">
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-xl sm:text-2xl font-bold text-white mb-1 sm:mb-2">Tools</h1>
+        <p className="text-sm sm:text-base text-slate-400">Available tools for your agent</p>
       </div>
 
       {error && (
@@ -93,32 +93,39 @@ export default function Tools() {
                   {groupTools.map((tool) => (
                     <div
                       key={tool.name}
-                      className="flex items-center justify-between p-4 rounded-lg bg-slate-700/50"
+                      className="p-3 sm:p-4 rounded-lg bg-slate-700/50"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-slate-600 rounded-lg">
-                          <Wrench className="w-5 h-5 text-slate-300" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-white">{tool.name}</p>
+                      {/* Mobile: icon + title + status in one row, description below */}
+                      {/* Desktop: original side-by-side layout */}
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                          <div className="p-1.5 sm:p-2 bg-slate-600 rounded-lg shrink-0">
+                            <Wrench className="w-4 h-4 sm:w-5 sm:h-5 text-slate-300" />
+                          </div>
+                          <p className="font-medium text-white text-sm sm:text-base truncate">{tool.name}</p>
+                          {/* Description inline on desktop */}
                           {tool.description && (
-                            <p className="text-sm text-slate-400">{tool.description}</p>
+                            <p className="hidden sm:block text-sm text-slate-400 truncate">{tool.description}</p>
+                          )}
+                        </div>
+                        <div
+                          className={`p-1.5 sm:p-2 rounded-lg shrink-0 ${
+                            tool.enabled
+                              ? 'bg-green-500/20 text-green-400'
+                              : 'bg-slate-600 text-slate-400'
+                          }`}
+                        >
+                          {tool.enabled ? (
+                            <Check className="w-4 h-4 sm:w-5 sm:h-5" />
+                          ) : (
+                            <X className="w-4 h-4 sm:w-5 sm:h-5" />
                           )}
                         </div>
                       </div>
-                      <div
-                        className={`p-2 rounded-lg ${
-                          tool.enabled
-                            ? 'bg-green-500/20 text-green-400'
-                            : 'bg-slate-600 text-slate-400'
-                        }`}
-                      >
-                        {tool.enabled ? (
-                          <Check className="w-5 h-5" />
-                        ) : (
-                          <X className="w-5 h-5" />
-                        )}
-                      </div>
+                      {/* Description on separate line for mobile */}
+                      {tool.description && (
+                        <p className="sm:hidden text-xs text-slate-400 mt-2 pl-8">{tool.description}</p>
+                      )}
                     </div>
                   ))}
                 </div>

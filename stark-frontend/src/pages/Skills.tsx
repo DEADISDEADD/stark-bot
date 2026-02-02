@@ -70,7 +70,7 @@ export default function Skills() {
 
   if (isLoading) {
     return (
-      <div className="p-8 flex items-center justify-center">
+      <div className="p-4 sm:p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
           <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-slate-400">Loading skills...</span>
@@ -80,11 +80,11 @@ export default function Skills() {
   }
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-8">
+    <div className="p-4 sm:p-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-white mb-2">Skills</h1>
-          <p className="text-slate-400">Extend your agent with custom skills</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-white mb-1 sm:mb-2">Skills</h1>
+          <p className="text-sm sm:text-base text-slate-400">Extend your agent with custom skills</p>
         </div>
         <div>
           <input
@@ -97,6 +97,7 @@ export default function Skills() {
           <Button
             onClick={() => fileInputRef.current?.click()}
             isLoading={isUploading}
+            className="w-full sm:w-auto"
           >
             <Upload className="w-4 h-4 mr-2" />
             Upload Skill
@@ -115,22 +116,21 @@ export default function Skills() {
           {skills.map((skill) => (
             <Card key={skill.name}>
               <CardContent>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-amber-500/20 rounded-lg">
-                      <Zap className="w-6 h-6 text-amber-400" />
+                {/* Mobile: stacked layout, Desktop: side by side */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+                  {/* Main content */}
+                  <div className="flex items-start sm:items-center gap-2 sm:gap-4 min-w-0">
+                    {/* Icon - smaller on mobile */}
+                    <div className="p-1.5 sm:p-3 bg-amber-500/20 rounded-lg shrink-0">
+                      <Zap className="w-4 h-4 sm:w-6 sm:h-6 text-amber-400" />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-white">{skill.name}</h3>
+                    <div className="min-w-0 flex-1">
+                      {/* Title row */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold text-white text-sm sm:text-base">{skill.name}</h3>
                         {skill.version && (
-                          <span className="text-xs px-2 py-0.5 bg-slate-700 text-slate-400 rounded">
+                          <span className="text-xs px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded">
                             v{skill.version}
-                          </span>
-                        )}
-                        {skill.source && (
-                          <span className="text-xs px-2 py-0.5 bg-slate-700/50 text-slate-500 rounded">
-                            {skill.source}
                           </span>
                         )}
                         {skill.homepage && (
@@ -139,20 +139,29 @@ export default function Skills() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-slate-400 hover:text-stark-400"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            <ExternalLink className="w-4 h-4" />
+                            <ExternalLink className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                           </a>
                         )}
                       </div>
-                      {skill.description && (
-                        <p className="text-sm text-slate-400 mt-1">{skill.description}</p>
+                      {/* Source badge on separate line on mobile */}
+                      {skill.source && (
+                        <span className="inline-block text-xs px-1.5 py-0.5 bg-slate-700/50 text-slate-500 rounded mt-1">
+                          {skill.source}
+                        </span>
                       )}
+                      {/* Description */}
+                      {skill.description && (
+                        <p className="text-xs sm:text-sm text-slate-400 mt-1.5">{skill.description}</p>
+                      )}
+                      {/* Tags */}
                       {skill.tags && skill.tags.length > 0 && (
-                        <div className="flex gap-1 mt-2">
+                        <div className="flex flex-wrap gap-1 mt-2">
                           {skill.tags.map((tag) => (
                             <span
                               key={tag}
-                              className="text-xs px-2 py-0.5 bg-stark-500/10 text-stark-400 rounded"
+                              className="text-xs px-1.5 py-0.5 bg-stark-500/10 text-stark-400 rounded"
                             >
                               {tag}
                             </span>
@@ -161,7 +170,8 @@ export default function Skills() {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  {/* Action buttons - bottom right on mobile */}
+                  <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
                     <button
                       onClick={() => handleToggleEnabled(skill.name, skill.enabled)}
                       className={`px-2 py-1 text-xs rounded cursor-pointer transition-colors ${
@@ -176,7 +186,7 @@ export default function Skills() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleDelete(skill.name)}
-                      className="text-red-400 hover:text-red-300 hover:bg-red-500/20"
+                      className="text-red-400 hover:text-red-300 hover:bg-red-500/20 p-1.5 sm:p-2"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>

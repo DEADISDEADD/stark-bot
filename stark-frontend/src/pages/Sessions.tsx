@@ -230,7 +230,7 @@ export default function Sessions() {
 
   if (isLoading) {
     return (
-      <div className="p-8 flex items-center justify-center">
+      <div className="p-4 sm:p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
           <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-slate-400">Loading sessions...</span>
@@ -242,7 +242,7 @@ export default function Sessions() {
   // Session detail view
   if (selectedSession) {
     return (
-      <div className="p-8">
+      <div className="p-4 sm:p-8">
         <div className="mb-6">
           <Button
             variant="ghost"
@@ -253,9 +253,9 @@ export default function Sessions() {
             <ChevronLeft className="w-4 h-4 mr-1" />
             Back to sessions
           </Button>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-bold text-white mb-1">
+              <h1 className="text-xl sm:text-2xl font-bold text-white mb-1">
                 {selectedSession.channel_type} - Session {selectedSession.id}
               </h1>
               {selectedSession.channel_type === 'cron' && (() => {
@@ -281,8 +281,8 @@ export default function Sessions() {
                 onClick={exportAsMarkdown}
                 disabled={messages.length === 0}
               >
-                <Download className="w-4 h-4 mr-1" />
-                Export MD
+                <Download className="w-4 h-4 sm:mr-1" />
+                <span className="hidden sm:inline">Export</span> MD
               </Button>
               <Button
                 variant="secondary"
@@ -290,8 +290,8 @@ export default function Sessions() {
                 onClick={exportAsText}
                 disabled={messages.length === 0}
               >
-                <Download className="w-4 h-4 mr-1" />
-                Export TXT
+                <Download className="w-4 h-4 sm:mr-1" />
+                <span className="hidden sm:inline">Export</span> TXT
               </Button>
             </div>
           </div>
@@ -363,10 +363,10 @@ export default function Sessions() {
 
   // Sessions list view
   return (
-    <div className="p-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white mb-2">Chat Sessions</h1>
-        <p className="text-slate-400">View conversation history, export transcripts, or delete sessions</p>
+    <div className="p-4 sm:p-8">
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-xl sm:text-2xl font-bold text-white mb-1 sm:mb-2">Chat Sessions</h1>
+        <p className="text-sm sm:text-base text-slate-400">View conversation history, export transcripts, or delete sessions</p>
       </div>
 
       {error && (
@@ -391,62 +391,70 @@ export default function Sessions() {
               onClick={() => loadTranscript(session)}
             >
               <CardContent>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-blue-500/20 rounded-lg">
-                      <Calendar className="w-6 h-6 text-blue-400" />
+                {/* Mobile: stacked layout, Desktop: side by side */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  {/* Main content */}
+                  <div className="flex items-start sm:items-center gap-2 sm:gap-4 min-w-0">
+                    {/* Icon - smaller on mobile */}
+                    <div className="p-1.5 sm:p-3 bg-blue-500/20 rounded-lg shrink-0">
+                      <Calendar className="w-3.5 h-3.5 sm:w-6 sm:h-6 text-blue-400" />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-white">
+                    <div className="min-w-0 flex-1">
+                      {/* Title row with type and status */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold text-white text-sm sm:text-base">
                           {session.channel_type}
                         </h3>
-                        <span className="text-xs px-2 py-0.5 bg-slate-700 text-slate-400 rounded">
+                        <span className="text-xs px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded">
                           #{session.id}
                         </span>
-                        <span className="text-xs font-mono px-2 py-0.5 bg-slate-700/50 text-slate-300 rounded">
+                        <span className="hidden sm:inline text-xs font-mono px-2 py-0.5 bg-slate-700/50 text-slate-300 rounded">
                           {session.id.toString(16).padStart(8, '0')}
                         </span>
                         {isValidStatus(session.completion_status) && (() => {
                           const config = statusConfig[session.completion_status];
                           const StatusIcon = config.icon;
                           return (
-                            <span className={`text-xs px-2 py-0.5 ${config.bg} ${config.text} rounded-full flex items-center gap-1`}>
+                            <span className={`text-xs px-1.5 sm:px-2 py-0.5 ${config.bg} ${config.text} rounded-full flex items-center gap-1`}>
                               <StatusIcon className="w-3 h-3" />
-                              {config.label}
+                              <span className="hidden sm:inline">{config.label}</span>
                             </span>
                           );
                         })()}
                       </div>
+                      {/* Cron job info */}
                       {session.channel_type === 'cron' && (() => {
                         const jobId = getCronJobId(session.platform_chat_id);
                         const cronJob = jobId ? cronJobs.get(jobId) : null;
                         return cronJob && (
-                          <p className="text-xs text-slate-500 mt-0.5">
+                          <p className="text-xs text-slate-500 mt-0.5 truncate">
                             {cronJob.name}
-                            {cronJob.description && (
-                              <span className="text-slate-600"> - {cronJob.description}</span>
-                            )}
+                            <span className="hidden sm:inline text-slate-600">
+                              {cronJob.description && ` - ${cronJob.description}`}
+                            </span>
                           </p>
                         );
                       })()}
+                      {/* Web session initial query */}
                       {session.channel_type === 'web' && session.initial_query && (
-                        <p className="text-xs text-slate-500 mt-0.5 truncate max-w-md">
+                        <p className="text-xs text-slate-500 mt-0.5 truncate">
                           {session.initial_query}
                         </p>
                       )}
-                      <div className="flex items-center gap-4 mt-1 text-sm text-slate-400">
-                        <span>Last active: {formatShortDate(session.updated_at)}</span>
+                      {/* Metadata row */}
+                      <div className="flex items-center gap-2 sm:gap-4 mt-1 text-xs sm:text-sm text-slate-400">
+                        <span className="truncate">{formatShortDate(session.updated_at)}</span>
                         {session.message_count !== undefined && (
-                          <span className="flex items-center gap-1">
+                          <span className="flex items-center gap-1 shrink-0">
                             <MessageSquare className="w-3 h-3" />
-                            {session.message_count} messages
+                            {session.message_count}
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  {/* Action buttons */}
+                  <div className="flex items-center gap-1 sm:gap-2 self-end sm:self-center shrink-0">
                     {/* Play/Pause button - don't show for completed sessions */}
                     {session.completion_status !== 'complete' && (
                       <Button
@@ -454,8 +462,8 @@ export default function Sessions() {
                         size="sm"
                         onClick={(e) => handleToggleStatus(session, e)}
                         className={session.completion_status === 'active'
-                          ? "text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/20"
-                          : "text-green-400 hover:text-green-300 hover:bg-green-500/20"
+                          ? "text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/20 p-1.5 sm:p-2"
+                          : "text-green-400 hover:text-green-300 hover:bg-green-500/20 p-1.5 sm:p-2"
                         }
                         title={session.completion_status === 'active'
                           ? "Stop session and cancel running agents"
@@ -473,12 +481,12 @@ export default function Sessions() {
                       variant="ghost"
                       size="sm"
                       onClick={(e) => handleDelete(session.id, e)}
-                      className="text-red-400 hover:text-red-300 hover:bg-red-500/20"
+                      className="text-red-400 hover:text-red-300 hover:bg-red-500/20 p-1.5 sm:p-2"
                       title="Force delete session and cancel running agents"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
-                    <ChevronLeft className="w-5 h-5 text-slate-500 rotate-180" />
+                    <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5 text-slate-500 rotate-180" />
                   </div>
                 </div>
               </CardContent>

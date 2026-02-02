@@ -694,8 +694,21 @@ export interface BackupResponse {
   error?: string;
 }
 
+export interface CloudKeyPreview {
+  key_name: string;
+  key_preview: string;
+}
+
+export interface PreviewKeysResponse {
+  success: boolean;
+  key_count: number;
+  keys: CloudKeyPreview[];
+  message?: string;
+  error?: string;
+}
+
 export async function backupKeysToCloud(): Promise<BackupResponse> {
-  const response = await apiFetch<BackupResponse>('/keys/backup', {
+  const response = await apiFetch<BackupResponse>('/keys/cloud_backup', {
     method: 'POST',
   });
   if (!response.success) {
@@ -705,11 +718,21 @@ export async function backupKeysToCloud(): Promise<BackupResponse> {
 }
 
 export async function restoreKeysFromCloud(): Promise<BackupResponse> {
-  const response = await apiFetch<BackupResponse>('/keys/restore', {
+  const response = await apiFetch<BackupResponse>('/keys/cloud_restore', {
     method: 'POST',
   });
   if (!response.success) {
     throw new Error(response.error || 'Failed to restore keys');
+  }
+  return response;
+}
+
+export async function previewKeysFromCloud(): Promise<PreviewKeysResponse> {
+  const response = await apiFetch<PreviewKeysResponse>('/keys/cloud_preview', {
+    method: 'GET',
+  });
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to preview cloud keys');
   }
   return response;
 }

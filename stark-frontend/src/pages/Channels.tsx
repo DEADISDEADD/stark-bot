@@ -161,7 +161,7 @@ export default function Channels() {
 
   if (isLoading) {
     return (
-      <div className="p-8 flex items-center justify-center">
+      <div className="p-4 sm:p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
           <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-slate-400">Loading channels...</span>
@@ -171,13 +171,13 @@ export default function Channels() {
   }
 
   return (
-    <div className="p-8">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="p-4 sm:p-8">
+      <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white mb-2">Channels</h1>
-          <p className="text-slate-400">Configure messaging platform integrations</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-white mb-1 sm:mb-2">Channels</h1>
+          <p className="text-sm sm:text-base text-slate-400">Configure messaging platform integrations</p>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)}>
+        <Button onClick={() => setShowAddForm(!showAddForm)} className="w-full sm:w-auto">
           <Plus className="w-4 h-4 mr-2" />
           Add Channel
         </Button>
@@ -262,17 +262,17 @@ export default function Channels() {
             return (
               <Card key={channel.id}>
                 <CardHeader>
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <div className={`p-2 bg-${color}-500/20 rounded-lg`}>
+                      <div className={`p-2 bg-${color}-500/20 rounded-lg shrink-0`}>
                         <Icon className={`w-5 h-5 text-${color}-400`} />
                       </div>
-                      <div>
-                        <CardTitle>{channel.name}</CardTitle>
+                      <div className="min-w-0">
+                        <CardTitle className="truncate">{channel.name}</CardTitle>
                         <span className="text-sm text-slate-400 capitalize">{channel.channel_type}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
                         channel.running
                           ? 'bg-green-500/20 text-green-400'
@@ -287,8 +287,8 @@ export default function Channels() {
                           onClick={() => handleStop(channel.id)}
                           disabled={isActionLoading}
                         >
-                          <Square className="w-4 h-4 mr-1" />
-                          Stop
+                          <Square className="w-4 h-4 sm:mr-1" />
+                          <span className="hidden sm:inline">Stop</span>
                         </Button>
                       ) : (
                         <Button
@@ -297,8 +297,8 @@ export default function Channels() {
                           onClick={() => handleStart(channel.id)}
                           disabled={isActionLoading}
                         >
-                          <Play className="w-4 h-4 mr-1" />
-                          Start
+                          <Play className="w-4 h-4 sm:mr-1" />
+                          <span className="hidden sm:inline">Start</span>
                         </Button>
                       )}
                       <Button
@@ -346,15 +346,15 @@ export default function Channels() {
                   ) : (
                     <div className="space-y-3">
                       <div>
-                        <label className="block text-sm font-medium text-slate-400 mb-1">Bot Token</label>
-                        <code className="block px-3 py-2 bg-slate-800 rounded text-sm text-slate-300 font-mono break-all">
+                        <label className="block text-xs sm:text-sm font-medium text-slate-400 mb-1">Bot Token</label>
+                        <code className="block px-2 sm:px-3 py-2 bg-slate-800 rounded text-xs sm:text-sm text-slate-300 font-mono break-all overflow-hidden">
                           {channel.bot_token}
                         </code>
                       </div>
                       {channel.app_token && (
                         <div>
-                          <label className="block text-sm font-medium text-slate-400 mb-1">App Token</label>
-                          <code className="block px-3 py-2 bg-slate-800 rounded text-sm text-slate-300 font-mono break-all">
+                          <label className="block text-xs sm:text-sm font-medium text-slate-400 mb-1">App Token</label>
+                          <code className="block px-2 sm:px-3 py-2 bg-slate-800 rounded text-xs sm:text-sm text-slate-300 font-mono break-all overflow-hidden">
                             {channel.app_token}
                           </code>
                         </div>

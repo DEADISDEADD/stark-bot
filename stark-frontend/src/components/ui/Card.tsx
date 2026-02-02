@@ -16,7 +16,7 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
       <div
         ref={ref}
         className={clsx(
-          'rounded-2xl',
+          'rounded-2xl overflow-hidden',
           variants[variant],
           className
         )}
@@ -36,7 +36,7 @@ export const CardHeader = forwardRef<HTMLDivElement, CardHeaderProps>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={clsx('px-6 py-4 border-b border-slate-700', className)}
+      className={clsx('px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-700', className)}
       {...props}
     />
   )
@@ -50,7 +50,7 @@ export const CardContent = forwardRef<HTMLDivElement, CardContentProps>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={clsx('p-6', className)}
+      className={clsx('p-4 sm:p-6', className)}
       {...props}
     />
   )

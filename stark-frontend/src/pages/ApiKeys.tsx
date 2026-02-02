@@ -1,9 +1,9 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { Key, Trash2, Plus, ExternalLink, Check, X, Cloud, Upload, Download, Shield, AlertCircle, CheckCircle } from 'lucide-react';
+import { Key, Trash2, Plus, ExternalLink, Check, X, Cloud, Upload, Download, Shield, AlertCircle, CheckCircle, Eye } from 'lucide-react';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
-import { getApiKeys, upsertApiKey, deleteApiKey, getServiceConfigs, ApiKey, ServiceConfig, backupKeysToCloud, restoreKeysFromCloud } from '@/lib/api';
+import { getApiKeys, upsertApiKey, deleteApiKey, getServiceConfigs, ApiKey, ServiceConfig, backupKeysToCloud, restoreKeysFromCloud, previewKeysFromCloud, CloudKeyPreview } from '@/lib/api';
 
 export default function ApiKeys() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
@@ -16,7 +16,10 @@ export default function ApiKeys() {
   // Cloud backup state
   const [isUploading, setIsUploading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
   const [backupMessage, setBackupMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [previewKeys, setPreviewKeys] = useState<CloudKeyPreview[]>([]);
 
   useEffect(() => {
     loadData();
@@ -191,6 +194,21 @@ export default function ApiKeys() {
     }
   };
 
+  const handlePreviewCloudKeys = async () => {
+    setIsPreviewing(true);
+    setBackupMessage(null);
+
+    try {
+      const result = await previewKeysFromCloud();
+      setPreviewKeys(result.keys);
+      setPreviewModalOpen(true);
+    } catch (err) {
+      setBackupMessage({ type: 'error', text: formatKeystoreError(err) });
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="p-8 flex items-center justify-center">
@@ -340,6 +358,16 @@ export default function ApiKeys() {
                 <Button
                   variant="secondary"
                   size="sm"
+                  onClick={handlePreviewCloudKeys}
+                  isLoading={isPreviewing}
+                  className="w-full"
+                >
+                  <Eye className="w-4 h-4 mr-2" />
+                  View Cloud Keys
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={handleDownloadBackup}
                   isLoading={isDownloading}
                   className="w-full"
@@ -482,6 +510,87 @@ export default function ApiKeys() {
             </CardContent>
           </Card>
         </div>
+
+      {/* Cloud Keys Preview Modal */}
+      {previewModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => setPreviewModalOpen(false)}
+          />
+          {/* Modal */}
+          <div className="relative bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-stark-500/20 rounded-lg">
+                  <Cloud className="w-5 h-5 text-stark-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Cloud Keys Preview</h2>
+                  <p className="text-sm text-slate-400">{previewKeys.length} keys stored in cloud</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPreviewModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {/* Content */}
+            <div className="p-6 overflow-y-auto max-h-[50vh]">
+              {previewKeys.length === 0 ? (
+                <div className="text-center py-8 text-slate-500">
+                  <Cloud className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>No keys found in cloud backup.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {previewKeys.map((key) => (
+                    <div
+                      key={key.key_name}
+                      className="flex items-center justify-between p-3 bg-slate-900/50 rounded-lg border border-slate-700"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Key className="w-4 h-4 text-slate-500" />
+                        <span className="text-sm font-medium text-white">{key.key_name}</span>
+                      </div>
+                      <span className="text-sm font-mono text-slate-400">{key.key_preview}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* Footer */}
+            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-700 bg-slate-900/30">
+              <p className="text-xs text-slate-500">
+                Use "Restore from Cloud" to apply these keys
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setPreviewModalOpen(false)}
+                >
+                  Close
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setPreviewModalOpen(false);
+                    handleDownloadBackup();
+                  }}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Restore Now
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

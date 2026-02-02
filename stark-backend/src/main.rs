@@ -25,6 +25,7 @@ mod eip8004;
 mod hooks;
 mod tool_validators;
 mod tx_queue;
+mod keystore_client;
 
 use channels::{ChannelManager, MessageDispatcher};
 use tx_queue::TxQueueManager;
