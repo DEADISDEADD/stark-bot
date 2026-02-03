@@ -917,6 +917,7 @@ impl MessageDispatcher {
         let initial_mode = orchestrator.current_mode();
         self.broadcaster.broadcast(GatewayEvent::agent_mode_change(
             original_message.channel_id,
+            Some(&original_message.chat_id),
             &initial_mode.to_string(),
             initial_mode.label(),
             Some("Processing request"),
@@ -1387,6 +1388,7 @@ impl MessageDispatcher {
                     // Broadcast mode change to assistant
                     self.broadcaster.broadcast(GatewayEvent::agent_mode_change(
                         original_message.channel_id,
+                        Some(&original_message.chat_id),
                         "assistant",
                         "Assistant",
                         Some("Executing tasks"),
@@ -1444,6 +1446,7 @@ impl MessageDispatcher {
 
                 self.broadcaster.broadcast(GatewayEvent::agent_mode_change(
                     original_message.channel_id,
+                    Some(&original_message.chat_id),
                     &transition.to.to_string(),
                     transition.to.label(),
                     Some(&transition.reason),
@@ -1659,6 +1662,7 @@ impl MessageDispatcher {
 
                 self.broadcaster.broadcast(GatewayEvent::agent_tool_call(
                     original_message.channel_id,
+                    Some(&original_message.chat_id),
                     &call.name,
                     &call.arguments,
                 ));
@@ -1912,6 +1916,7 @@ impl MessageDispatcher {
 
                         self.broadcaster.broadcast(GatewayEvent::tool_result(
                             original_message.channel_id,
+                            Some(&original_message.chat_id),
                             &call.name,
                             result.success,
                             duration_ms,
@@ -2139,6 +2144,7 @@ impl MessageDispatcher {
             if let Some(transition) = orchestrator.check_forced_transition() {
                 self.broadcaster.broadcast(GatewayEvent::agent_mode_change(
                     original_message.channel_id,
+                    Some(&original_message.chat_id),
                     &transition.to.to_string(),
                     transition.to.label(),
                     Some(&transition.reason),
@@ -2236,6 +2242,7 @@ impl MessageDispatcher {
 
                         self.broadcaster.broadcast(GatewayEvent::agent_tool_call(
                             original_message.channel_id,
+                            Some(&original_message.chat_id),
                             &tool_call.tool_name,
                             &tool_call.tool_params,
                         ));
@@ -2445,6 +2452,7 @@ impl MessageDispatcher {
 
                                 self.broadcaster.broadcast(GatewayEvent::tool_result(
                                     original_message.channel_id,
+                                    Some(&original_message.chat_id),
                                     &tool_call.tool_name,
                                     result.success,
                                     duration_ms,

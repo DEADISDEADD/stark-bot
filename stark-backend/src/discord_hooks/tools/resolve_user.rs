@@ -37,8 +37,10 @@ impl DiscordResolveUserTool {
                 name: "discord_resolve_user".to_string(),
                 description: "Resolve a Discord user mention to their registered public address. \
                     Use this when you need to tip or send tokens to a Discord user mentioned \
-                    in a message. The user must have registered their address via '@starkbot register'. \
-                    Returns the user's Discord ID, username, and public address if registered."
+                    in a message. Returns the user's Discord ID, username, and public address. \
+                    IMPORTANT: This tool will return an ERROR if the user is not registered - \
+                    the tip/transfer MUST be aborted and you should inform the sender that the \
+                    recipient needs to run '@starkbot register <address>' first."
                     .to_string(),
                 input_schema: ToolInputSchema {
                     schema_type: "object".to_string(),
@@ -115,30 +117,21 @@ impl Tool for DiscordResolveUserTool {
                         .to_string(),
                     )
                 } else {
-                    ToolResult::success(
-                        json!({
-                            "discord_user_id": profile.discord_user_id,
-                            "username": profile.discord_username,
-                            "public_address": null,
-                            "registered": false,
-                            "error": "User has not registered a public address. \
-                                They need to run '@starkbot register <address>' first."
-                        })
-                        .to_string(),
-                    )
+                    let username_display = profile
+                        .discord_username
+                        .as_ref()
+                        .map(|u| format!(" ({})", u))
+                        .unwrap_or_default();
+                    ToolResult::error(format!(
+                        "User <@{}>{} is not registered. They need to run '@starkbot register <address>' first before they can receive tips.",
+                        profile.discord_user_id, username_display
+                    ))
                 }
             }
-            Ok(None) => ToolResult::success(
-                json!({
-                    "discord_user_id": user_id,
-                    "username": null,
-                    "public_address": null,
-                    "registered": false,
-                    "error": "User has never interacted with StarkBot. \
-                        They need to run '@starkbot register <address>' first."
-                })
-                .to_string(),
-            ),
+            Ok(None) => ToolResult::error(format!(
+                "User <@{}> is not registered. They need to run '@starkbot register <address>' first before they can receive tips.",
+                user_id
+            )),
             Err(e) => ToolResult::error(format!("Database error: {}", e)),
         }
     }

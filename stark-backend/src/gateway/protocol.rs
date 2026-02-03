@@ -313,11 +313,13 @@ impl GatewayEvent {
     }
 
     /// Emit a tool call notification for real-time display in chat
-    pub fn agent_tool_call(channel_id: i64, tool_name: &str, parameters: &Value) -> Self {
+    /// The `chat_id` is the platform-specific conversation ID (e.g., Discord channel snowflake)
+    pub fn agent_tool_call(channel_id: i64, chat_id: Option<&str>, tool_name: &str, parameters: &Value) -> Self {
         Self::new(
             EventType::AgentToolCall,
             serde_json::json!({
                 "channel_id": channel_id,
+                "chat_id": chat_id,
                 "tool_name": tool_name,
                 "parameters": parameters
             }),
@@ -325,11 +327,13 @@ impl GatewayEvent {
     }
 
     /// Emit agent mode change for UI header display
-    pub fn agent_mode_change(channel_id: i64, mode: &str, label: &str, reason: Option<&str>) -> Self {
+    /// The `chat_id` is the platform-specific conversation ID (e.g., Discord channel snowflake)
+    pub fn agent_mode_change(channel_id: i64, chat_id: Option<&str>, mode: &str, label: &str, reason: Option<&str>) -> Self {
         Self::new(
             EventType::AgentModeChange,
             serde_json::json!({
                 "channel_id": channel_id,
+                "chat_id": chat_id,
                 "mode": mode,
                 "label": label,
                 "reason": reason,
@@ -400,11 +404,13 @@ impl GatewayEvent {
         )
     }
 
-    pub fn tool_result(channel_id: i64, tool_name: &str, success: bool, duration_ms: i64, content: &str) -> Self {
+    /// The `chat_id` is the platform-specific conversation ID (e.g., Discord channel snowflake)
+    pub fn tool_result(channel_id: i64, chat_id: Option<&str>, tool_name: &str, success: bool, duration_ms: i64, content: &str) -> Self {
         Self::new(
             EventType::ToolResult,
             serde_json::json!({
                 "channel_id": channel_id,
+                "chat_id": chat_id,
                 "tool_name": tool_name,
                 "success": success,
                 "duration_ms": duration_ms,

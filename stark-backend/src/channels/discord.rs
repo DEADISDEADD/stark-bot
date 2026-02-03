@@ -284,6 +284,8 @@ impl DiscordHandler {
         let http = ctx.http.clone();
         let discord_channel_id = msg.channel_id;
         let channel_id_for_events = self.channel_id;
+        // Convert Discord channel ID to string for event filtering
+        let chat_id_for_events = discord_channel_id.to_string();
 
         // Spawn task to forward events to Discord in real-time
         // Uses a single "status message" that gets edited for each update to reduce spam
@@ -292,9 +294,26 @@ impl DiscordHandler {
             let mut status_message_id: Option<MessageId> = None;
 
             while let Some(event) = event_rx.recv().await {
-                // Only forward events for this channel
-                if let Some(event_channel_id) = event.data.get("channel_id").and_then(|v| v.as_i64()) {
-                    if event_channel_id != channel_id_for_events {
+                // Only forward events for this specific channel AND chat session
+                // This ensures messages go only to the Discord channel that originated the request
+                let event_channel_id = event.data.get("channel_id").and_then(|v| v.as_i64());
+                let event_chat_id = event.data.get("chat_id").and_then(|v| v.as_str());
+
+                match (event_channel_id, event_chat_id) {
+                    (Some(ch_id), Some(chat_id)) => {
+                        // Both IDs present - must match both
+                        if ch_id != channel_id_for_events || chat_id != chat_id_for_events {
+                            continue;
+                        }
+                    }
+                    (Some(ch_id), None) => {
+                        // Only channel_id present (legacy event) - check channel only
+                        if ch_id != channel_id_for_events {
+                            continue;
+                        }
+                    }
+                    _ => {
+                        // No channel_id - skip this event
                         continue;
                     }
                 }

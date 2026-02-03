@@ -138,15 +138,33 @@ pub async fn start_telegram_listener(
 
                     // Clone bot and chat_id for the event forwarder task
                     let bot_for_events = bot.clone();
-                    let chat_id_for_events = msg.chat.id;
+                    let telegram_chat_id = msg.chat.id;
                     let channel_id_for_events = channel_id;
+                    // Convert Telegram chat ID to string for event filtering
+                    let chat_id_str_for_events = telegram_chat_id.to_string();
 
                     // Spawn task to forward events to Telegram in real-time
                     let event_task = tokio::spawn(async move {
                         while let Some(event) = event_rx.recv().await {
-                            // Only forward events for this channel
-                            if let Some(event_channel_id) = event.data.get("channel_id").and_then(|v| v.as_i64()) {
-                                if event_channel_id != channel_id_for_events {
+                            // Only forward events for this specific channel AND chat session
+                            let event_channel_id = event.data.get("channel_id").and_then(|v| v.as_i64());
+                            let event_chat_id = event.data.get("chat_id").and_then(|v| v.as_str());
+
+                            match (event_channel_id, event_chat_id) {
+                                (Some(ch_id), Some(chat_id)) => {
+                                    // Both IDs present - must match both
+                                    if ch_id != channel_id_for_events || chat_id != chat_id_str_for_events {
+                                        continue;
+                                    }
+                                }
+                                (Some(ch_id), None) => {
+                                    // Only channel_id present (legacy event) - check channel only
+                                    if ch_id != channel_id_for_events {
+                                        continue;
+                                    }
+                                }
+                                _ => {
+                                    // No channel_id - skip this event
                                     continue;
                                 }
                             }
@@ -221,7 +239,7 @@ pub async fn start_telegram_listener(
                             if let Some(text) = message_text {
                                 // Send as plain text for maximum reliability
                                 if let Err(e) = bot_for_events
-                                    .send_message(chat_id_for_events, &text)
+                                    .send_message(telegram_chat_id, &text)
                                     .await
                                 {
                                     log::warn!("Telegram: Failed to send event message: {}", e);
