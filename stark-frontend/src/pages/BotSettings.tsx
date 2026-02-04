@@ -423,15 +423,23 @@ function HeartbeatSection({ config, setConfig, setMessage }: HeartbeatSectionPro
   };
 
   const toggleEnabled = async () => {
+    if (!config) {
+      setMessage({ type: 'error', text: 'Heartbeat config not loaded yet' });
+      return;
+    }
     setIsSaving(true);
     try {
+      const newEnabled = !formData.enabled;
+      console.log('[Heartbeat] Toggling enabled:', formData.enabled, '->', newEnabled);
       const updated = await updateHeartbeatConfig({
-        enabled: !formData.enabled,
+        enabled: newEnabled,
       });
+      console.log('[Heartbeat] Update response:', updated);
       setConfig(updated);
-      setFormData((prev) => ({ ...prev, enabled: !prev.enabled }));
-      setMessage({ type: 'success', text: `Heartbeat ${!formData.enabled ? 'enabled' : 'disabled'}` });
+      // Don't manually set formData here - let useEffect handle it from config change
+      setMessage({ type: 'success', text: `Heartbeat ${newEnabled ? 'enabled' : 'disabled'}` });
     } catch (err) {
+      console.error('[Heartbeat] Toggle failed:', err);
       setMessage({ type: 'error', text: 'Failed to toggle heartbeat' });
     } finally {
       setIsSaving(false);
@@ -448,10 +456,10 @@ function HeartbeatSection({ config, setConfig, setMessage }: HeartbeatSectionPro
           </CardTitle>
           <button
             onClick={toggleEnabled}
-            disabled={isSaving}
+            disabled={isSaving || !config}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
               formData.enabled ? 'bg-stark-500' : 'bg-slate-600'
-            }`}
+            } ${!config ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <span
               className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${

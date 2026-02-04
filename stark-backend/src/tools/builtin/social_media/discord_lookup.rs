@@ -48,7 +48,7 @@ impl DiscordLookupTool {
             "query".to_string(),
             PropertySchema {
                 schema_type: "string".to_string(),
-                description: "Search query for filtering by name (case-insensitive). Required for 'search_servers' and 'search_channels' actions.".to_string(),
+                description: "Search query for filtering by NAME (case-insensitive). Required for 'search_servers' and 'search_channels' actions. IMPORTANT: This searches by NAME, not ID. If you already have an ID, DO NOT search - use the ID directly with discord or agent_send tools.".to_string(),
                 default: None,
                 items: None,
                 enum_values: None,
@@ -58,7 +58,7 @@ impl DiscordLookupTool {
         DiscordLookupTool {
             definition: ToolDefinition {
                 name: "discord_lookup".to_string(),
-                description: "Look up Discord servers (guilds) and channels. Use this to find server IDs by name, list channels in a server, or search for specific channels.".to_string(),
+                description: "Look up Discord servers and channels BY NAME to find their IDs. IMPORTANT: If you already have a channel/server ID (a numeric string like '1234567890'), DO NOT use this tool - use the ID directly with the 'discord' or 'agent_send' tools instead. Only use this tool when you need to FIND an ID from a name.".to_string(),
                 input_schema: ToolInputSchema {
                     schema_type: "object".to_string(),
                     properties,
@@ -245,6 +245,18 @@ impl DiscordLookupTool {
             })
             .collect();
 
+        // If exactly 1 server found, auto-set discord_server_id
+        let mut auto_set_message = String::new();
+        if guilds.len() == 1 {
+            let server = &guilds[0];
+            context.set_register("discord_server_id", json!(server.id.clone()), "discord_lookup");
+            auto_set_message = format!(
+                "\n\n✅ Auto-set discord_server_id to '{}' ({}) since only 1 server found.",
+                server.id,
+                server.name
+            );
+        }
+
         let message = if result.is_empty() {
             "Bot is not in any Discord servers. Invite the bot using: \
             https://discord.com/oauth2/authorize?client_id=BOT_CLIENT_ID&scope=bot&permissions=3072 \
@@ -255,20 +267,39 @@ impl DiscordLookupTool {
                 .map(|g| format!("• {} (ID: {})", g.name, g.id))
                 .collect();
             format!(
-                "Found {} server(s) the bot has access to:\n{}\n\nIf your server is not listed, the bot needs to be invited to it.",
+                "Found {} server(s) the bot has access to:\n{}\n\nIf your server is not listed, the bot needs to be invited to it.{}",
                 result.len(),
-                server_list.join("\n")
+                server_list.join("\n"),
+                auto_set_message
             )
         };
 
         ToolResult::success(message).with_metadata(json!({
             "servers": result,
             "count": result.len(),
-            "hint": "If the server you want is not listed, invite the bot to that server"
+            "hint": "If the server you want is not listed, invite the bot to that server",
+            "discord_server_id_set": guilds.len() == 1
         }))
     }
 
     async fn search_servers(&self, query: &str, context: &ToolContext) -> ToolResult {
+        // Detect if the query looks like an ID (all digits, 17+ chars) and warn
+        if query.chars().all(|c| c.is_ascii_digit()) && query.len() >= 17 {
+            // This looks like a Discord snowflake ID - they shouldn't be searching for it
+            context.set_register("discord_server_id", json!(query), "discord_lookup");
+            return ToolResult::success(format!(
+                "⚠️ '{}' looks like a server ID, not a server name!\n\n\
+                You already have the server ID - DO NOT search for it. Use it directly:\n\
+                • To list channels: `discord_lookup` with `action: \"list_channels\"`, `server_id: \"{}\"`\n\n\
+                ✅ Auto-set discord_server_id to '{}'.",
+                query, query, query
+            )).with_metadata(json!({
+                "warning": "query_looks_like_id",
+                "server_id": query,
+                "discord_server_id_set": true
+            }));
+        }
+
         let guilds = match self.fetch_all_guilds(context).await {
             Ok(g) => g,
             Err(e) => return e,
@@ -301,22 +332,36 @@ impl DiscordLookupTool {
                 "query": query
             }))
         } else {
+            // If exactly 1 match found, auto-set discord_server_id
+            let mut auto_set_message = String::new();
+            if matching_guilds.len() == 1 {
+                let server = matching_guilds[0];
+                context.set_register("discord_server_id", json!(server.id.clone()), "discord_lookup");
+                auto_set_message = format!(
+                    "\n\n✅ Auto-set discord_server_id to '{}' ({}) since only 1 match found.",
+                    server.id,
+                    server.name
+                );
+            }
+
             let server_list: Vec<String> = matching_guilds
                 .iter()
                 .map(|g| format!("• {} (ID: {})", g.name, g.id))
                 .collect();
 
             let message = format!(
-                "Found {} servers matching '{}':\n{}",
+                "Found {} servers matching '{}':\n{}{}",
                 matching.len(),
                 query,
-                server_list.join("\n")
+                server_list.join("\n"),
+                auto_set_message
             );
 
             ToolResult::success(message).with_metadata(json!({
                 "servers": matching,
                 "count": matching.len(),
-                "query": query
+                "query": query,
+                "discord_server_id_set": matching_guilds.len() == 1
             }))
         }
     }
@@ -423,9 +468,14 @@ impl DiscordLookupTool {
             })
             .collect();
 
-        let channel_list: Vec<String> = channels
+        // Filter to text and announcement channels
+        let text_channels: Vec<&DiscordChannel> = channels
             .iter()
-            .filter(|c| c.channel_type == 0 || c.channel_type == 5) // text and announcement channels
+            .filter(|c| c.channel_type == 0 || c.channel_type == 5)
+            .collect();
+
+        let channel_list: Vec<String> = text_channels
+            .iter()
             .map(|c| format!("• #{} (ID: {}, type: {})",
                 c.name.as_deref().unwrap_or("unnamed"),
                 c.id,
@@ -433,21 +483,64 @@ impl DiscordLookupTool {
             ))
             .collect();
 
+        // Always set discord_server_id in the registry
+        context.set_register("discord_server_id", json!(server_id), "discord_lookup");
+
+        // If exactly 1 text channel found, auto-set discord_channel_id
+        let mut auto_set_message = String::new();
+        if text_channels.len() == 1 {
+            let channel = text_channels[0];
+            context.set_register("discord_channel_id", json!(channel.id), "discord_lookup");
+            auto_set_message = format!(
+                "\n\n✅ Auto-set discord_channel_id to '{}' (#{}) since only 1 text channel found.",
+                channel.id,
+                channel.name.as_deref().unwrap_or("unnamed")
+            );
+        }
+
         let message = format!(
-            "Found {} channels in server {} (showing text channels):\n{}\n\nUse the channel ID when sending messages with agent_send.",
+            "Found {} channels in server {} (showing text channels):\n{}\n\n\
+**Next steps - use the channel ID directly:**\n\
+• To READ messages: `discord` tool with `action: \"readMessages\"`, `channelId: \"<ID>\"`\n\
+• To SEND messages: `agent_send` tool with `channel: \"<ID>\"`, `platform: \"discord\"`\n\
+Do NOT search for the channel again - you already have the ID.{}",
             channel_list.len(),
             server_id,
-            channel_list.join("\n")
+            channel_list.join("\n"),
+            auto_set_message
         );
 
         ToolResult::success(message).with_metadata(json!({
             "channels": result,
             "count": result.len(),
-            "server_id": server_id
+            "server_id": server_id,
+            "discord_server_id_set": true,
+            "discord_channel_id_set": text_channels.len() == 1
         }))
     }
 
     async fn search_channels(&self, server_id: &str, query: &str, context: &ToolContext) -> ToolResult {
+        // Detect if the query looks like an ID (all digits, 17+ chars) and warn
+        if query.chars().all(|c| c.is_ascii_digit()) && query.len() >= 17 {
+            // This looks like a Discord snowflake ID - they shouldn't be searching for it
+            context.set_register("discord_channel_id", json!(query), "discord_lookup");
+            context.set_register("discord_server_id", json!(server_id), "discord_lookup");
+            return ToolResult::success(format!(
+                "⚠️ '{}' looks like a channel ID, not a channel name!\n\n\
+                You already have the channel ID - DO NOT search for it. Use it directly:\n\
+                • To READ messages: `discord` tool with `action: \"readMessages\"`, `channelId: \"{}\"`\n\
+                • To SEND messages: `agent_send` tool with `channel: \"{}\"`, `platform: \"discord\"`\n\n\
+                ✅ Auto-set discord_channel_id to '{}' and discord_server_id to '{}'.",
+                query, query, query, query, server_id
+            )).with_metadata(json!({
+                "warning": "query_looks_like_id",
+                "channel_id": query,
+                "server_id": server_id,
+                "discord_channel_id_set": true,
+                "discord_server_id_set": true
+            }));
+        }
+
         let channels = match self.fetch_channels(server_id, context).await {
             Ok(c) => c,
             Err(e) => return e,
@@ -476,14 +569,30 @@ impl DiscordLookupTool {
             })
             .collect();
 
+        // Always set discord_server_id in the registry
+        context.set_register("discord_server_id", json!(server_id), "discord_lookup");
+
         if matching.is_empty() {
             ToolResult::success(format!("No channels found matching '{}' in server {}", query, server_id)).with_metadata(json!({
                 "channels": [],
                 "count": 0,
                 "server_id": server_id,
-                "query": query
+                "query": query,
+                "discord_server_id_set": true
             }))
         } else {
+            // If exactly 1 match found, auto-set discord_channel_id
+            let mut auto_set_message = String::new();
+            if matching_channels.len() == 1 {
+                let channel = matching_channels[0];
+                context.set_register("discord_channel_id", json!(channel.id), "discord_lookup");
+                auto_set_message = format!(
+                    "\n\n✅ Auto-set discord_channel_id to '{}' (#{}) since only 1 match found.",
+                    channel.id,
+                    channel.name.as_deref().unwrap_or("unnamed")
+                );
+            }
+
             let channel_list: Vec<String> = matching_channels
                 .iter()
                 .map(|c| format!("• #{} (ID: {}, type: {})",
@@ -494,18 +603,25 @@ impl DiscordLookupTool {
                 .collect();
 
             let message = format!(
-                "Found {} channels matching '{}' in server {}:\n{}\n\nUse the channel ID when sending messages with agent_send.",
+                "Found {} channels matching '{}' in server {}:\n{}\n\n\
+**Next steps - use the channel ID directly:**\n\
+• To READ messages: `discord` tool with `action: \"readMessages\"`, `channelId: \"<ID>\"`\n\
+• To SEND messages: `agent_send` tool with `channel: \"<ID>\"`, `platform: \"discord\"`\n\
+Do NOT search for the channel again - you already have the ID.{}",
                 matching.len(),
                 query,
                 server_id,
-                channel_list.join("\n")
+                channel_list.join("\n"),
+                auto_set_message
             );
 
             ToolResult::success(message).with_metadata(json!({
                 "channels": matching,
                 "count": matching.len(),
                 "server_id": server_id,
-                "query": query
+                "query": query,
+                "discord_server_id_set": true,
+                "discord_channel_id_set": matching_channels.len() == 1
             }))
         }
     }

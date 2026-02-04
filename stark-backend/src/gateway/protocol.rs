@@ -881,10 +881,8 @@ impl GatewayEvent {
             .iter()
             .map(|h| {
                 serde_json::json!({
-                    "tool_name": h.tool_name,
-                    "tool_input": h.tool_input,
-                    "tool_result": h.tool_result,
-                    "tool_use_id": h.tool_use_id,
+                    "tool_calls": h.tool_calls,
+                    "tool_responses": h.tool_responses,
                 })
             })
             .collect();

@@ -1,12 +1,12 @@
 ---
 name: swap
 description: "Swap ERC20 tokens on Base using 0x DEX aggregator via quoter.defirelay.com"
-version: 5.7.0
+version: 5.8.0
 author: starkbot
 homepage: https://0x.org
 metadata: {"requires_auth": false, "clawdbot":{"emoji":"🔄"}}
 tags: [crypto, defi, swap, dex, base, trading, 0x]
- requires_tools: [web, x, token_lookup, register_set, decode_calldata, web3_function_call, x402_fetch, x402_rpc, list_queued_web3_tx, broadcast_web3_tx]  
+requires_tools: [token_lookup, register_set, decode_calldata, web3_function_call, x402_fetch, x402_rpc, list_queued_web3_tx, broadcast_web3_tx, select_web3_network]
 ---
 
 # Token Swap Integration (0x via DeFi Relay)

@@ -36,7 +36,7 @@ pub use cryptocurrency::{
     SelectWeb3NetworkTool, SendEthTool, ToRawAmountTool, TokenLookupTool, Web3FunctionCallTool,
     X402AgentInvokeTool, X402FetchTool, X402PostTool, X402RpcTool,
 };
-pub use social_media::{DiscordLookupTool, GithubUserTool, TwitterPostTool};
+pub use social_media::{DiscordLookupTool, DiscordTool, GithubUserTool, TwitterPostTool};
 
 // Re-exports from individual tools
 pub use process_status::ProcessStatusTool;

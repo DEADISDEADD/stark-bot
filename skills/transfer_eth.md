@@ -1,12 +1,12 @@
 ---
 name: transfer_eth
 description: "Transfer (Send) native ETH on Base/Ethereum using the burner wallet"
-version: 2.1.0
+version: 2.2.0
 author: starkbot
 homepage: https://basescan.org
 metadata: {"requires_auth": false, "clawdbot":{"emoji":"💸"}}
 tags: [crypto, transfer, send, eth, base, wallet]
-requires_tools: [web, x, register_set, to_raw_amount]
+requires_tools: [register_set, to_raw_amount, send_eth, list_queued_web3_tx, broadcast_web3_tx, x402_rpc, select_web3_network]
 ---
 
 # ETH Transfer/Send Skill

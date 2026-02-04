@@ -890,6 +890,32 @@ impl MessageDispatcher {
             log::info!("[MULTI_AGENT] Selected network set to: {}", network);
         }
 
+        // Keyword-based skill activation: detect "tip" commands and pre-activate discord_tipping skill
+        // This helps the AI use the correct skill without needing to search for it
+        let message_lower = original_message.text.to_lowercase();
+        if message_lower.contains("tip ") && message_lower.contains("@") {
+            if let Ok(Some(skill)) = self.db.get_enabled_skill_by_name("discord_tipping") {
+                let skills_dir = crate::config::skills_dir();
+                let skill_base_dir = format!("{}/{}", skills_dir, skill.name);
+                let instructions = skill.body.replace("{baseDir}", &skill_base_dir);
+
+                log::info!("[SKILL_DETECTION] Detected 'tip @user' pattern, pre-activating discord_tipping skill");
+
+                orchestrator.context_mut().active_skill = Some(crate::ai::multi_agent::types::ActiveSkill {
+                    name: skill.name,
+                    instructions,
+                    activated_at: chrono::Utc::now().to_rfc3339(),
+                    tool_calls_made: 0,
+                    requires_tools: skill.requires_tools.clone(),
+                });
+
+                // Save to DB for persistence
+                if let Err(e) = self.db.save_agent_context(session_id, orchestrator.context()) {
+                    log::warn!("[SKILL_DETECTION] Failed to save pre-activated skill: {}", e);
+                }
+            }
+        }
+
         // Broadcast initial mode
         let initial_mode = orchestrator.current_mode();
         self.broadcaster.broadcast(GatewayEvent::agent_mode_change(
@@ -1256,6 +1282,11 @@ impl MessageDispatcher {
         let mut waiting_for_user_response = false;
         let mut user_question_content = String::new();
         let mut was_cancelled = false;
+
+        // Loop detection: track recent tool call signatures to detect repetitive behavior
+        let mut recent_call_signatures: Vec<String> = Vec::new();
+        const MAX_REPEATED_CALLS: usize = 3; // Break loop after 3 identical consecutive calls
+        const SIGNATURE_HISTORY_SIZE: usize = 20; // Track last 20 call signatures
 
         loop {
             iterations += 1;
@@ -1626,6 +1657,66 @@ impl MessageDispatcher {
 
             // Process tool calls
             let mut tool_responses = Vec::new();
+
+            // Loop detection: check for repetitive tool calls
+            let current_signatures: Vec<String> = ai_response.tool_calls.iter()
+                .map(|c| format!("{}:{}", c.name, c.arguments.to_string()))
+                .collect();
+
+            // Check if all current calls were recently made (loop detection)
+            let repeated_count = current_signatures.iter()
+                .filter(|sig| recent_call_signatures.iter().filter(|s| s == sig).count() >= MAX_REPEATED_CALLS - 1)
+                .count();
+
+            if repeated_count > 0 && repeated_count == current_signatures.len() {
+                log::warn!(
+                    "[LOOP_DETECTION] Detected {} repeated tool calls, breaking loop to prevent infinite cycling",
+                    repeated_count
+                );
+
+                // Create a feedback entry to guide the AI
+                let loop_warning = format!(
+                    "⚠️ LOOP DETECTED: You've called the same tool(s) {} times with identical arguments. \
+                    The repeated calls are: {}. \
+                    Please try a DIFFERENT approach or tool, or explain what you're trying to accomplish.",
+                    MAX_REPEATED_CALLS,
+                    current_signatures.join(", ")
+                );
+
+                // Add as a tool response to guide the AI
+                for call in &ai_response.tool_calls {
+                    tool_responses.push(ToolResponse::error(
+                        call.id.clone(),
+                        loop_warning.clone(),
+                    ));
+                }
+
+                // Add to tool history and continue to next iteration (AI will see the warning)
+                tool_history.push(ToolHistoryEntry::new(
+                    ai_response.tool_calls.clone(),
+                    tool_responses,
+                ));
+
+                // Give the AI one more chance to correct, then break
+                if iterations > max_tool_iterations / 2 {
+                    log::error!("[LOOP_DETECTION] Loop persists after warning, breaking out");
+                    return Ok(format!(
+                        "I got stuck in a loop calling the same tools repeatedly. Last attempt: {}",
+                        current_signatures.join(", ")
+                    ));
+                }
+                continue;
+            }
+
+            // Track signatures for future loop detection
+            for sig in &current_signatures {
+                recent_call_signatures.push(sig.clone());
+            }
+            // Keep only recent signatures
+            if recent_call_signatures.len() > SIGNATURE_HISTORY_SIZE {
+                recent_call_signatures.drain(0..recent_call_signatures.len() - SIGNATURE_HISTORY_SIZE);
+            }
+
             for call in &ai_response.tool_calls {
                 let args_pretty = serde_json::to_string_pretty(&call.arguments)
                     .unwrap_or_else(|_| call.arguments.to_string());
@@ -2091,6 +2182,11 @@ impl MessageDispatcher {
         let mut user_question_content = String::new();
         let mut was_cancelled = false;
 
+        // Loop detection: track recent tool call signatures to detect repetitive behavior
+        let mut recent_call_signatures: Vec<String> = Vec::new();
+        const MAX_REPEATED_CALLS: usize = 3; // Break loop after 3 identical consecutive calls
+        const SIGNATURE_HISTORY_SIZE: usize = 20; // Track last 20 call signatures
+
         loop {
             iterations += 1;
             log::info!(
@@ -2214,6 +2310,47 @@ impl MessageDispatcher {
             match parsed {
                 Some(agent_response) => {
                     if let Some(tool_call) = agent_response.tool_call {
+                        // Loop detection: check for repetitive tool calls
+                        let call_signature = format!("{}:{}", tool_call.tool_name, tool_call.tool_params.to_string());
+                        let repeated_count = recent_call_signatures.iter()
+                            .filter(|s| *s == &call_signature)
+                            .count();
+
+                        if repeated_count >= MAX_REPEATED_CALLS - 1 {
+                            log::warn!(
+                                "[TEXT_LOOP_DETECTION] Detected repeated tool call '{}', breaking loop",
+                                tool_call.tool_name
+                            );
+
+                            // Feed back to conversation to guide the AI
+                            let loop_warning = format!(
+                                "⚠️ LOOP DETECTED: You've called `{}` {} times with identical arguments. \
+                                Please try a DIFFERENT approach or tool.",
+                                tool_call.tool_name,
+                                MAX_REPEATED_CALLS
+                            );
+                            conversation.push(Message {
+                                role: MessageRole::User,
+                                content: loop_warning,
+                            });
+
+                            // Give the AI one more chance to correct, then break
+                            if iterations > max_tool_iterations / 2 {
+                                log::error!("[TEXT_LOOP_DETECTION] Loop persists after warning, breaking out");
+                                return Ok(format!(
+                                    "I got stuck in a loop calling `{}` repeatedly. Please rephrase your request.",
+                                    tool_call.tool_name
+                                ));
+                            }
+                            continue;
+                        }
+
+                        // Track signature for future loop detection
+                        recent_call_signatures.push(call_signature);
+                        if recent_call_signatures.len() > SIGNATURE_HISTORY_SIZE {
+                            recent_call_signatures.drain(0..recent_call_signatures.len() - SIGNATURE_HISTORY_SIZE);
+                        }
+
                         let args_pretty = serde_json::to_string_pretty(&tool_call.tool_params)
                             .unwrap_or_else(|_| tool_call.tool_params.to_string());
 

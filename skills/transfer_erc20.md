@@ -1,12 +1,12 @@
 ---
 name: transfer_erc20
 description: "Transfer (Send) ERC20 tokens on Base/Ethereum using the burner wallet"
-version: 1.0.0
+version: 1.1.0
 author: starkbot
 homepage: https://basescan.org
 metadata: {"requires_auth": false, "clawdbot":{"emoji":"🪙"}}
 tags: [crypto, transfer, send, erc20, tokens, base, wallet]
-requires_tools: [web, x, register_set, token_lookup, to_raw_amount]
+requires_tools: [register_set, token_lookup, to_raw_amount, web3_function_call, list_queued_web3_tx, broadcast_web3_tx, select_web3_network]
 ---
 
 # ERC20 Token Transfer/Send Skill

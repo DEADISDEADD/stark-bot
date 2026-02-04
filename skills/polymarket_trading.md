@@ -1,11 +1,11 @@
 ---
 name: polymarket_trading
 description: "Explore and trade on Polymarket - search markets, check prices, place bets, manage orders."
-version: 2.1.0
+version: 2.2.0
 author: starkbot
 homepage: https://docs.polymarket.com/
 metadata: {"clawdbot":{"emoji":"🎲"}}
-requires_tools: [polymarket_trade]
+requires_tools: [polymarket_trade, select_web3_network]
 tags: [polymarket, prediction-markets, trading, betting, crypto, defi, polygon]
 arguments:
   action:

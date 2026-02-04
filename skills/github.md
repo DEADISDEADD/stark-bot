@@ -440,6 +440,20 @@ Blocked by default:
 
 ---
 
+## GitHub Discussions
+
+For reading and writing GitHub Discussions, use the **`github_discussions`** skill which provides:
+- List/search discussions
+- View discussion details and comments
+- Create new discussions
+- Add comments and replies
+- Mark answers (Q&A categories)
+- Update/delete discussions and comments
+
+Discussions use the GraphQL API via `gh api graphql`.
+
+---
+
 ## Best Practices
 
 1. **Always use `committer`** instead of raw git commit for safety

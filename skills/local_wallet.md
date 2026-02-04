@@ -1,11 +1,11 @@
 ---
 name: local_wallet
 description: "Check balances and interact with the local burner wallet using RPC calls."
-version: 2.2.2
+version: 2.3.0
 author: starkbot
 metadata: {"clawdbot":{"emoji":"wallet"}}
 tags: [wallet, crypto, finance, local, burner, address, base, ethereum, rpc]
-requires_tools: [web, x, token_lookup, ask_user]
+requires_tools: [token_lookup, ask_user, x402_rpc, web3_function_call, register_set]
 ---
 
 # Local Wallet Access
