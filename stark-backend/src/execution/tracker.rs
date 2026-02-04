@@ -792,6 +792,17 @@ impl ExecutionTracker {
             .map(|entry| entry.value().clone())
             .collect()
     }
+
+    /// Check if there are any active executions across all channels
+    /// Used by heartbeat to avoid running during active work
+    pub fn has_any_active_executions(&self) -> bool {
+        !self.channel_executions.is_empty() || !self.session_executions.is_empty()
+    }
+
+    /// Get count of active executions (for logging)
+    pub fn active_execution_count(&self) -> usize {
+        self.channel_executions.len() + self.session_executions.len()
+    }
 }
 
 #[cfg(test)]

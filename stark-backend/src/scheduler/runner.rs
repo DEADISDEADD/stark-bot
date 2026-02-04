@@ -50,6 +50,7 @@ pub struct Scheduler {
     db: Arc<Database>,
     dispatcher: Arc<MessageDispatcher>,
     broadcaster: Arc<EventBroadcaster>,
+    execution_tracker: Arc<crate::execution::ExecutionTracker>,
     config: SchedulerConfig,
 }
 
@@ -58,12 +59,14 @@ impl Scheduler {
         db: Arc<Database>,
         dispatcher: Arc<MessageDispatcher>,
         broadcaster: Arc<EventBroadcaster>,
+        execution_tracker: Arc<crate::execution::ExecutionTracker>,
         config: SchedulerConfig,
     ) -> Self {
         Scheduler {
             db,
             dispatcher,
             broadcaster,
+            execution_tracker,
             config,
         }
     }
@@ -74,10 +77,11 @@ impl Scheduler {
         db: Arc<Database>,
         dispatcher: Arc<MessageDispatcher>,
         broadcaster: Arc<EventBroadcaster>,
+        execution_tracker: Arc<crate::execution::ExecutionTracker>,
         config: SchedulerConfig,
         _db_url: String,
     ) -> Self {
-        Self::new(db, dispatcher, broadcaster, config)
+        Self::new(db, dispatcher, broadcaster, execution_tracker, config)
     }
 
     /// Start the scheduler background task
@@ -175,6 +179,7 @@ impl Scheduler {
             db: Arc::clone(&self.db),
             dispatcher: Arc::clone(&self.dispatcher),
             broadcaster: Arc::clone(&self.broadcaster),
+            execution_tracker: Arc::clone(&self.execution_tracker),
             config: self.config.clone(),
         }
     }
@@ -380,7 +385,14 @@ impl Scheduler {
 
     /// Process due heartbeats
     /// Note: Only processes the MOST RECENT heartbeat config (highest ID) to avoid duplicates
+    /// IMPORTANT: Only ONE heartbeat can run at a time
     async fn process_heartbeats(&self) -> Result<(), String> {
+        // Skip if a heartbeat is already running (check heartbeat channel)
+        if self.execution_tracker.get_execution_id(HEARTBEAT_CHANNEL_ID).is_some() {
+            log::debug!("[HEARTBEAT] Skipping - heartbeat already running");
+            return Ok(());
+        }
+
         let due_configs = self
             .db
             .list_due_heartbeat_configs()

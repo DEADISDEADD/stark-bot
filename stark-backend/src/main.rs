@@ -175,6 +175,7 @@ async fn main() -> std::io::Result<()> {
         db.clone(),
         dispatcher.clone(),
         gateway.broadcaster().clone(),
+        execution_tracker.clone(),
         scheduler_config,
     ));
 
