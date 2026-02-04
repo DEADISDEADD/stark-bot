@@ -19,6 +19,25 @@ Transfer or Send native ETH from the burner wallet to any address.
 > - Use `to_raw_amount` with `decimals: 18` to set `amount_raw` (wei value)
 > - The `send_eth` tool reads from these registers - you NEVER pass raw tx params directly
 
+## 🚨 Step 0: Network Selection (If Specified)
+
+**Before ANY transfer operation, check if the user specified a network in their query.**
+
+If the user mentions a specific network (e.g., "on polygon", "on mainnet", "on base"), you MUST call `select_web3_network` FIRST:
+
+```json
+{"tool": "select_web3_network", "network": "<network_from_query>"}
+```
+
+**Examples of network detection:**
+- "send 0.1 ETH **on polygon**" → `{"tool": "select_web3_network", "network": "polygon"}`
+- "transfer 0.01 ETH **on mainnet**" → `{"tool": "select_web3_network", "network": "mainnet"}`
+- "send ETH **on arbitrum**" → `{"tool": "select_web3_network", "network": "arbitrum"}`
+
+**If no network is specified**, proceed with the current/default network (usually base).
+
+---
+
 ## Tools Used
 
 | Tool | Purpose |
@@ -36,6 +55,7 @@ Transfer or Send native ETH from the burner wallet to any address.
 
 **ALWAYS follow this sequence for ETH transfers:**
 
+0. `select_web3_network` → **If user specified a network** (e.g., "on polygon")
 1. `register_set` → Set `send_to` (recipient address)
 2. `to_raw_amount` → Convert human amount to wei (sets `amount_raw`)
 3. `send_eth` → Execute the transfer (reads from registers)

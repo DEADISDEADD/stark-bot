@@ -42,6 +42,26 @@ function isWebChannelEvent(data: unknown): boolean {
   return event.channel_id === undefined || event.channel_id === WEB_CHANNEL_ID;
 }
 
+// Helper to check if an event is for the current session
+// This filters out events from other browser tabs/sessions
+function isCurrentSessionEvent(data: unknown, currentDbSessionId: number | null): boolean {
+  if (typeof data !== 'object' || data === null) return true; // Allow events without session_id
+  const event = data as { channel_id?: number; session_id?: number };
+
+  // First check channel_id (must be web channel or undefined)
+  if (event.channel_id !== undefined && event.channel_id !== WEB_CHANNEL_ID) {
+    return false;
+  }
+
+  // If no session_id in event (legacy) or no current session, allow the event
+  if (event.session_id === undefined || currentDbSessionId === null) {
+    return true;
+  }
+
+  // Check if session_id matches current session
+  return event.session_id === currentDbSessionId;
+}
+
 // Available agent subtypes with their styling
 const AGENT_SUBTYPES = [
   { subtype: 'finance', label: 'Finance', emoji: '💰', bgClass: 'bg-purple-500/20', textClass: 'text-purple-400', borderClass: 'border-purple-500/50', hoverClass: 'hover:bg-purple-500/30' },
@@ -456,8 +476,8 @@ export default function AgentChat() {
   // Listen for agent thinking/progress events (long AI calls)
   useEffect(() => {
     const handleThinking = (data: unknown) => {
-      // Filter out events from other channels (e.g., cron jobs)
-      if (!isWebChannelEvent(data)) return;
+      // Filter out events from other channels/sessions
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
       const event = data as { message: string; timestamp: string };
       console.log('[Agent] Thinking:', event.message);
@@ -482,8 +502,8 @@ export default function AgentChat() {
     };
 
     const handleError = (data: unknown) => {
-      // Filter out events from other channels (e.g., cron jobs)
-      if (!isWebChannelEvent(data)) return;
+      // Filter out events from other channels/sessions
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
       const event = data as { error: string; timestamp: string };
       console.error('[Agent] Error:', event.error);
@@ -501,8 +521,8 @@ export default function AgentChat() {
     };
 
     const handleWarning = (data: unknown) => {
-      // Filter out events from other channels (e.g., cron jobs)
-      if (!isWebChannelEvent(data)) return;
+      // Filter out events from other channels/sessions
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
       const event = data as { warning_type: string; message: string; attempt: number; timestamp: string };
       console.warn('[Agent] Warning:', event.warning_type, event.message);
@@ -519,8 +539,8 @@ export default function AgentChat() {
     };
 
     const handleAiRetrying = (data: unknown) => {
-      // Filter out events from other channels
-      if (!isWebChannelEvent(data)) return;
+      // Filter out events from other channels/sessions
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
       const event = data as {
         attempt: number;
@@ -558,13 +578,13 @@ export default function AgentChat() {
       off('agent.warning', handleWarning);
       off('ai.retrying', handleAiRetrying);
     };
-  }, [on, off, sessionId]);
+  }, [on, off, sessionId, dbSessionId]);
 
   // Listen for execution lifecycle events to track loading state
   useEffect(() => {
     const handleExecutionStarted = (data: unknown) => {
-      // Filter out events from other channels (e.g., cron jobs)
-      if (!isWebChannelEvent(data)) return;
+      // Filter out events from other channels/sessions
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
       const event = data as { execution_id: string; channel_id: number; mode: string };
       console.log('[Execution] Started:', event.execution_id);
@@ -574,8 +594,8 @@ export default function AgentChat() {
     };
 
     const handleExecutionCompleted = (data: unknown) => {
-      // Filter out events from other channels (e.g., cron jobs)
-      if (!isWebChannelEvent(data)) return;
+      // Filter out events from other channels/sessions
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
       const event = data as { execution_id: string; channel_id: number };
       console.log('[Execution] Completed:', event.execution_id);
@@ -592,8 +612,8 @@ export default function AgentChat() {
     };
 
     const handleExecutionStopped = (data: unknown) => {
-      // Filter out events from other channels (e.g., cron jobs)
-      if (!isWebChannelEvent(data)) return;
+      // Filter out events from other channels/sessions
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
       const event = data as { channel_id: number; execution_id: string; reason: string };
       console.log('[Execution] Stopped:', event.execution_id, event.reason);
@@ -623,13 +643,13 @@ export default function AgentChat() {
       off('execution.completed', handleExecutionCompleted);
       off('execution.stopped', handleExecutionStopped);
     };
-  }, [on, off]);
+  }, [on, off, dbSessionId]);
 
   // Listen for confirmation events
   useEffect(() => {
     const handleConfirmationRequired = (data: unknown) => {
-      // Filter out events from other channels (e.g., cron jobs)
-      if (!isWebChannelEvent(data)) return;
+      // Filter out events from other channels/sessions
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
       const event = data as ConfirmationRequiredEvent;
       console.log('[Confirmation] Required:', event.tool_name, event.description);
@@ -645,16 +665,16 @@ export default function AgentChat() {
     };
 
     const handleConfirmationApproved = (data: unknown) => {
-      // Filter out events from other channels (e.g., cron jobs)
-      if (!isWebChannelEvent(data)) return;
+      // Filter out events from other channels/sessions
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
       console.log('[Confirmation] Approved');
       setPendingConfirmation(null);
     };
 
     const handleConfirmationRejected = (data: unknown) => {
-      // Filter out events from other channels (e.g., cron jobs)
-      if (!isWebChannelEvent(data)) return;
+      // Filter out events from other channels/sessions
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
       console.log('[Confirmation] Rejected');
       setPendingConfirmation(null);
@@ -669,15 +689,15 @@ export default function AgentChat() {
       off('confirmation.approved', handleConfirmationApproved);
       off('confirmation.rejected', handleConfirmationRejected);
     };
-  }, [on, off]);
+  }, [on, off, dbSessionId]);
 
   // Listen for tx_queue confirmation events (partner mode)
   useEffect(() => {
     const handleTxQueueConfirmationRequired = (data: unknown) => {
       console.log('[TxQueue] RAW event received:', data);
 
-      if (!isWebChannelEvent(data)) {
-        console.log('[TxQueue] Event filtered out by isWebChannelEvent');
+      if (!isCurrentSessionEvent(data, dbSessionId)) {
+        console.log('[TxQueue] Event filtered out by isCurrentSessionEvent');
         return;
       }
 
@@ -711,7 +731,7 @@ export default function AgentChat() {
     };
 
     const handleTxQueueResolved = (data: unknown) => {
-      if (!isWebChannelEvent(data)) return;
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
       console.log('[TxQueue] Transaction resolved');
       setTxQueueConfirmation(null);
     };
@@ -725,13 +745,13 @@ export default function AgentChat() {
       off('tx_queue.confirmed', handleTxQueueResolved);
       off('tx_queue.denied', handleTxQueueResolved);
     };
-  }, [on, off]);
+  }, [on, off, dbSessionId]);
 
   // Listen for subagent events
   useEffect(() => {
     const handleSubagentSpawned = (data: unknown) => {
-      // Filter out events from other channels (e.g., cron jobs)
-      if (!isWebChannelEvent(data)) return;
+      // Filter out events from other channels/sessions
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
       const event = data as { subagent_id: string; label: string; task: string; timestamp: string };
       console.log('[Subagent] Spawned:', event.label);
@@ -748,8 +768,8 @@ export default function AgentChat() {
     };
 
     const handleSubagentCompleted = (data: unknown) => {
-      // Filter out events from other channels (e.g., cron jobs)
-      if (!isWebChannelEvent(data)) return;
+      // Filter out events from other channels/sessions
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
       const event = data as { subagent_id: string };
       console.log('[Subagent] Completed:', event.subagent_id);
@@ -759,8 +779,8 @@ export default function AgentChat() {
     };
 
     const handleSubagentFailed = (data: unknown) => {
-      // Filter out events from other channels (e.g., cron jobs)
-      if (!isWebChannelEvent(data)) return;
+      // Filter out events from other channels/sessions
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
       const event = data as { subagent_id: string };
       console.log('[Subagent] Failed:', event.subagent_id);
@@ -778,19 +798,19 @@ export default function AgentChat() {
       off('subagent.completed', handleSubagentCompleted);
       off('subagent.failed', handleSubagentFailed);
     };
-  }, [on, off]);
+  }, [on, off, dbSessionId]);
 
   // Listen for planner task events (for inline task display)
   useEffect(() => {
     const handleTaskQueueUpdate = (data: unknown) => {
-      if (!isWebChannelEvent(data)) return;
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
       const event = data as TaskQueueUpdateEvent;
       console.log('[PlannerTasks] Queue update:', event);
       setPlannerTasks(event.tasks || []);
     };
 
     const handleTaskStatusChange = (data: unknown) => {
-      if (!isWebChannelEvent(data)) return;
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
       const event = data as TaskStatusChangeEvent;
       console.log('[PlannerTasks] Status change:', event);
       setPlannerTasks((prev) =>
@@ -803,13 +823,13 @@ export default function AgentChat() {
     };
 
     const handleSessionComplete = (data: unknown) => {
-      if (!isWebChannelEvent(data)) return;
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
       console.log('[PlannerTasks] Session complete, clearing tasks');
       setTimeout(() => setPlannerTasks([]), 3000);
     };
 
     const handleExecutionStopped = (data: unknown) => {
-      if (!isWebChannelEvent(data)) return;
+      if (!isCurrentSessionEvent(data, dbSessionId)) return;
       console.log('[PlannerTasks] Execution stopped, clearing tasks');
       setPlannerTasks([]);
     };
@@ -825,7 +845,7 @@ export default function AgentChat() {
       off('session.complete', handleSessionComplete);
       off('execution.stopped', handleExecutionStopped);
     };
-  }, [on, off]);
+  }, [on, off, dbSessionId]);
 
   // Fetch initial subagent list when connected
   useEffect(() => {

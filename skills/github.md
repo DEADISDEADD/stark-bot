@@ -1,7 +1,7 @@
 ---
 name: github
 description: "Advanced GitHub operations with safe commits, PR creation, deployment, and quality checks."
-version: 1.2.0
+version: 1.3.0
 author: starkbot
 homepage: https://cli.github.com/manual/
 metadata: {"requires_auth": true, "clawdbot":{"emoji":"🐙"}}
@@ -11,23 +11,63 @@ tags: [github, git, pr, version-control, deployment, ci-cd, development]
 
 # GitHub Operations Guide
 
-## CRITICAL: External GitHub URLs vs Local Workspace
+## DEFAULT BEHAVIOR: External GitHub Repos (gh CLI)
 
-**IMPORTANT DISTINCTION:**
-- The `git` tool (status, log, diff, etc.) operates on your **local workspace** only
-- For **external GitHub repos** (URLs the user provides), use `gh` CLI or `web_fetch`
+**By default, assume the user wants to interact with EXTERNAL GitHub repositories.**
 
-**When a user provides a GitHub URL** (e.g., `https://github.com/owner/repo`):
-1. **Extract the owner and repo from that URL** (check Context Bank - URLs are auto-extracted)
-2. **Use `gh` CLI commands** to inspect the external repo:
-   - `gh repo view owner/repo` - View repo info
-   - `gh api repos/owner/repo/commits` - View commits
-   - `gh pr list -R owner/repo` - View PRs
-   - `gh issue list -R owner/repo` - View issues
-3. **Or use `web_fetch`** to read the repo page directly
-4. **NEVER run `git log`** to inspect an external repo - that only shows your local workspace!
+Use the `gh` CLI tool via `exec` for ALL GitHub operations unless the user explicitly says:
+- "local" / "locally" / "my local"
+- "this repo" / "current repo" / "workspace"
+- "my changes" / "my branch"
 
-**DO NOT** substitute the user's URL with your own repos or defaults.
+### Quick Reference: External Repo Commands
+
+| Operation | Command |
+|-----------|---------|
+| View repo info | `gh repo view owner/repo` |
+| View README | `gh repo view owner/repo --json readme -q .readme` |
+| List commits | `gh api repos/owner/repo/commits --jq '.[].commit.message'` |
+| View commit details | `gh api repos/owner/repo/commits/SHA` |
+| List PRs | `gh pr list -R owner/repo` |
+| View PR | `gh pr view NUMBER -R owner/repo` |
+| PR diff | `gh pr diff NUMBER -R owner/repo` |
+| List issues | `gh issue list -R owner/repo` |
+| View issue | `gh issue view NUMBER -R owner/repo` |
+| List releases | `gh release list -R owner/repo` |
+| View workflows | `gh run list -R owner/repo` |
+| Clone repo | `gh repo clone owner/repo` |
+| Fork repo | `gh repo fork owner/repo` |
+| Search code | `gh search code "query" --repo owner/repo` |
+| Repo stats | `gh api repos/owner/repo --jq '{stars: .stargazers_count, forks: .forks_count, issues: .open_issues_count}'` |
+
+### Extracting Owner/Repo from URLs
+
+When user provides a URL like `https://github.com/anthropics/claude-code`:
+- Owner: `anthropics`
+- Repo: `claude-code`
+- Use: `gh repo view anthropics/claude-code`
+
+**Check the Context Bank** - GitHub URLs are auto-extracted and available there.
+
+### Example: Inspect an External Repo
+
+User: "What's the latest activity on https://github.com/rust-lang/rust?"
+
+```json
+{"tool": "exec", "command": "gh repo view rust-lang/rust"}
+{"tool": "exec", "command": "gh pr list -R rust-lang/rust --limit 5"}
+{"tool": "exec", "command": "gh api repos/rust-lang/rust/commits --jq '.[0:5] | .[].commit.message'"}
+```
+
+**NEVER use `git log`, `git status`, or `git diff` for external repos** - those only show your local workspace!
+
+---
+
+## LOCAL MODE: Your Workspace (git tool)
+
+**Only use these when the user explicitly mentions "local", "this repo", or their own workspace.**
+
+The `git` tool and other specialized tools operate on your local filesystem:
 
 You have access to specialized tools for safe and effective GitHub operations:
 
@@ -409,3 +449,24 @@ Blocked by default:
 5. **Keep PRs focused** on a single change
 6. **Include test plan** in PR descriptions
 7. **Monitor CI** after pushing
+
+---
+
+## Mode Detection Summary
+
+**DEFAULT = EXTERNAL (gh CLI)**
+
+| User says... | Mode | Tools to use |
+|--------------|------|--------------|
+| GitHub URL (github.com/...) | External | `gh` via `exec` |
+| "check this repo" + URL | External | `gh` via `exec` |
+| "what's new on owner/repo" | External | `gh` via `exec` |
+| "show me PRs for..." | External | `gh` via `exec` |
+| (no specific context) | External | `gh` via `exec` |
+| "local" / "locally" | Local | `git`, `committer`, `deploy` |
+| "my changes" / "my branch" | Local | `git`, `committer`, `deploy` |
+| "this workspace" | Local | `git`, `committer`, `deploy` |
+| "commit" / "push my code" | Local | `committer`, `deploy` |
+| "current repo" | Local | `git`, `committer`, `deploy` |
+
+**When in doubt, use `gh` for external repos. Only switch to local tools when the user explicitly refers to their own workspace or wants to make local changes.**

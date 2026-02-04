@@ -11,6 +11,25 @@ tags: [crypto, defi, swap, dex, base, trading, 0x]
 
 # Token Swap Integration (0x via DeFi Relay)
 
+## 🚨 Step 0: Network Selection (If Specified)
+
+**Before ANY swap operation, check if the user specified a network in their query.**
+
+If the user mentions a specific network (e.g., "on polygon", "on mainnet", "on base"), you MUST call `select_web3_network` FIRST:
+
+```json
+{"tool": "select_web3_network", "network": "<network_from_query>"}
+```
+
+**Examples of network detection:**
+- "swap USDC for ETH **on polygon**" → `{"tool": "select_web3_network", "network": "polygon"}`
+- "swap 100 USDC to WETH **on mainnet**" → `{"tool": "select_web3_network", "network": "mainnet"}`
+- "swap tokens **on arbitrum**" → `{"tool": "select_web3_network", "network": "arbitrum"}`
+
+**If no network is specified**, proceed with the current/default network (usually base).
+
+---
+
 ## CRITICAL: Two Things That Will Cause Reverts
 
 ### 1. ETH Must Be Wrapped First!
@@ -29,6 +48,12 @@ When selling ETH, you MUST wrap it to WETH first. The swap always uses WETH, not
 ## Workflow A: Swapping ETH → Token
 
 Use this when the user wants to swap ETH for another token.
+
+### 0. Select Network (if specified in query)
+If the user mentioned a specific network, select it first:
+```json
+{"tool": "select_web3_network", "network": "<network_from_query>"}
+```
 
 ### 1. Lookup WETH as sell token
 ```tool:token_lookup
@@ -160,6 +185,12 @@ limit: 1
 ## Workflow B: Swapping Token → Token or Eth
 
 Use this when selling any token OTHER than ETH (e.g., USDC → WETH).
+
+### 0. Select Network (if specified in query)
+If the user mentioned a specific network, select it first:
+```json
+{"tool": "select_web3_network", "network": "<network_from_query>"}
+```
 
 ### 1. Lookup sell token and check balance
 

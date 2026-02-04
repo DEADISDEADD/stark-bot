@@ -938,7 +938,7 @@ impl MessageDispatcher {
         ));
 
         // Broadcast initial task state
-        self.broadcast_tasks_update(original_message.channel_id, &orchestrator);
+        self.broadcast_tasks_update(original_message.channel_id, session_id, &orchestrator);
 
         // Get the current subtype
         let subtype = orchestrator.current_subtype();
@@ -1144,7 +1144,7 @@ impl MessageDispatcher {
     }
 
     /// Broadcast status update event for the debug panel
-    fn broadcast_tasks_update(&self, channel_id: i64, orchestrator: &Orchestrator) {
+    fn broadcast_tasks_update(&self, channel_id: i64, session_id: i64, orchestrator: &Orchestrator) {
         let context = orchestrator.context();
         let mode = context.mode;
         let has_tasks = !context.task_queue.is_empty();
@@ -1166,12 +1166,12 @@ impl MessageDispatcher {
 
         // Also broadcast task queue update if there are tasks
         if has_tasks {
-            self.broadcast_task_queue_update(channel_id, orchestrator);
+            self.broadcast_task_queue_update(channel_id, session_id, orchestrator);
         }
     }
 
     /// Broadcast task queue update (full queue state)
-    fn broadcast_task_queue_update(&self, channel_id: i64, orchestrator: &Orchestrator) {
+    fn broadcast_task_queue_update(&self, channel_id: i64, session_id: i64, orchestrator: &Orchestrator) {
         let task_queue = orchestrator.task_queue();
         let current_task_id = task_queue.current_task().map(|t| t.id);
 
@@ -1180,15 +1180,17 @@ impl MessageDispatcher {
 
         self.broadcaster.broadcast(GatewayEvent::task_queue_update(
             channel_id,
+            session_id,
             &task_queue.tasks,
             current_task_id,
         ));
     }
 
     /// Broadcast task status change
-    fn broadcast_task_status_change(&self, channel_id: i64, task_id: u32, status: &str, description: &str) {
+    fn broadcast_task_status_change(&self, channel_id: i64, session_id: i64, task_id: u32, status: &str, description: &str) {
         self.broadcaster.broadcast(GatewayEvent::task_status_change(
             channel_id,
+            session_id,
             task_id,
             status,
             description,
@@ -1224,11 +1226,12 @@ impl MessageDispatcher {
             );
             self.broadcast_task_status_change(
                 channel_id,
+                session_id,
                 next_task.id,
                 "in_progress",
                 &next_task.description,
             );
-            self.broadcast_task_queue_update(channel_id, orchestrator);
+            self.broadcast_task_queue_update(channel_id, session_id, orchestrator);
             TaskAdvanceResult::NextTaskStarted
         } else if orchestrator.task_queue_is_empty() || orchestrator.all_tasks_complete() {
             // Queue is empty or all tasks completed - end the session
@@ -1344,7 +1347,7 @@ impl MessageDispatcher {
                 if deleted {
                     log::info!("[ORCHESTRATED_LOOP] Deleted task {}", task_id);
                     // Broadcast the updated task queue
-                    self.broadcast_task_queue_update(original_message.channel_id, orchestrator);
+                    self.broadcast_task_queue_update(original_message.channel_id, session_id, orchestrator);
 
                     // If we deleted the current task, move to the next one
                     if was_current {
@@ -1392,12 +1395,13 @@ impl MessageDispatcher {
                     );
                     self.broadcast_task_status_change(
                         original_message.channel_id,
+                        session_id,
                         first_task.id,
                         "in_progress",
                         &first_task.description,
                     );
                     // Broadcast full task queue update
-                    self.broadcast_task_queue_update(original_message.channel_id, orchestrator);
+                    self.broadcast_task_queue_update(original_message.channel_id, session_id, orchestrator);
 
                     // Broadcast mode change to assistant
                     self.broadcaster.broadcast(GatewayEvent::agent_mode_change(
@@ -1517,6 +1521,7 @@ impl MessageDispatcher {
                 tool_history.clone(),
                 current_tools.clone(),
                 original_message.channel_id,
+                session_id,
             ).await {
                 Ok(response) => response,
                 Err(e) => {
@@ -1904,6 +1909,7 @@ impl MessageDispatcher {
                                     log::info!("[ORCHESTRATED_LOOP] Task {} completed", completed_task_id);
                                     self.broadcast_task_status_change(
                                         original_message.channel_id,
+                                        session_id,
                                         completed_task_id,
                                         "completed",
                                         &summary,
@@ -1981,7 +1987,7 @@ impl MessageDispatcher {
                 }
 
                 // Broadcast task list update after any orchestrator tool processing
-                self.broadcast_tasks_update(original_message.channel_id, orchestrator);
+                self.broadcast_tasks_update(original_message.channel_id, session_id, orchestrator);
             }
 
             // Add to tool history (keep only last N entries to prevent context bloat)
@@ -2513,7 +2519,7 @@ impl MessageDispatcher {
                         };
 
                         // Broadcast task list update after any orchestrator tool processing
-                        self.broadcast_tasks_update(original_message.channel_id, orchestrator);
+                        self.broadcast_tasks_update(original_message.channel_id, session_id, orchestrator);
 
                         // Add to conversation
                         conversation.push(Message {
@@ -2599,6 +2605,7 @@ impl MessageDispatcher {
                     log::warn!("[TEXT_ORCHESTRATED] Failed to parse AI response, using raw content");
                     self.broadcaster.broadcast(GatewayEvent::agent_thinking(
                         original_message.channel_id,
+                        Some(session_id),
                         &format!("Parse failed, raw AI response:\n{}", &ai_content[..ai_content.len().min(500)]),
                     ));
 
@@ -3058,6 +3065,7 @@ impl MessageDispatcher {
         tool_history: Vec<ToolHistoryEntry>,
         tools: Vec<ToolDefinition>,
         channel_id: i64,
+        session_id: i64,
     ) -> Result<AiResponse, crate::ai::AiError> {
         let broadcaster = self.broadcaster.clone();
         let mut elapsed_secs = 0u64;
@@ -3171,6 +3179,7 @@ impl MessageDispatcher {
                     log::info!("[AI_PROGRESS] Still waiting for AI response... ({}s elapsed)", elapsed_secs);
                     broadcaster.broadcast(GatewayEvent::agent_thinking(
                         channel_id,
+                        Some(session_id),
                         &format!("{} ({}s)", phase_msg, elapsed_secs),
                     ));
 

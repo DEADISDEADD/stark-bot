@@ -8,18 +8,32 @@ import type { PlannerTask, TaskQueueUpdateEvent, TaskStatusChangeEvent } from '@
 // Web channel ID - must match backend WEB_CHANNEL_ID
 const WEB_CHANNEL_ID = 0;
 
-// Helper to check if an event is for the web channel
-function isWebChannelEvent(data: unknown): boolean {
+// Helper to check if an event is for the current session
+// This filters out events from other browser tabs/sessions
+function isCurrentSessionEvent(data: unknown, currentDbSessionId: number | null): boolean {
   if (typeof data !== 'object' || data === null) return true;
-  const event = data as { channel_id?: number };
-  return event.channel_id === undefined || event.channel_id === WEB_CHANNEL_ID;
+  const event = data as { channel_id?: number; session_id?: number };
+
+  // First check channel_id (must be web channel or undefined)
+  if (event.channel_id !== undefined && event.channel_id !== WEB_CHANNEL_ID) {
+    return false;
+  }
+
+  // If no session_id in event (legacy) or no current session, allow the event
+  if (event.session_id === undefined || currentDbSessionId === null) {
+    return true;
+  }
+
+  // Check if session_id matches current session
+  return event.session_id === currentDbSessionId;
 }
 
 interface TaskQueueProgressProps {
   className?: string;
+  dbSessionId?: number | null;
 }
 
-export default function TaskQueueProgress({ className }: TaskQueueProgressProps) {
+export default function TaskQueueProgress({ className, dbSessionId }: TaskQueueProgressProps) {
   const [tasks, setTasks] = useState<PlannerTask[]>([]);
   const [visible, setVisible] = useState(false);
   const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null);
@@ -77,7 +91,7 @@ export default function TaskQueueProgress({ className }: TaskQueueProgressProps)
 
   // Handle full task queue update
   const handleTaskQueueUpdate = useCallback((data: unknown) => {
-    if (!isWebChannelEvent(data)) return;
+    if (!isCurrentSessionEvent(data, dbSessionId ?? null)) return;
 
     const event = data as TaskQueueUpdateEvent;
     console.log('[TaskQueueProgress] Queue update:', event);
@@ -89,11 +103,11 @@ export default function TaskQueueProgress({ className }: TaskQueueProgressProps)
       setTasks([]);
       setVisible(false);
     }
-  }, []);
+  }, [dbSessionId]);
 
   // Handle individual task status change
   const handleTaskStatusChange = useCallback((data: unknown) => {
-    if (!isWebChannelEvent(data)) return;
+    if (!isCurrentSessionEvent(data, dbSessionId ?? null)) return;
 
     const event = data as TaskStatusChangeEvent;
     console.log('[TaskQueueProgress] Status change:', event);
@@ -107,27 +121,27 @@ export default function TaskQueueProgress({ className }: TaskQueueProgressProps)
     );
 
     // Status is already reflected in the tasks array through the update above
-  }, []);
+  }, [dbSessionId]);
 
   // Handle session complete
   const handleSessionComplete = useCallback((data: unknown) => {
-    if (!isWebChannelEvent(data)) return;
+    if (!isCurrentSessionEvent(data, dbSessionId ?? null)) return;
     console.log('[TaskQueueProgress] Session complete');
     // Keep visible for a moment to show completion, then hide
     setTimeout(() => {
       setVisible(false);
       setTasks([]);
     }, 3000);
-  }, []);
+  }, [dbSessionId]);
 
   // Handle execution stopped (user clicked stop button)
   const handleExecutionStopped = useCallback((data: unknown) => {
-    if (!isWebChannelEvent(data)) return;
+    if (!isCurrentSessionEvent(data, dbSessionId ?? null)) return;
     console.log('[TaskQueueProgress] Execution stopped, clearing tasks');
     // Clear tasks immediately when execution is stopped
     setVisible(false);
     setTasks([]);
-  }, []);
+  }, [dbSessionId]);
 
   useEffect(() => {
     on('task.queue_update', handleTaskQueueUpdate);

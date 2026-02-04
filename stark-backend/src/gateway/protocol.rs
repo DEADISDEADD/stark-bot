@@ -356,11 +356,12 @@ impl GatewayEvent {
     }
 
     /// Emit progress update during long AI calls
-    pub fn agent_thinking(channel_id: i64, message: &str) -> Self {
+    pub fn agent_thinking(channel_id: i64, session_id: Option<i64>, message: &str) -> Self {
         Self::new(
             EventType::AgentThinking,
             serde_json::json!({
                 "channel_id": channel_id,
+                "session_id": session_id,
                 "message": message,
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }),
@@ -1028,6 +1029,7 @@ impl GatewayEvent {
     /// Full task queue update - broadcast on define_tasks or session load
     pub fn task_queue_update(
         channel_id: i64,
+        session_id: i64,
         tasks: &[crate::ai::multi_agent::types::PlannerTask],
         current_task_id: Option<u32>,
     ) -> Self {
@@ -1046,6 +1048,7 @@ impl GatewayEvent {
             EventType::TaskQueueUpdate,
             serde_json::json!({
                 "channel_id": channel_id,
+                "session_id": session_id,
                 "tasks": tasks_json,
                 "current_task_id": current_task_id,
                 "timestamp": chrono::Utc::now().to_rfc3339()
@@ -1056,6 +1059,7 @@ impl GatewayEvent {
     /// Individual task status change
     pub fn task_status_change(
         channel_id: i64,
+        session_id: i64,
         task_id: u32,
         status: &str,
         description: &str,
@@ -1064,6 +1068,7 @@ impl GatewayEvent {
             EventType::TaskStatusChange,
             serde_json::json!({
                 "channel_id": channel_id,
+                "session_id": session_id,
                 "task_id": task_id,
                 "status": status,
                 "description": description,

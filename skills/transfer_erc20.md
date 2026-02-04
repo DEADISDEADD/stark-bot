@@ -19,6 +19,25 @@ Transfer or Send ERC20 tokens from the burner wallet to any address.
 > - Use `to_raw_amount` to convert human amounts to raw units
 > - The `transfer_amount` register is validated by `web3_function_call`
 
+## 🚨 Step 0: Network Selection (If Specified)
+
+**Before ANY transfer operation, check if the user specified a network in their query.**
+
+If the user mentions a specific network (e.g., "on polygon", "on mainnet", "on base"), you MUST call `select_web3_network` FIRST:
+
+```json
+{"tool": "select_web3_network", "network": "<network_from_query>"}
+```
+
+**Examples of network detection:**
+- "send 1 USDC **on polygon**" → `{"tool": "select_web3_network", "network": "polygon"}`
+- "transfer 0.5 ETH **on mainnet**" → `{"tool": "select_web3_network", "network": "mainnet"}`
+- "send tokens **on arbitrum**" → `{"tool": "select_web3_network", "network": "arbitrum"}`
+
+**If no network is specified**, proceed with the current/default network (usually base).
+
+---
+
 ## Tools Used
 
 | Tool | Purpose |
@@ -36,6 +55,7 @@ Transfer or Send ERC20 tokens from the burner wallet to any address.
 
 **ALWAYS follow this sequence for ERC20 transfers:**
 
+0. `select_web3_network` → **If user specified a network** (e.g., "on polygon")
 1. `token_lookup` → Get token address and decimals
 2. `to_raw_amount` → Convert human amount to raw units
 3. `web3_function_call` → Execute the transfer

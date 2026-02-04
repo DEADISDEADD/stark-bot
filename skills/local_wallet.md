@@ -1,7 +1,7 @@
 ---
 name: local_wallet
 description: "Check balances and interact with the local burner wallet using RPC calls."
-version: 2.2.0
+version: 2.2.2
 author: starkbot
 metadata: {"clawdbot":{"emoji":"wallet"}}
 tags: [wallet, crypto, finance, local, burner, address, base, ethereum, rpc]
@@ -17,11 +17,12 @@ Check balances and interact with the local burner wallet via RPC calls.
 **DO NOT call `use_skill` again.** This skill file contains instructions. You must now:
 1. Read these instructions
 2. Call the actual tools directly (e.g., `x402_rpc`, `ask_user`, `register_set`, `web3_function_call`)
+3. Look for context about the currently selected network
 
 **Example:** To check ETH balance, call `x402_rpc`:
 ```tool:x402_rpc
 preset: get_balance
-network: base
+network: base / polygon / mainnet
 ```
 
 ---
@@ -92,14 +93,14 @@ ETH, WETH, USDC, USDT, DAI, WBTC
 1. **Ask user for network:**
 ```tool:ask_user
 question: Which network would you like me to check?
-options: ["Base", "Ethereum Mainnet"]
-default: Base
+options: ["Base", "Ethereum Mainnet", "Polygon"]
+default:  < current network > 
 ```
 
 2. **After user responds**, call `x402_rpc`:
 ```tool:x402_rpc
 preset: get_balance
-network: base
+network:  < current network > 
 ```
 
 3. **Convert and report**: Result is hex wei (e.g., `"0x2386f26fc10000"` = 0.01 ETH).
@@ -109,14 +110,14 @@ network: base
 1. **Look up token:**
 ```tool:token_lookup
 symbol: USDC
-network: base
+network: < current network > 
 cache_as: token_address
 ```
 
 2. **Get balance:**
 ```tool:web3_function_call
 preset: erc20_balance
-network: base
+network:  < current network > 
 call_only: true
 ```
 
@@ -127,14 +128,14 @@ call_only: true
 1. **Look up STARKBOT token:**
 ```tool:token_lookup
 symbol: STARKBOT
-network: base
+network: < current network > 
 cache_as: token_address
 ```
 
 2. **Get balance:**
 ```tool:web3_function_call
 preset: erc20_balance
-network: base
+network: < current network > 
 call_only: true
 ```
 
@@ -180,7 +181,7 @@ call_only: true
 ```tool:web3_function_call
 # ✅ CORRECT - Preset automatically uses wallet_address register
 preset: erc20_balance
-network: base
+network:  < current network >   (base, polygon, mainnet, etc) 
 call_only: true
 ```
 

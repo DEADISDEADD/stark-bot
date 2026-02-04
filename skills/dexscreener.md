@@ -1,7 +1,7 @@
 ---
 name: dexscreener
-description: "Get DEX token prices, pair info, liquidity data, and trending tokens from DexScreener. Hot, new trending coins"
-version: 1.0.0
+description: "Get DEX token prices, pair info, and liquidity data from DexScreener"
+version: 1.1.0
 author: starkbot
 homepage: https://docs.dexscreener.com/api/reference
 metadata: {"clawdbot":{"emoji":"📈"}}
@@ -23,11 +23,25 @@ arguments:
 
 Use the `dexscreener` tool to get real-time DEX trading data across all major chains.
 
+## IMPORTANT: Avoid Paid Promotions
+
+**DO NOT use the `boosted` action unless the user explicitly asks for paid promotions.**
+
+When users ask for "trending", "hot", or "popular" tokens, they want tokens with real trading activity - NOT paid advertisements. Use the `search` action instead and evaluate results by:
+- High 24h volume
+- High liquidity
+- High transaction counts
+- Significant price movement
+
+The `boosted` action shows tokens that PAID DexScreener for visibility. These are often scams or low-quality projects trying to attract attention.
+
+---
+
 ## Tool Actions
 
-### 1. Search for Tokens
+### 1. Search for Tokens (PRIMARY ACTION)
 
-Find tokens by name, symbol, or address:
+Use this for most queries including "trending" requests:
 
 ```json
 {"tool": "dexscreener", "action": "search", "query": "PEPE"}
@@ -36,6 +50,8 @@ Find tokens by name, symbol, or address:
 ```json
 {"tool": "dexscreener", "action": "search", "query": "0x6982508145454ce325ddbe47a25d4ec3d2311933"}
 ```
+
+For "trending on Base" type requests, search for popular tokens on that chain and filter by volume/liquidity.
 
 ### 2. Get Token by Address
 
@@ -53,13 +69,15 @@ Get details for a specific liquidity pool:
 {"tool": "dexscreener", "action": "pair", "chain": "ethereum", "address": "0x..."}
 ```
 
-### 4. Get Trending Tokens
+### 4. Boosted Tokens (ONLY IF EXPLICITLY REQUESTED)
 
-See tokens with the most boosts (paid promotions - often new launches):
+⚠️ **Only use this if the user specifically asks for "boosted", "promoted", or "paid promotion" tokens.**
 
 ```json
-{"tool": "dexscreener", "action": "trending"}
+{"tool": "dexscreener", "action": "boosted", "chain": "base"}
 ```
+
+This shows tokens that paid for visibility. Always warn users these are paid ads, not organic trends.
 
 ---
 
@@ -85,7 +103,7 @@ The tool returns formatted data including:
 - **Price** - Current USD price with 24h change %
 - **MCap** - Market capitalization
 - **Liquidity** - Total liquidity in USD (important for slippage)
-- **24h Vol** - Trading volume
+- **24h Vol** - Trading volume (key indicator of real activity!)
 - **24h Txns** - Buy/sell transaction counts
 - **Token address** - Contract address
 - **DexScreener URL** - Link to chart
@@ -117,13 +135,22 @@ Check:
 - Trading activity (buys vs sells)
 - Price volatility
 
-### Find New/Trending Tokens
+### Find Trending/Hot Tokens
+
+User asks: "What's trending on Base?" or "Show me hot tokens"
+
+**DO NOT use the boosted action!** Instead, search for known active tokens and evaluate by metrics:
 
 ```json
-{"tool": "dexscreener", "action": "trending"}
+{"tool": "dexscreener", "action": "search", "query": "base meme"}
 ```
 
-Note: Trending = paid boosts. High risk, often new launches.
+Or search for specific categories the user might be interested in. Report tokens with:
+- Highest 24h volume
+- Strong liquidity (>$50K)
+- Active trading (many transactions)
+
+Explain that you're showing tokens with real trading activity, not paid promotions.
 
 ---
 
@@ -133,3 +160,4 @@ Note: Trending = paid boosts. High risk, often new launches.
 2. **Low liquidity warning** - If liquidity is under $10K, warn user about high slippage
 3. **Chain matters** - Same token name can exist on different chains; verify the chain
 4. **Search is fuzzy** - Works with partial matches and addresses
+5. **Never trust "boosted"** - Paid promotions are NOT an indicator of quality or legitimacy

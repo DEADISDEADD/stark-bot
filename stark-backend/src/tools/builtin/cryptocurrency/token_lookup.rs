@@ -103,10 +103,16 @@ impl TokenLookupTool {
             "network".to_string(),
             PropertySchema {
                 schema_type: "string".to_string(),
-                description: "Network: 'base' or 'mainnet'".to_string(),
+                description: "Network to lookup token on. If not specified, uses the currently selected network (from select_web3_network) or defaults to 'base'.".to_string(),
                 default: Some(json!("base")),
                 items: None,
-                enum_values: Some(vec!["base".to_string(), "mainnet".to_string()]),
+                enum_values: Some(vec![
+                    "base".to_string(),
+                    "mainnet".to_string(),
+                    "polygon".to_string(),
+                    "arbitrum".to_string(),
+                    "optimism".to_string(),
+                ]),
             },
         );
 
@@ -205,10 +211,22 @@ impl Tool for TokenLookupTool {
     }
 
     async fn execute(&self, params: Value, context: &ToolContext) -> ToolResult {
-        let params: TokenLookupParams = match serde_json::from_value(params) {
+        // Check if network was explicitly provided in params
+        let network_explicitly_set = params.get("network").is_some();
+
+        let mut params: TokenLookupParams = match serde_json::from_value(params) {
             Ok(p) => p,
             Err(e) => return ToolResult::error(format!("Invalid parameters: {}", e)),
         };
+
+        // If network wasn't explicitly provided, use the register value
+        if !network_explicitly_set {
+            if let Some(register_network) = context.registers.get("network_name") {
+                if let Some(n) = register_network.as_str() {
+                    params.network = n.to_string();
+                }
+            }
+        }
 
         match Self::lookup(&params.symbol, &params.network) {
             Some(token) => {
@@ -223,19 +241,26 @@ impl Tool for TokenLookupTool {
                 let decimals_register = format!("{}_decimals", params.cache_as);
                 context.set_register(&decimals_register, json!(token.decimals), "token_lookup");
 
+                // Always set 'token_address' and 'token_decimals' for preset compatibility
+                // (e.g., erc20_balance preset expects 'token_address' register)
+                context.set_register("token_address", json!(&token.address), "token_lookup");
+                context.set_register("token_decimals", json!(token.decimals), "token_lookup");
+
                 log::info!(
-                    "[token_lookup] Cached {} in registers: '{}'={}, '{}'={}, '{}'={}",
+                    "[token_lookup] Cached {} in registers: '{}'={}, '{}'={}, '{}'={}, 'token_address'={}, 'token_decimals'={}",
                     params.symbol,
                     params.cache_as,
                     token.address,
                     symbol_register,
                     params.symbol.to_uppercase(),
                     decimals_register,
+                    token.decimals,
+                    token.address,
                     token.decimals
                 );
 
                 ToolResult::success(format!(
-                    "{} ({}) on {}\nAddress: {}\nDecimals: {}\nCached in register: '{}'",
+                    "{} ({}) on {}\nAddress: {}\nDecimals: {}\nCached in register: '{}' (also set 'token_address' and 'token_decimals')",
                     token.name,
                     params.symbol.to_uppercase(),
                     params.network,
@@ -308,5 +333,53 @@ mod tests {
     fn test_unknown_token() {
         setup();
         assert!(TokenLookupTool::lookup("UNKNOWN_TOKEN_XYZ", "base").is_none());
+    }
+
+    #[test]
+    fn test_polygon_token_lookup() {
+        setup();
+        let token = TokenLookupTool::lookup("USDC", "polygon").unwrap();
+        assert_eq!(token.address, "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359");
+        assert_eq!(token.decimals, 6);
+    }
+
+    #[tokio::test]
+    async fn test_network_register_fallback() {
+        setup();
+        let tool = TokenLookupTool::new();
+
+        // Create context with network_name register set to "polygon"
+        let context = ToolContext::default();
+        context.registers.set("network_name", json!("polygon"), "select_web3_network");
+
+        // Call without explicit network - should use register value
+        let params = json!({ "symbol": "USDC" });
+        let result = tool.execute(params, &context).await;
+
+        // Should return polygon USDC address
+        assert!(result.success, "Expected success, got: {:?}", result.content);
+        let metadata = result.metadata.unwrap();
+        assert_eq!(metadata["network"], "polygon");
+        assert_eq!(metadata["address"], "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359");
+    }
+
+    #[tokio::test]
+    async fn test_explicit_network_overrides_register() {
+        setup();
+        let tool = TokenLookupTool::new();
+
+        // Create context with network_name register set to "polygon"
+        let context = ToolContext::default();
+        context.registers.set("network_name", json!("polygon"), "select_web3_network");
+
+        // Call with explicit network="base" - should override register
+        let params = json!({ "symbol": "USDC", "network": "base" });
+        let result = tool.execute(params, &context).await;
+
+        // Should return base USDC address, not polygon
+        assert!(result.success, "Expected success, got: {:?}", result.content);
+        let metadata = result.metadata.unwrap();
+        assert_eq!(metadata["network"], "base");
+        assert_eq!(metadata["address"], "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913");
     }
 }

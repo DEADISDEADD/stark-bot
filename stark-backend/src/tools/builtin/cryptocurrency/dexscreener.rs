@@ -30,14 +30,14 @@ impl DexScreenerTool {
             "action".to_string(),
             PropertySchema {
                 schema_type: "string".to_string(),
-                description: "Action: 'search' (find tokens), 'token' (get by address), 'pair' (get pool info), 'trending' (boosted tokens)".to_string(),
+                description: "Action: 'search' (find tokens), 'token' (get by address), 'pair' (get pool info), 'boosted' (paid promotions - NOT organic trending)".to_string(),
                 default: None,
                 items: None,
                 enum_values: Some(vec![
                     "search".to_string(),
                     "token".to_string(),
                     "pair".to_string(),
-                    "trending".to_string(),
+                    "boosted".to_string(),
                 ]),
             },
         );
@@ -57,7 +57,7 @@ impl DexScreenerTool {
             "chain".to_string(),
             PropertySchema {
                 schema_type: "string".to_string(),
-                description: "Chain for 'token'/'pair' actions: ethereum, base, solana, bsc, polygon, arbitrum, optimism, avalanche".to_string(),
+                description: "Chain for 'token'/'pair'/'boosted' actions: ethereum, base, solana, bsc, polygon, arbitrum, optimism, avalanche. For 'boosted', filters results to this chain only.".to_string(),
                 default: None,
                 items: None,
                 enum_values: None,
@@ -84,7 +84,7 @@ ACTIONS:
 - search: Find tokens by name/symbol/address (e.g., "PEPE", "0x6982...")
 - token: Get all trading pairs for a token address (requires chain + address)
 - pair: Get specific liquidity pool info (requires chain + pair_address)
-- trending: See boosted/promoted tokens (often new launches, high risk)
+- boosted: See PAID promotional tokens (⚠️ NOT organic trending! These are paid ads, often scams)
 
 SUPPORTED CHAINS: ethereum, base, solana, bsc, polygon, arbitrum, optimism, avalanche
 
@@ -93,7 +93,9 @@ RETURNS: Price (USD), 24h change %, market cap, liquidity, volume, buy/sell txn 
 EXAMPLES:
 - Search: {"action": "search", "query": "PEPE"}
 - Token info: {"action": "token", "chain": "base", "address": "0x..."}
-- Trending: {"action": "trending"}
+- Boosted (paid): {"action": "boosted", "chain": "base"}
+
+⚠️ IMPORTANT: 'boosted' shows tokens that PAID for promotion, not actual trending tokens. For real trending, use 'search' and look at volume/liquidity metrics.
 
 TIP: Low liquidity (<$10K) means high slippage risk. Same token name can exist on different chains."#.to_string(),
                 input_schema: ToolInputSchema {
@@ -394,7 +396,8 @@ impl Tool for DexScreenerTool {
                 ToolResult::success(out).with_metadata(json!({"chain": chain, "pair": address}))
             }
 
-            "trending" => {
+            // Keep "trending" as alias for backwards compatibility, but prefer "boosted"
+            "boosted" | "trending" => {
                 let url = format!("{}/token-boosts/top/v1", BASE_URL);
 
                 let resp = match client.get(&url).send().await {
@@ -412,11 +415,38 @@ impl Tool for DexScreenerTool {
                 };
 
                 if boosts.is_empty() {
-                    return ToolResult::success("No trending tokens");
+                    return ToolResult::success("No boosted tokens found");
                 }
 
-                let mut out = format!("Top {} trending tokens:\n\n", boosts.len().min(15));
-                for b in boosts.iter().take(15) {
+                // Filter by chain if specified
+                let chain_filter = params.chain.as_deref();
+                let filtered: Vec<&Boost> = boosts
+                    .iter()
+                    .filter(|b| {
+                        chain_filter.map_or(true, |c| {
+                            b.chain_id.as_deref().map_or(false, |bc| bc.eq_ignore_ascii_case(c))
+                        })
+                    })
+                    .collect();
+
+                if filtered.is_empty() {
+                    return ToolResult::success(format!(
+                        "No boosted tokens found{}",
+                        chain_filter.map_or(String::new(), |c| format!(" on {}", c))
+                    ));
+                }
+
+                let chain_note = chain_filter
+                    .map(|c| format!(" on {}", c))
+                    .unwrap_or_default();
+
+                let mut out = format!(
+                    "⚠️ PAID PROMOTIONS (not organic trending!){}:\n\n",
+                    chain_note
+                );
+                out.push_str("These tokens paid DexScreener for visibility. Exercise extreme caution.\n\n");
+
+                for b in filtered.iter().take(15) {
                     let name = b.name.as_deref().unwrap_or("?");
                     let symbol = b.symbol.as_deref().unwrap_or("?");
                     let chain = b.chain_id.as_deref().unwrap_or("?");
@@ -431,10 +461,16 @@ impl Tool for DexScreenerTool {
                     out.push('\n');
                 }
 
-                ToolResult::success(out).with_metadata(json!({"count": boosts.len()}))
+                out.push_str("\n💡 For actual trending tokens, use 'search' action and evaluate by volume/liquidity.");
+
+                ToolResult::success(out).with_metadata(json!({
+                    "count": filtered.len(),
+                    "chain_filter": chain_filter,
+                    "is_paid_promotion": true
+                }))
             }
 
-            _ => ToolResult::error(format!("Unknown action '{}'. Use: search, token, pair, trending", params.action)),
+            _ => ToolResult::error(format!("Unknown action '{}'. Use: search, token, pair, boosted", params.action)),
         }
     }
 }
