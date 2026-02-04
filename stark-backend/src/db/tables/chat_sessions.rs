@@ -636,17 +636,6 @@ impl Database {
         Ok(())
     }
 
-    /// Set the compaction ID for a session (after compaction occurs)
-    pub fn set_session_compaction(&self, session_id: i64, compaction_id: i64) -> SqliteResult<()> {
-        let conn = self.conn.lock().unwrap();
-        let now = Utc::now().to_rfc3339();
-        conn.execute(
-            "UPDATE chat_sessions SET compaction_id = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![compaction_id, &now, session_id],
-        )?;
-        Ok(())
-    }
-
     /// Get oldest messages for compaction (excludes most recent messages)
     pub fn get_messages_for_compaction(&self, session_id: i64, keep_recent: i32) -> SqliteResult<Vec<SessionMessage>> {
         let conn = self.conn.lock().unwrap();
@@ -709,28 +698,28 @@ impl Database {
     }
 
     /// Get the compaction summary for a session (if any)
+    /// Now reads from the compaction_summary column directly instead of memories table.
     pub fn get_session_compaction_summary(&self, session_id: i64) -> SqliteResult<Option<String>> {
         let conn = self.conn.lock().unwrap();
 
-        // First get the compaction_id from the session
-        let compaction_id: Option<i64> = conn.query_row(
-            "SELECT compaction_id FROM chat_sessions WHERE id = ?1",
+        let summary: Option<String> = conn.query_row(
+            "SELECT compaction_summary FROM chat_sessions WHERE id = ?1",
             [session_id],
             |row| row.get(0),
         ).ok().flatten();
 
-        let Some(compaction_id) = compaction_id else {
-            return Ok(None);
-        };
+        Ok(summary)
+    }
 
-        // Get the compaction memory content
-        let content: Option<String> = conn.query_row(
-            "SELECT content FROM memories WHERE id = ?1",
-            [compaction_id],
-            |row| row.get(0),
-        ).ok();
-
-        Ok(content)
+    /// Set the compaction summary text for a session
+    pub fn set_session_compaction_summary(&self, session_id: i64, summary: &str) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE chat_sessions SET compaction_summary = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![summary, &now, session_id],
+        )?;
+        Ok(())
     }
 
     /// Update the last_flush_at timestamp for a session (Phase 1: pre-compaction flush)
@@ -756,6 +745,63 @@ impl Database {
         Ok(flush_str.and_then(|s| {
             chrono::DateTime::parse_from_rfc3339(&s).ok().map(|dt| dt.with_timezone(&Utc))
         }))
+    }
+
+    // ============================================
+    // Sliding Window Compaction methods
+    // ============================================
+
+    /// Get the oldest N messages for incremental compaction
+    pub fn get_oldest_messages(&self, session_id: i64, limit: i32) -> SqliteResult<Vec<SessionMessage>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, user_id, user_name, platform_message_id, tokens_used, created_at
+             FROM session_messages WHERE session_id = ?1 ORDER BY created_at ASC LIMIT ?2",
+        )?;
+
+        let messages = stmt
+            .query_map(rusqlite::params![session_id, limit], |row| Self::row_to_session_message(row))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(messages)
+    }
+
+    /// Delete the oldest N messages from a session
+    pub fn delete_oldest_messages(&self, session_id: i64, count: i32) -> SqliteResult<i32> {
+        let conn = self.conn.lock().unwrap();
+
+        // Delete oldest N messages by ID
+        let deleted = conn.execute(
+            "DELETE FROM session_messages WHERE id IN (
+                SELECT id FROM session_messages WHERE session_id = ?1 ORDER BY created_at ASC LIMIT ?2
+            )",
+            rusqlite::params![session_id, count],
+        )?;
+
+        Ok(deleted as i32)
+    }
+
+    /// Increment the compaction generation counter for a session
+    pub fn increment_compaction_generation(&self, session_id: i64) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE chat_sessions SET compaction_generation = compaction_generation + 1, last_compaction_at = ?1, updated_at = ?1 WHERE id = ?2",
+            rusqlite::params![&now, session_id],
+        )?;
+        Ok(())
+    }
+
+    /// Get the compaction generation for a session
+    pub fn get_compaction_generation(&self, session_id: i64) -> SqliteResult<i32> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COALESCE(compaction_generation, 0) FROM chat_sessions WHERE id = ?1",
+            [session_id],
+            |row| row.get(0),
+        )
     }
 
     // ============================================

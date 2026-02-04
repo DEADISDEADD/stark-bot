@@ -15,9 +15,9 @@ mod domain_types;
 mod execution;
 mod gateway;
 mod integrations;
-mod memory;
 mod middleware;
 mod models;
+mod qmd_memory;
 mod scheduler;
 mod skills;
 mod tools;
@@ -34,7 +34,7 @@ use config::Config;
 use db::Database;
 use execution::ExecutionTracker;
 use gateway::{events::EventBroadcaster, Gateway};
-use hooks::{HookManager, builtin::AutoMemoryHook};
+use hooks::HookManager;
 use scheduler::{Scheduler, SchedulerConfig};
 use skills::SkillRegistry;
 use tools::ToolRegistry;
@@ -135,11 +135,10 @@ async fn main() -> std::io::Result<()> {
     log::info!("Initializing execution tracker");
     let execution_tracker = Arc::new(ExecutionTracker::new(gateway.broadcaster().clone()));
 
-    // Initialize Hook Manager with auto-memory hook
+    // Initialize Hook Manager
     log::info!("Initializing hook manager");
     let hook_manager = Arc::new(HookManager::new());
-    hook_manager.register(Arc::new(AutoMemoryHook::new(db.clone())));
-    log::info!("Registered {} hooks", hook_manager.hook_count());
+    log::info!("Hook manager initialized");
 
     // Initialize Tool Validator Registry
     log::info!("Initializing tool validator registry");
@@ -256,7 +255,6 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::channels::config)
             .configure(controllers::agent_settings::configure)
             .configure(controllers::sessions::config)
-            .configure(controllers::memories::config)
             .configure(controllers::identity::config)
             .configure(controllers::tools::config)
             .configure(controllers::skills::config)

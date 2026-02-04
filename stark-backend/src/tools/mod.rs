@@ -25,9 +25,9 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::SetAgentSubtypeTool::new()));
     registry.register(Arc::new(builtin::AskUserTool::new()));
     registry.register(Arc::new(builtin::SayToUserTool::new()));
-    registry.register(Arc::new(builtin::MultiMemorySearchTool::new()));
-    // registry.register(Arc::new(builtin::MemoryGetTool::new())); // temporarily disabled
-    registry.register(Arc::new(builtin::MemoryStoreTool::new()));
+    // QMD Memory tools (file-based markdown memory system)
+    registry.register(Arc::new(builtin::QmdMemorySearchTool::new()));
+    registry.register(Arc::new(builtin::QmdMemoryReadTool::new()));
     registry.register(Arc::new(builtin::ModifySoulTool::new()));
     registry.register(Arc::new(builtin::ApiKeysCheckTool::new()));
     registry.register(Arc::new(builtin::TaskFullyCompletedTool::new()));

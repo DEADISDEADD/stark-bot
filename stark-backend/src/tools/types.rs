@@ -4,6 +4,7 @@ use crate::db::Database;
 use crate::execution::ProcessManager;
 use crate::gateway::events::EventBroadcaster;
 use crate::gateway::protocol::GatewayEvent;
+use crate::qmd_memory::MemoryStore;
 use crate::skills::SkillRegistry;
 use crate::tools::register::RegisterStore;
 use crate::tx_queue::TxQueueManager;
@@ -346,6 +347,8 @@ pub struct ToolContext {
     /// Currently selected network from the UI (e.g., "base", "polygon", "mainnet")
     /// Web3 tools should use this as default unless user explicitly specifies otherwise
     pub selected_network: Option<String>,
+    /// QMD Memory store for markdown-based memory system
+    pub memory_store: Option<Arc<MemoryStore>>,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -367,6 +370,7 @@ impl std::fmt::Debug for ToolContext {
             .field("skill_registry", &self.skill_registry.is_some())
             .field("tx_queue", &self.tx_queue.is_some())
             .field("selected_network", &self.selected_network)
+            .field("memory_store", &self.memory_store.is_some())
             .finish()
     }
 }
@@ -390,6 +394,7 @@ impl Default for ToolContext {
             skill_registry: None,
             tx_queue: None,
             selected_network: None,
+            memory_store: None,
         }
     }
 }
@@ -506,6 +511,12 @@ impl ToolContext {
     /// Set the selected network from the UI (for web3 tools to use as default)
     pub fn with_selected_network(mut self, network: Option<String>) -> Self {
         self.selected_network = network;
+        self
+    }
+
+    /// Add a MemoryStore to the context (for QMD memory tools)
+    pub fn with_memory_store(mut self, store: Arc<MemoryStore>) -> Self {
+        self.memory_store = Some(store);
         self
     }
 

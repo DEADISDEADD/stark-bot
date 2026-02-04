@@ -10,7 +10,6 @@ mod agent_settings; // agent_settings
 mod bot_settings;   // bot_settings
 mod chat_sessions;  // chat_sessions, session_messages (+ compaction)
 mod identities;     // identity_links
-mod memories;       // memories
 mod tool_configs;   // tool_configs, tool_executions
 mod skills;         // skills, skill_scripts
 mod cron_jobs;      // cron_jobs, cron_job_runs

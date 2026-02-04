@@ -15,10 +15,9 @@ pub mod cryptocurrency;
 pub mod social_media;
 
 // Individual tools (remaining uncategorized)
-mod memory_get;
-mod memory_store;
-mod multi_memory_search;
 mod process_status;
+mod qmd_memory_read;
+mod qmd_memory_search;
 mod web_fetch;
 
 // Re-exports from submodules
@@ -40,8 +39,7 @@ pub use cryptocurrency::{
 pub use social_media::{DiscordLookupTool, GithubUserTool, TwitterPostTool};
 
 // Re-exports from individual tools
-pub use memory_get::MemoryGetTool;
-pub use memory_store::MemoryStoreTool;
-pub use multi_memory_search::MultiMemorySearchTool;
 pub use process_status::ProcessStatusTool;
+pub use qmd_memory_read::QmdMemoryReadTool;
+pub use qmd_memory_search::QmdMemorySearchTool;
 pub use web_fetch::WebFetchTool;

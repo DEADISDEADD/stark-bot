@@ -13,12 +13,11 @@ pub mod env_vars {
     pub const SKILLS_DIR: &str = "STARK_SKILLS_DIR";
     pub const JOURNAL_DIR: &str = "STARK_JOURNAL_DIR";
     pub const SOUL_DIR: &str = "STARK_SOUL_DIR";
-    // Memory configuration
+    // QMD Memory configuration (simplified file-based memory system)
+    pub const MEMORY_DIR: &str = "STARK_MEMORY_DIR";
+    pub const MEMORY_REINDEX_INTERVAL_SECS: &str = "STARK_MEMORY_REINDEX_INTERVAL_SECS";
+    // Legacy: still used by context manager
     pub const MEMORY_ENABLE_PRE_COMPACTION_FLUSH: &str = "STARK_MEMORY_ENABLE_PRE_COMPACTION_FLUSH";
-    pub const MEMORY_ENABLE_ENTITY_EXTRACTION: &str = "STARK_MEMORY_ENABLE_ENTITY_EXTRACTION";
-    pub const MEMORY_ENABLE_VECTOR_SEARCH: &str = "STARK_MEMORY_ENABLE_VECTOR_SEARCH";
-    pub const MEMORY_EMBEDDING_PROVIDER: &str = "STARK_MEMORY_EMBEDDING_PROVIDER";
-    pub const MEMORY_ENABLE_AUTO_CONSOLIDATION: &str = "STARK_MEMORY_ENABLE_AUTO_CONSOLIDATION";
     pub const MEMORY_ENABLE_CROSS_SESSION: &str = "STARK_MEMORY_ENABLE_CROSS_SESSION";
     pub const MEMORY_CROSS_SESSION_LIMIT: &str = "STARK_MEMORY_CROSS_SESSION_LIMIT";
 }
@@ -107,19 +106,15 @@ impl Config {
     }
 }
 
-/// Configuration for memory system features
+/// Configuration for QMD memory system (file-based markdown memory)
 #[derive(Clone, Debug)]
 pub struct MemoryConfig {
+    /// Directory for memory markdown files (default: ./memory)
+    pub memory_dir: String,
+    /// Reindex interval in seconds (default: 300 = 5 minutes)
+    pub reindex_interval_secs: u64,
     /// Enable pre-compaction memory flush (AI extracts memories before summarization)
     pub enable_pre_compaction_flush: bool,
-    /// Enable entity extraction from conversations
-    pub enable_entity_extraction: bool,
-    /// Enable vector search (requires embedding provider)
-    pub enable_vector_search: bool,
-    /// Embedding provider: "openai", "local", or "none"
-    pub embedding_provider: String,
-    /// Enable automatic memory consolidation
-    pub enable_auto_consolidation: bool,
     /// Enable cross-session memory sharing (same identity across channels)
     pub enable_cross_session_memory: bool,
     /// Maximum number of cross-session memories to include
@@ -129,11 +124,9 @@ pub struct MemoryConfig {
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
+            memory_dir: "./memory".to_string(),
+            reindex_interval_secs: 300,
             enable_pre_compaction_flush: true,
-            enable_entity_extraction: true,
-            enable_vector_search: false,
-            embedding_provider: "none".to_string(),
-            enable_auto_consolidation: false,
             enable_cross_session_memory: true,
             cross_session_memory_limit: 5,
         }
@@ -143,20 +136,15 @@ impl Default for MemoryConfig {
 impl MemoryConfig {
     pub fn from_env() -> Self {
         Self {
+            memory_dir: env::var(env_vars::MEMORY_DIR)
+                .unwrap_or_else(|_| "./memory".to_string()),
+            reindex_interval_secs: env::var(env_vars::MEMORY_REINDEX_INTERVAL_SECS)
+                .unwrap_or_else(|_| "300".to_string())
+                .parse()
+                .unwrap_or(300),
             enable_pre_compaction_flush: env::var(env_vars::MEMORY_ENABLE_PRE_COMPACTION_FLUSH)
                 .map(|v| v == "true" || v == "1")
                 .unwrap_or(true),
-            enable_entity_extraction: env::var(env_vars::MEMORY_ENABLE_ENTITY_EXTRACTION)
-                .map(|v| v == "true" || v == "1")
-                .unwrap_or(true),
-            enable_vector_search: env::var(env_vars::MEMORY_ENABLE_VECTOR_SEARCH)
-                .map(|v| v == "true" || v == "1")
-                .unwrap_or(false),
-            embedding_provider: env::var(env_vars::MEMORY_EMBEDDING_PROVIDER)
-                .unwrap_or_else(|_| "none".to_string()),
-            enable_auto_consolidation: env::var(env_vars::MEMORY_ENABLE_AUTO_CONSOLIDATION)
-                .map(|v| v == "true" || v == "1")
-                .unwrap_or(false),
             enable_cross_session_memory: env::var(env_vars::MEMORY_ENABLE_CROSS_SESSION)
                 .map(|v| v == "true" || v == "1")
                 .unwrap_or(true),
@@ -165,6 +153,11 @@ impl MemoryConfig {
                 .parse()
                 .unwrap_or(5),
         }
+    }
+
+    /// Get the path to the memory FTS database
+    pub fn memory_db_path(&self) -> String {
+        format!("{}/.memory.db", self.memory_dir)
     }
 }
 

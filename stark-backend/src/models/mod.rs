@@ -7,7 +7,6 @@ pub mod chat_session;
 pub mod cron_job;
 pub mod execution;
 pub mod identity;
-pub mod memory;
 pub mod session;
 pub mod session_message;
 
@@ -27,10 +26,6 @@ pub use chat_session::{
 pub use identity::{
     GetOrCreateIdentityRequest, IdentityLink, IdentityResponse, LinkIdentityRequest,
     LinkedAccountInfo,
-};
-pub use memory::{
-    CreateMemoryRequest, Memory, MemoryResponse, MemorySearchResult, MemoryStats, MemoryType,
-    MergeMemoriesRequest, SearchMemoriesRequest, UpdateMemoryRequest,
 };
 pub use session::Session;
 pub use session_message::{AddMessageRequest, MessageRole, SessionMessage, SessionTranscriptResponse};

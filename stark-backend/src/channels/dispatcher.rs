@@ -13,7 +13,8 @@ use crate::execution::ExecutionTracker;
 use crate::gateway::events::EventBroadcaster;
 use crate::gateway::protocol::GatewayEvent;
 use crate::models::session_message::MessageRole as DbMessageRole;
-use crate::models::{AgentSettings, CompletionStatus, MemoryType, SessionScope, DEFAULT_MAX_TOOL_ITERATIONS};
+use crate::models::{AgentSettings, CompletionStatus, SessionScope, DEFAULT_MAX_TOOL_ITERATIONS};
+use crate::qmd_memory::MemoryStore;
 use crate::tools::{ToolConfig, ToolContext, ToolDefinition, ToolExecution, ToolRegistry};
 use chrono::Utc;
 use once_cell::sync::Lazy;
@@ -38,82 +39,6 @@ const FALLBACK_MAX_TOOL_ITERATIONS: usize = DEFAULT_MAX_TOOL_ITERATIONS as usize
 /// How often to broadcast "still waiting" events during long AI calls
 const AI_PROGRESS_INTERVAL_SECS: u64 = 30;
 
-/// Configuration for a memory marker pattern
-struct MemoryMarkerConfig {
-    pattern: Regex,
-    memory_type: MemoryType,
-    importance: i32,
-    name: &'static str,
-    use_today_date: bool,
-}
-
-impl MemoryMarkerConfig {
-    fn new(
-        pattern: &str,
-        memory_type: MemoryType,
-        importance: i32,
-        name: &'static str,
-        use_today_date: bool,
-    ) -> Self {
-        Self {
-            pattern: Regex::new(pattern).unwrap(),
-            memory_type,
-            importance,
-            name,
-            use_today_date,
-        }
-    }
-}
-
-/// Create all memory marker configurations
-fn create_memory_markers() -> Vec<MemoryMarkerConfig> {
-    vec![
-        MemoryMarkerConfig::new(
-            r"\[DAILY_LOG:\s*(.+?)\]",
-            MemoryType::DailyLog,
-            5,
-            "daily log",
-            true,
-        ),
-        MemoryMarkerConfig::new(
-            r"\[REMEMBER:\s*(.+?)\]",
-            MemoryType::LongTerm,
-            7,
-            "long-term memory",
-            false,
-        ),
-        MemoryMarkerConfig::new(
-            r"\[REMEMBER_IMPORTANT:\s*(.+?)\]",
-            MemoryType::LongTerm,
-            9,
-            "important memory",
-            false,
-        ),
-        // Phase 2: New memory types
-        MemoryMarkerConfig::new(
-            r"\[PREFERENCE:\s*(.+?)\]",
-            MemoryType::Preference,
-            7,
-            "user preference",
-            false,
-        ),
-        MemoryMarkerConfig::new(
-            r"\[FACT:\s*(.+?)\]",
-            MemoryType::Fact,
-            7,
-            "user fact",
-            false,
-        ),
-        MemoryMarkerConfig::new(
-            r"\[TASK:\s*(.+?)\]",
-            MemoryType::Task,
-            8,
-            "task/commitment",
-            true, // Use today's date for tasks
-        ),
-    ]
-}
-
 /// Result of attempting to advance to the next task in the queue
 enum TaskAdvanceResult {
     /// Started working on the next task
@@ -134,10 +59,10 @@ pub struct MessageDispatcher {
     burner_wallet_private_key: Option<String>,
     context_manager: ContextManager,
     archetype_registry: ArchetypeRegistry,
-    /// Memory marker configurations
-    memory_markers: Vec<MemoryMarkerConfig>,
-    /// Memory configuration for cross-session and other features
+    /// Memory configuration (simplified - no longer using memory markers)
     memory_config: MemoryConfig,
+    /// QMD Memory store for file-based markdown memory system
+    memory_store: Option<Arc<MemoryStore>>,
     /// SubAgent manager for spawning background AI agents
     subagent_manager: Option<Arc<SubAgentManager>>,
     /// Skill registry for managing skills
@@ -199,6 +124,19 @@ impl MessageDispatcher {
         ));
         log::info!("[DISPATCHER] SubAgentManager initialized");
 
+        // Create QMD memory store
+        let memory_dir = std::path::PathBuf::from(memory_config.memory_dir.clone());
+        let memory_store = match MemoryStore::new(memory_dir, &memory_config.memory_db_path()) {
+            Ok(store) => {
+                log::info!("[DISPATCHER] QMD MemoryStore initialized at {}", memory_config.memory_dir);
+                Some(Arc::new(store))
+            }
+            Err(e) => {
+                log::error!("[DISPATCHER] Failed to create MemoryStore: {}", e);
+                None
+            }
+        };
+
         Self {
             db,
             broadcaster,
@@ -207,8 +145,8 @@ impl MessageDispatcher {
             burner_wallet_private_key,
             context_manager,
             archetype_registry: ArchetypeRegistry::new(),
-            memory_markers: create_memory_markers(),
             memory_config,
+            memory_store,
             subagent_manager: Some(subagent_manager),
             skill_registry,
             hook_manager: None,
@@ -242,6 +180,13 @@ impl MessageDispatcher {
         let memory_config = MemoryConfig::from_env();
         let context_manager = ContextManager::new(db.clone())
             .with_memory_config(memory_config.clone());
+
+        // Create QMD memory store
+        let memory_dir = std::path::PathBuf::from(memory_config.memory_dir.clone());
+        let memory_store = MemoryStore::new(memory_dir, &memory_config.memory_db_path())
+            .ok()
+            .map(Arc::new);
+
         Self {
             db: db.clone(),
             broadcaster,
@@ -250,14 +195,19 @@ impl MessageDispatcher {
             burner_wallet_private_key: None,
             context_manager,
             archetype_registry: ArchetypeRegistry::new(),
-            memory_markers: create_memory_markers(),
             memory_config,
+            memory_store,
             subagent_manager: None, // No tools = no subagent support
             skill_registry: None,   // No skills without tools
             hook_manager: None,     // No hooks without explicit setup
             validator_registry: None, // No validators without explicit setup
             tx_queue: None,         // No tx queue without explicit setup
         }
+    }
+
+    /// Get the QMD MemoryStore (if available)
+    pub fn memory_store(&self) -> Option<Arc<MemoryStore>> {
+        self.memory_store.clone()
     }
 
     /// Get the SubAgentManager (if available)
@@ -533,8 +483,12 @@ impl MessageDispatcher {
         // Debug: Log full system prompt
         log::debug!("[DISPATCH] System prompt:\n{}", system_prompt);
 
-        // Get recent session messages for conversation context
-        let history = self.db.get_recent_session_messages(session.id, 20).unwrap_or_default();
+        // Build context with cross-session memory integration
+        let (history, context_summary) = self.context_manager.build_context_with_memories(
+            session.id,
+            Some(&identity.identity_id),
+            20,
+        );
 
         // Build messages for the AI
         let mut messages = vec![Message {
@@ -542,11 +496,11 @@ impl MessageDispatcher {
             content: system_prompt.clone(),
         }];
 
-        // Add compaction summary if available (provides context from earlier in conversation)
-        if let Some(compaction_summary) = self.context_manager.get_compaction_summary(session.id) {
+        // Add combined context (compaction summary + cross-session memories) if available
+        if let Some(context) = context_summary {
             messages.push(Message {
                 role: MessageRole::System,
-                content: format!("## Previous Conversation Summary\n{}", compaction_summary),
+                content: context,
             });
         }
 
@@ -797,26 +751,14 @@ impl MessageDispatcher {
 
         match final_response {
             Ok(response) => {
-                // Parse and create memories from the response
-                self.process_memory_markers(
-                    &response,
-                    &identity.identity_id,
-                    session.id,
-                    &message.channel_type,
-                    message.message_id.as_deref(),
-                );
-
-                // Clean response by removing memory markers before storing/returning
-                let clean_response = self.clean_response(&response);
-
                 // Estimate tokens for the response
-                let response_tokens = estimate_tokens(&clean_response);
+                let response_tokens = estimate_tokens(&response);
 
                 // Store AI response in session with token count
                 if let Err(e) = self.db.add_session_message(
                     session.id,
                     DbMessageRole::Assistant,
-                    &clean_response,
+                    &response,
                     None,
                     None,
                     None,
@@ -827,9 +769,30 @@ impl MessageDispatcher {
                     // Update context tokens
                     self.context_manager.update_context_tokens(session.id, response_tokens);
 
-                    // Check if compaction is needed
-                    if self.context_manager.needs_compaction(session.id) {
-                        log::info!("[COMPACTION] Context limit reached for session {}, triggering compaction", session.id);
+                    // Check if incremental compaction is needed (earlier trigger, smaller batches)
+                    if self.context_manager.needs_incremental_compaction(session.id) {
+                        log::info!("[COMPACTION] Context threshold reached for session {}, triggering incremental compaction", session.id);
+                        if let Err(e) = self.context_manager.compact_incremental(
+                            session.id,
+                            &client,
+                            Some(&identity.identity_id),
+                        ).await {
+                            log::error!("[COMPACTION] Incremental compaction failed: {}", e);
+                            // Fall back to full compaction if incremental fails
+                            if self.context_manager.needs_compaction(session.id) {
+                                log::info!("[COMPACTION] Falling back to full compaction");
+                                if let Err(e) = self.context_manager.compact_session(
+                                    session.id,
+                                    &client,
+                                    Some(&identity.identity_id),
+                                ).await {
+                                    log::error!("[COMPACTION] Full compaction also failed: {}", e);
+                                }
+                            }
+                        }
+                    } else if self.context_manager.needs_compaction(session.id) {
+                        // Hard limit reached - do full compaction
+                        log::info!("[COMPACTION] Hard context limit reached for session {}, triggering full compaction", session.id);
                         if let Err(e) = self.context_manager.compact_session(
                             session.id,
                             &client,
@@ -844,7 +807,7 @@ impl MessageDispatcher {
                 self.broadcaster.broadcast(GatewayEvent::agent_response(
                     message.channel_id,
                     &message.user_name,
-                    &clean_response,
+                    &response,
                 ));
 
                 log::info!(
@@ -857,7 +820,7 @@ impl MessageDispatcher {
                 // Complete execution tracking
                 self.execution_tracker.complete_execution(message.channel_id);
 
-                DispatchResult::success(clean_response)
+                DispatchResult::success(response)
             }
             Err(e) => {
                 let error = format!("AI generation error ({}): {}", archetype_id, e);
@@ -2850,60 +2813,49 @@ impl MessageDispatcher {
             prompt.push_str("\n\n");
         }
 
-        // Add daily logs context
-        if let Ok(daily_logs) = self.db.get_todays_daily_logs(Some(identity_id)) {
-            if !daily_logs.is_empty() {
-                prompt.push_str("## Today's Notes\n");
-                for log in daily_logs {
-                    prompt.push_str(&format!("- {}\n", log.content));
-                }
-                prompt.push('\n');
-            }
-        }
-
-        // Add relevant long-term memories
-        if let Ok(memories) = self.db.get_long_term_memories(Some(identity_id), Some(5), 10) {
-            if !memories.is_empty() {
-                prompt.push_str("## User Context\n");
-                for mem in memories {
-                    prompt.push_str(&format!("- {}\n", mem.content));
-                }
-                prompt.push('\n');
-            }
-        }
-
-        // Add recent session summaries (past conversations)
-        if let Ok(summaries) = self.db.get_session_summaries(Some(identity_id), 3) {
-            if !summaries.is_empty() {
-                prompt.push_str("## Previous Sessions\n");
-                for summary in summaries {
-                    prompt.push_str(&format!("{}\n\n", summary.content));
+        // QMD Memory System: Read from markdown files
+        if let Some(ref memory_store) = self.memory_store {
+            // Add long-term memory (MEMORY.md)
+            if let Ok(long_term) = memory_store.get_long_term(Some(identity_id)) {
+                if !long_term.is_empty() {
+                    prompt.push_str("## Long-Term Memory\n");
+                    // Truncate if too long (keep last 2000 chars for recency)
+                    let content = if long_term.len() > 2000 {
+                        format!("...\n{}", &long_term[long_term.len() - 2000..])
+                    } else {
+                        long_term
+                    };
+                    prompt.push_str(&content);
+                    prompt.push_str("\n\n");
                 }
             }
-        }
 
-        // Phase 6: Add cross-session memories from other channels
-        if self.memory_config.enable_cross_session_memory {
-            if let Ok(cross_memories) = self.db.get_cross_channel_memories(
-                identity_id,
-                Some(&message.channel_type),
-                self.memory_config.cross_session_memory_limit,
-            ) {
-                if !cross_memories.is_empty() {
-                    prompt.push_str("## Context from Other Channels\n");
-                    for mem in cross_memories {
-                        let channel_label = mem.source_channel_type
-                            .as_deref()
-                            .unwrap_or("unknown");
-                        let type_label = match mem.memory_type {
-                            MemoryType::Preference => "preference",
-                            MemoryType::Fact => "fact",
-                            MemoryType::Task => "task",
-                            _ => "memory",
-                        };
-                        prompt.push_str(&format!("- [{}:{}] {}\n", channel_label, type_label, mem.content));
-                    }
-                    prompt.push('\n');
+            // Add today's activity (daily log)
+            if let Ok(daily_log) = memory_store.get_daily_log(Some(identity_id)) {
+                if !daily_log.is_empty() {
+                    prompt.push_str("## Today's Activity\n");
+                    // Truncate if too long
+                    let content = if daily_log.len() > 1000 {
+                        format!("...\n{}", &daily_log[daily_log.len() - 1000..])
+                    } else {
+                        daily_log
+                    };
+                    prompt.push_str(&content);
+                    prompt.push_str("\n\n");
+                }
+            }
+
+            // Also check global (non-identity) memories
+            if let Ok(global_long_term) = memory_store.get_long_term(None) {
+                if !global_long_term.is_empty() {
+                    prompt.push_str("## Global Memory\n");
+                    let content = if global_long_term.len() > 1500 {
+                        format!("...\n{}", &global_long_term[global_long_term.len() - 1500..])
+                    } else {
+                        global_long_term
+                    };
+                    prompt.push_str(&content);
+                    prompt.push_str("\n\n");
                 }
             }
         }
@@ -2920,6 +2872,9 @@ impl MessageDispatcher {
             }
         }
 
+        // Memory tool instructions
+        prompt.push_str("## Memory\nUse `memory_search` to find relevant memories. Use `memory_read` to read specific memory files.\n\n");
+
         // Add context
         prompt.push_str(&format!(
             "## Current Request\nUser: {} | Channel: {}\n",
@@ -2927,57 +2882,6 @@ impl MessageDispatcher {
         ));
 
         prompt
-    }
-
-    /// Process memory markers in the AI response
-    fn process_memory_markers(
-        &self,
-        response: &str,
-        identity_id: &str,
-        session_id: i64,
-        channel_type: &str,
-        message_id: Option<&str>,
-    ) {
-        let today = Utc::now().date_naive();
-
-        for marker in &self.memory_markers {
-            for cap in marker.pattern.captures_iter(response) {
-                if let Some(content) = cap.get(1) {
-                    let content_str = content.as_str().trim();
-                    if !content_str.is_empty() {
-                        let date = if marker.use_today_date { Some(today) } else { None };
-                        if let Err(e) = self.db.create_memory(
-                            marker.memory_type.clone(),
-                            content_str,
-                            None,
-                            None,
-                            marker.importance,
-                            Some(identity_id),
-                            Some(session_id),
-                            Some(channel_type),
-                            message_id,
-                            date,
-                            None,
-                        ) {
-                            log::error!("Failed to create {}: {}", marker.name, e);
-                        } else {
-                            log::info!("Created {}: {}", marker.name, content_str);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Remove memory markers from the response before returning to user
-    fn clean_response(&self, response: &str) -> String {
-        let mut clean = response.to_string();
-        for marker in &self.memory_markers {
-            clean = marker.pattern.replace_all(&clean, "").to_string();
-        }
-        // Clean up any double spaces or trailing whitespace
-        clean = clean.split_whitespace().collect::<Vec<_>>().join(" ");
-        clean.trim().to_string()
     }
 
     /// Handle thinking directive messages (e.g., "/think:medium" sets session default)
@@ -3259,9 +3163,10 @@ impl MessageDispatcher {
                                 session.id,
                                 identity_id.as_deref(),
                                 15, // Save last 15 messages
+                                self.memory_store.as_ref(),
                             ).await {
-                                Ok(memory_id) => {
-                                    log::info!("[SESSION_MEMORY] Saved session memory (id={}) before reset", memory_id);
+                                Ok(()) => {
+                                    log::info!("[SESSION_MEMORY] Saved session memory before reset");
                                 }
                                 Err(e) => {
                                     log::warn!("[SESSION_MEMORY] Failed to save session memory: {}", e);
@@ -3331,188 +3236,33 @@ impl MessageDispatcher {
 mod tests {
     use super::*;
 
-    /// Test that memory marker patterns correctly extract content
     #[test]
-    fn test_memory_marker_patterns() {
-        let markers = create_memory_markers();
+    fn test_thinking_directive_pattern() {
+        // Test the thinking directive pattern
+        let pattern = &*THINKING_DIRECTIVE_PATTERN;
 
-        // Test REMEMBER pattern
-        let remember_marker = markers.iter().find(|m| m.name == "long-term memory").unwrap();
+        // Basic thinking directive
+        let text = "/think";
+        assert!(pattern.is_match(text));
 
-        // Simple case
-        let text = "[REMEMBER: user prefers dark mode]";
-        let caps: Vec<_> = remember_marker.pattern.captures_iter(text).collect();
-        assert_eq!(caps.len(), 1);
-        assert_eq!(caps[0].get(1).unwrap().as_str(), "user prefers dark mode");
+        // With level
+        let text = "/think:medium";
+        let caps = pattern.captures(text).unwrap();
+        assert_eq!(caps.get(1).map(|m| m.as_str()), Some("medium"));
 
-        // Embedded in text
-        let text = "Here is my response. [REMEMBER: user name is Andy] More text follows.";
-        let caps: Vec<_> = remember_marker.pattern.captures_iter(text).collect();
-        assert_eq!(caps.len(), 1);
-        assert_eq!(caps[0].get(1).unwrap().as_str(), "user name is Andy");
-
-        // Multiple markers
-        let text = "[REMEMBER: fact one] and [REMEMBER: fact two]";
-        let caps: Vec<_> = remember_marker.pattern.captures_iter(text).collect();
-        assert_eq!(caps.len(), 2);
-        assert_eq!(caps[0].get(1).unwrap().as_str(), "fact one");
-        assert_eq!(caps[1].get(1).unwrap().as_str(), "fact two");
+        // Alias
+        let text = "/t:high";
+        let caps = pattern.captures(text).unwrap();
+        assert_eq!(caps.get(1).map(|m| m.as_str()), Some("high"));
     }
 
     #[test]
-    fn test_remember_important_pattern() {
-        let markers = create_memory_markers();
-        let marker = markers.iter().find(|m| m.name == "important memory").unwrap();
+    fn test_inline_thinking_pattern() {
+        let pattern = &*INLINE_THINKING_PATTERN;
 
-        let text = "[REMEMBER_IMPORTANT: API key is in vault]";
-        let caps: Vec<_> = marker.pattern.captures_iter(text).collect();
-        assert_eq!(caps.len(), 1);
-        assert_eq!(caps[0].get(1).unwrap().as_str(), "API key is in vault");
-
-        // Verify importance is 9
-        assert_eq!(marker.importance, 9);
-    }
-
-    #[test]
-    fn test_daily_log_pattern() {
-        let markers = create_memory_markers();
-        let marker = markers.iter().find(|m| m.name == "daily log").unwrap();
-
-        let text = "[DAILY_LOG: fixed authentication bug]";
-        let caps: Vec<_> = marker.pattern.captures_iter(text).collect();
-        assert_eq!(caps.len(), 1);
-        assert_eq!(caps[0].get(1).unwrap().as_str(), "fixed authentication bug");
-
-        // Verify it uses today's date
-        assert!(marker.use_today_date);
-    }
-
-    #[test]
-    fn test_preference_pattern() {
-        let markers = create_memory_markers();
-        let marker = markers.iter().find(|m| m.name == "user preference").unwrap();
-
-        let text = "[PREFERENCE: prefers concise answers]";
-        let caps: Vec<_> = marker.pattern.captures_iter(text).collect();
-        assert_eq!(caps.len(), 1);
-        assert_eq!(caps[0].get(1).unwrap().as_str(), "prefers concise answers");
-    }
-
-    #[test]
-    fn test_fact_pattern() {
-        let markers = create_memory_markers();
-        let marker = markers.iter().find(|m| m.name == "user fact").unwrap();
-
-        let text = "[FACT: lives in San Francisco]";
-        let caps: Vec<_> = marker.pattern.captures_iter(text).collect();
-        assert_eq!(caps.len(), 1);
-        assert_eq!(caps[0].get(1).unwrap().as_str(), "lives in San Francisco");
-    }
-
-    #[test]
-    fn test_task_pattern() {
-        let markers = create_memory_markers();
-        let marker = markers.iter().find(|m| m.name == "task/commitment").unwrap();
-
-        let text = "[TASK: review PR #123 tomorrow]";
-        let caps: Vec<_> = marker.pattern.captures_iter(text).collect();
-        assert_eq!(caps.len(), 1);
-        assert_eq!(caps[0].get(1).unwrap().as_str(), "review PR #123 tomorrow");
-
-        // Verify it uses today's date for tasks
-        assert!(marker.use_today_date);
-    }
-
-    #[test]
-    fn test_all_markers_in_single_response() {
-        let markers = create_memory_markers();
-
-        let text = r#"
-            I've noted your preferences. [REMEMBER: user is a Rust developer]
-            [PREFERENCE: prefers functional style] [FACT: works at TechCorp]
-            [DAILY_LOG: helped with async code] [TASK: follow up on performance]
-            [REMEMBER_IMPORTANT: has production deadline Friday]
-        "#;
-
-        let mut total_matches = 0;
-        for marker in &markers {
-            let count = marker.pattern.captures_iter(text).count();
-            total_matches += count;
-        }
-
-        assert_eq!(total_matches, 6, "Should find all 6 markers");
-    }
-
-    #[test]
-    fn test_marker_with_special_characters() {
-        let markers = create_memory_markers();
-        let marker = markers.iter().find(|m| m.name == "long-term memory").unwrap();
-
-        // Content with special chars (but not closing bracket)
-        let text = "[REMEMBER: user's email is test@example.com]";
-        let caps: Vec<_> = marker.pattern.captures_iter(text).collect();
-        assert_eq!(caps.len(), 1);
-        assert_eq!(caps[0].get(1).unwrap().as_str(), "user's email is test@example.com");
-    }
-
-    #[test]
-    fn test_marker_strips_from_response() {
-        let markers = create_memory_markers();
-
-        let response = "Hello! [REMEMBER: user name is Andy] How can I help you today?";
-
-        let mut clean = response.to_string();
-        for marker in &markers {
-            clean = marker.pattern.replace_all(&clean, "").to_string();
-        }
-        clean = clean.split_whitespace().collect::<Vec<_>>().join(" ");
-
-        assert_eq!(clean, "Hello! How can I help you today?");
-        assert!(!clean.contains("[REMEMBER"));
-    }
-
-    #[test]
-    fn test_multiple_same_markers_stripped() {
-        let markers = create_memory_markers();
-
-        let response = "[REMEMBER: fact1] Some text [REMEMBER: fact2] more text [REMEMBER: fact3]";
-
-        let mut clean = response.to_string();
-        for marker in &markers {
-            clean = marker.pattern.replace_all(&clean, "").to_string();
-        }
-        clean = clean.split_whitespace().collect::<Vec<_>>().join(" ");
-
-        assert_eq!(clean, "Some text more text");
-    }
-
-    #[test]
-    fn test_empty_content_not_matched() {
-        let markers = create_memory_markers();
-        let marker = markers.iter().find(|m| m.name == "long-term memory").unwrap();
-
-        // Empty content after colon - the .+? requires at least one char
-        let text = "[REMEMBER: ]";
-        let caps: Vec<_> = marker.pattern.captures_iter(text).collect();
-        // This will match the space, so we check for empty after trim in actual code
-        assert_eq!(caps.len(), 1);
-        assert_eq!(caps[0].get(1).unwrap().as_str().trim(), "");
-    }
-
-    #[test]
-    fn test_marker_types_are_correct() {
-        let markers = create_memory_markers();
-
-        for marker in &markers {
-            match marker.name {
-                "daily log" => assert!(matches!(marker.memory_type, MemoryType::DailyLog)),
-                "long-term memory" => assert!(matches!(marker.memory_type, MemoryType::LongTerm)),
-                "important memory" => assert!(matches!(marker.memory_type, MemoryType::LongTerm)),
-                "user preference" => assert!(matches!(marker.memory_type, MemoryType::Preference)),
-                "user fact" => assert!(matches!(marker.memory_type, MemoryType::Fact)),
-                "task/commitment" => assert!(matches!(marker.memory_type, MemoryType::Task)),
-                _ => panic!("Unknown marker: {}", marker.name),
-            }
-        }
+        let text = "/t:medium What is the meaning of life?";
+        let caps = pattern.captures(text).unwrap();
+        assert_eq!(caps.get(1).map(|m| m.as_str()), Some("medium"));
+        assert_eq!(caps.get(2).map(|m| m.as_str()), Some("What is the meaning of life?"));
     }
 }
