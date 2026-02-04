@@ -7,6 +7,7 @@ pub enum ChannelType {
     Telegram,
     Slack,
     Discord,
+    Twitter,
 }
 
 impl ChannelType {
@@ -15,6 +16,7 @@ impl ChannelType {
             ChannelType::Telegram => "telegram",
             ChannelType::Slack => "slack",
             ChannelType::Discord => "discord",
+            ChannelType::Twitter => "twitter",
         }
     }
 
@@ -23,6 +25,7 @@ impl ChannelType {
             "telegram" => Some(ChannelType::Telegram),
             "slack" => Some(ChannelType::Slack),
             "discord" => Some(ChannelType::Discord),
+            "twitter" => Some(ChannelType::Twitter),
             _ => None,
         }
     }

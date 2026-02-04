@@ -1,9 +1,10 @@
-import React, { useState, useEffect, FormEvent } from 'react';
+import React, { useState, useEffect, useCallback, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Save, Heart, AlertCircle, Zap, Network } from 'lucide-react';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import OperatingModeCard from '@/components/OperatingModeCard';
+import { getGateway } from '@/lib/gateway-client';
 import {
   getBotSettings,
   getHeartbeatConfig,
@@ -18,11 +19,6 @@ export default function Heartbeat() {
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  useEffect(() => {
-    loadSettings();
-    loadHeartbeatConfig();
-  }, []);
-
   const loadSettings = async () => {
     try {
       const data = await getBotSettings();
@@ -34,14 +30,42 @@ export default function Heartbeat() {
     }
   };
 
-  const loadHeartbeatConfig = async () => {
+  const loadHeartbeatConfig = useCallback(async () => {
     try {
       const config = await getHeartbeatConfig();
       setHeartbeatConfig(config);
     } catch (err) {
       console.error('Failed to load heartbeat config:', err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadSettings();
+    loadHeartbeatConfig();
+  }, [loadHeartbeatConfig]);
+
+  // Listen for heartbeat events to refresh config (get updated next_beat_at)
+  useEffect(() => {
+    const gateway = getGateway();
+    let mounted = true;
+
+    const handleHeartbeatEvent = () => {
+      if (mounted) {
+        console.log('[Heartbeat] Received heartbeat event, reloading config');
+        loadHeartbeatConfig();
+      }
+    };
+
+    gateway.on('heartbeat_pulse_completed', handleHeartbeatEvent);
+    gateway.on('heartbeat_completed', handleHeartbeatEvent);
+    gateway.connect().catch(e => console.error('[Heartbeat] Gateway connection error:', e));
+
+    return () => {
+      mounted = false;
+      gateway.off('heartbeat_pulse_completed', handleHeartbeatEvent);
+      gateway.off('heartbeat_completed', handleHeartbeatEvent);
+    };
+  }, [loadHeartbeatConfig]);
 
   if (isLoading) {
     return (

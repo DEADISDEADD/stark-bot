@@ -300,6 +300,8 @@ export default function MindMap() {
       const event = data as { mind_node_id?: number };
       console.log('[MindMap] Heartbeat completed event received:', event);
       if (!mounted) return;
+      // Reload config to get updated next_beat_at
+      loadHeartbeatConfig();
       // Refresh sessions list
       try {
         const sessions = await getHeartbeatSessions();
@@ -325,7 +327,7 @@ export default function MindMap() {
       }
     };
 
-    // Listen for pulse completion (especially errors) and refresh sessions
+    // Listen for pulse completion (especially errors) and refresh sessions + config
     const handlePulseCompleted = async (data: unknown) => {
       const event = data as { success?: boolean; error?: string };
       if (event.success) {
@@ -333,8 +335,10 @@ export default function MindMap() {
       } else {
         console.error('[MindMap] Heartbeat pulse FAILED:', event.error);
       }
-      // Always refresh sessions list after pulse completes
+      // Always refresh sessions list and config after pulse completes
       if (!mounted) return;
+      // Reload config to get updated next_beat_at
+      loadHeartbeatConfig();
       try {
         const sessions = await getHeartbeatSessions();
         if (mounted) {
@@ -370,7 +374,7 @@ export default function MindMap() {
       gateway.off('heartbeat_pulse_completed', handlePulseCompleted);
       console.log('[MindMap] Unregistered heartbeat event listeners');
     };
-  }, [triggerHeartbeatAnimation, nodes]);
+  }, [triggerHeartbeatAnimation, nodes, loadHeartbeatConfig]);
 
   useEffect(() => {
     loadGraph();

@@ -1042,6 +1042,31 @@ impl Database {
         // Initialize discord_hooks tables
         crate::discord_hooks::db::init_tables(&conn)?;
 
+        // Twitter processed mentions table - track which tweets we've already responded to
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS twitter_processed_mentions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tweet_id TEXT UNIQUE NOT NULL,
+                channel_id INTEGER NOT NULL,
+                author_id TEXT NOT NULL,
+                author_username TEXT NOT NULL,
+                tweet_text TEXT NOT NULL,
+                processed_at TEXT NOT NULL,
+                FOREIGN KEY (channel_id) REFERENCES external_channels(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_twitter_mentions_channel ON twitter_processed_mentions(channel_id)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_twitter_mentions_processed ON twitter_processed_mentions(processed_at)",
+            [],
+        )?;
+
         Ok(())
     }
 

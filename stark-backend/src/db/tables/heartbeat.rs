@@ -150,6 +150,7 @@ impl Database {
     }
 
     /// Update heartbeat last run time (called after execution completes)
+    /// Note: Also updates next_beat_at - use update_heartbeat_last_beat_only if next_beat_at was already set
     pub fn update_heartbeat_last_beat(&self, id: i64, last_beat_at: &str, next_beat_at: &str) -> SqliteResult<()> {
         let conn = self.conn();
         let now = Utc::now().to_rfc3339();
@@ -157,6 +158,19 @@ impl Database {
         conn.execute(
             "UPDATE heartbeat_configs SET last_beat_at = ?1, next_beat_at = ?2, updated_at = ?3 WHERE id = ?4",
             rusqlite::params![last_beat_at, next_beat_at, now, id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Update only last_beat_at (use when next_beat_at was already set to prevent race conditions)
+    pub fn update_heartbeat_last_beat_only(&self, id: i64, last_beat_at: &str) -> SqliteResult<()> {
+        let conn = self.conn();
+        let now = Utc::now().to_rfc3339();
+
+        conn.execute(
+            "UPDATE heartbeat_configs SET last_beat_at = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![last_beat_at, now, id],
         )?;
 
         Ok(())

@@ -240,8 +240,38 @@ impl Database {
     }
 
     /// Create a connection between two nodes
+    /// Returns error if the connection would create a cycle
     pub fn create_mind_node_connection(&self, parent_id: i64, child_id: i64) -> SqliteResult<MindNodeConnection> {
         let conn = self.conn();
+
+        // Prevent self-loops
+        if parent_id == child_id {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "Cannot create self-loop connection".to_string(),
+            ));
+        }
+
+        // Check if adding this connection would create a cycle
+        // A cycle exists if child_id can already reach parent_id through existing connections
+        let would_create_cycle: bool = conn.query_row(
+            "WITH RECURSIVE reachable(node_id) AS (
+                SELECT ?1
+                UNION
+                SELECT c.parent_id FROM reachable r
+                JOIN mind_node_connections c ON c.child_id = r.node_id
+                WHERE r.node_id != ?2
+            )
+            SELECT EXISTS(SELECT 1 FROM reachable WHERE node_id = ?2)",
+            rusqlite::params![child_id, parent_id],
+            |row| row.get(0),
+        ).unwrap_or(false);
+
+        if would_create_cycle {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "Connection would create a cycle in the mind graph".to_string(),
+            ));
+        }
+
         let now = Utc::now().to_rfc3339();
 
         conn.execute(
@@ -373,10 +403,11 @@ impl Database {
 
     /// Calculate the depth (distance from trunk) of a node
     /// Used for context - nodes closer to trunk are more "central" thoughts
+    /// Uses iterative BFS to avoid recursive CTE performance issues
     pub fn get_mind_node_depth(&self, node_id: i64) -> SqliteResult<i32> {
         let conn = self.conn();
 
-        // BFS to find shortest path to trunk
+        // Find trunk node
         let trunk_id: Option<i64> = conn.query_row(
             "SELECT id FROM mind_nodes WHERE is_trunk = 1 LIMIT 1",
             [],
@@ -392,27 +423,52 @@ impl Database {
             return Ok(0);
         }
 
-        // Simple BFS using recursive CTE
-        let depth: Option<i32> = conn.query_row(
-            "WITH RECURSIVE path(node_id, depth) AS (
-                SELECT ?1, 0
-                UNION ALL
-                SELECT
-                    CASE
-                        WHEN c.parent_id = p.node_id THEN c.child_id
-                        ELSE c.parent_id
-                    END,
-                    p.depth + 1
-                FROM path p
-                JOIN mind_node_connections c ON (c.parent_id = p.node_id OR c.child_id = p.node_id)
-                WHERE p.depth < 100
-            )
-            SELECT MIN(depth) FROM path WHERE node_id = ?2",
-            rusqlite::params![trunk_id, node_id],
-            |row| row.get(0),
-        ).ok().flatten();
+        // Iterative BFS with visited set to prevent infinite loops
+        // Even with cycle prevention on new connections, old data might have cycles
+        use std::collections::{HashSet, VecDeque};
 
-        Ok(depth.unwrap_or(0))
+        let mut visited: HashSet<i64> = HashSet::new();
+        let mut queue: VecDeque<(i64, i32)> = VecDeque::new();
+        queue.push_back((trunk_id, 0));
+        visited.insert(trunk_id);
+
+        // Pre-fetch all connections for efficiency
+        let mut stmt = conn.prepare(
+            "SELECT parent_id, child_id FROM mind_node_connections"
+        )?;
+        let connections: Vec<(i64, i64)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Build adjacency list (bidirectional since we treat graph as undirected for depth)
+        use std::collections::HashMap;
+        let mut adjacency: HashMap<i64, Vec<i64>> = HashMap::new();
+        for (parent, child) in connections {
+            adjacency.entry(parent).or_default().push(child);
+            adjacency.entry(child).or_default().push(parent);
+        }
+
+        // BFS with depth limit to prevent runaway in edge cases
+        const MAX_DEPTH: i32 = 100;
+        while let Some((current, depth)) = queue.pop_front() {
+            if current == node_id {
+                return Ok(depth);
+            }
+            if depth >= MAX_DEPTH {
+                continue;
+            }
+            if let Some(neighbors) = adjacency.get(&current) {
+                for &neighbor in neighbors {
+                    if visited.insert(neighbor) {
+                        queue.push_back((neighbor, depth + 1));
+                    }
+                }
+            }
+        }
+
+        // Node not reachable from trunk (disconnected)
+        Ok(0)
     }
 
     fn row_to_mind_node(row: &rusqlite::Row) -> rusqlite::Result<MindNode> {

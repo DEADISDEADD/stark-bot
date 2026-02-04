@@ -2,6 +2,7 @@ pub mod discord;
 pub mod dispatcher;
 pub mod slack;
 pub mod telegram;
+pub mod twitter;
 pub mod types;
 
 pub use dispatcher::MessageDispatcher;
@@ -195,6 +196,27 @@ impl ChannelManager {
 
                     if let Err(e) = result {
                         log::error!("Discord listener error: {}", e);
+                        broadcaster.broadcast(GatewayEvent::channel_error(channel_id, &e));
+                    }
+
+                    // Remove from running channels
+                    running_channels.remove(&channel_id);
+                });
+            }
+            types::ChannelType::Twitter => {
+                let db = self.db.clone();
+                tokio::spawn(async move {
+                    let result = twitter::start_twitter_listener(
+                        channel,
+                        dispatcher,
+                        broadcaster.clone(),
+                        db,
+                        shutdown_rx,
+                    )
+                    .await;
+
+                    if let Err(e) = result {
+                        log::error!("Twitter listener error: {}", e);
                         broadcaster.broadcast(GatewayEvent::channel_error(channel_id, &e));
                     }
 

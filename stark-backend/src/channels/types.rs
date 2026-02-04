@@ -7,6 +7,7 @@ pub enum ChannelType {
     Telegram,
     Slack,
     Discord,
+    Twitter,
 }
 
 impl ChannelType {
@@ -16,6 +17,7 @@ impl ChannelType {
             Self::Telegram => "telegram",
             Self::Slack => "slack",
             Self::Discord => "discord",
+            Self::Twitter => "twitter",
         }
     }
 
@@ -25,13 +27,14 @@ impl ChannelType {
             "telegram" => Some(Self::Telegram),
             "slack" => Some(Self::Slack),
             "discord" => Some(Self::Discord),
+            "twitter" => Some(Self::Twitter),
             _ => None,
         }
     }
 
     /// All supported channel types
     pub fn all() -> &'static [ChannelType] {
-        &[Self::Telegram, Self::Slack, Self::Discord]
+        &[Self::Telegram, Self::Slack, Self::Discord, Self::Twitter]
     }
 
     /// Display name for UI
@@ -40,6 +43,7 @@ impl ChannelType {
             Self::Telegram => "Telegram",
             Self::Slack => "Slack",
             Self::Discord => "Discord",
+            Self::Twitter => "Twitter",
         }
     }
 }

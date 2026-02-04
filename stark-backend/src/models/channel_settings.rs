@@ -41,6 +41,12 @@ pub enum ChannelSettingKey {
     DiscordToolCallVerbosity,
     /// Discord: How verbose tool result output should be (full, minimal, none)
     DiscordToolResultVerbosity,
+    /// Twitter: Bot's Twitter handle without @ (e.g., "starkbotai")
+    TwitterBotHandle,
+    /// Twitter: Numeric Twitter user ID (required for mentions API)
+    TwitterBotUserId,
+    /// Twitter: Poll interval in seconds (min 60, default 120)
+    TwitterPollIntervalSecs,
 }
 
 impl ChannelSettingKey {
@@ -50,6 +56,9 @@ impl ChannelSettingKey {
             Self::DiscordAdminUserIds => "Admin User IDs",
             Self::DiscordToolCallVerbosity => "Tool Call Verbosity",
             Self::DiscordToolResultVerbosity => "Tool Result Verbosity",
+            Self::TwitterBotHandle => "Bot Handle",
+            Self::TwitterBotUserId => "Bot User ID",
+            Self::TwitterPollIntervalSecs => "Poll Interval (seconds)",
         }
     }
 
@@ -68,6 +77,18 @@ impl ChannelSettingKey {
                 "Controls how much detail to show for tool results. \
                  'full' shows tool name and result content, 'minimal' shows only tool name and status, 'none' hides tool results."
             }
+            Self::TwitterBotHandle => {
+                "Your bot's Twitter handle without the @ symbol (e.g., 'starkbotai'). \
+                 This is used to remove self-mentions from incoming tweets."
+            }
+            Self::TwitterBotUserId => {
+                "Your bot's numeric Twitter user ID. Required for the mentions API. \
+                 You can find this by looking up your account at tweeterid.com."
+            }
+            Self::TwitterPollIntervalSecs => {
+                "How often to check for new mentions in seconds. Minimum is 60 seconds. \
+                 Higher values reduce API usage but increase response latency."
+            }
         }
     }
 
@@ -77,6 +98,9 @@ impl ChannelSettingKey {
             Self::DiscordAdminUserIds => SettingInputType::Text,
             Self::DiscordToolCallVerbosity => SettingInputType::Select,
             Self::DiscordToolResultVerbosity => SettingInputType::Select,
+            Self::TwitterBotHandle => SettingInputType::Text,
+            Self::TwitterBotUserId => SettingInputType::Text,
+            Self::TwitterPollIntervalSecs => SettingInputType::Number,
         }
     }
 
@@ -86,6 +110,9 @@ impl ChannelSettingKey {
             Self::DiscordAdminUserIds => "123456789012345678, 987654321098765432",
             Self::DiscordToolCallVerbosity => "minimal",
             Self::DiscordToolResultVerbosity => "minimal",
+            Self::TwitterBotHandle => "starkbotai",
+            Self::TwitterBotUserId => "1234567890123456789",
+            Self::TwitterPollIntervalSecs => "120",
         }
     }
 
@@ -107,6 +134,9 @@ impl ChannelSettingKey {
             Self::DiscordAdminUserIds => "",
             Self::DiscordToolCallVerbosity => "minimal",
             Self::DiscordToolResultVerbosity => "minimal",
+            Self::TwitterBotHandle => "",
+            Self::TwitterBotUserId => "",
+            Self::TwitterPollIntervalSecs => "120",
         }
     }
 }
@@ -217,6 +247,11 @@ pub fn get_settings_for_channel_type(channel_type: ChannelType) -> Vec<ChannelSe
         ],
         ChannelType::Slack => vec![
             // No custom settings yet
+        ],
+        ChannelType::Twitter => vec![
+            ChannelSettingKey::TwitterBotHandle.into(),
+            ChannelSettingKey::TwitterBotUserId.into(),
+            ChannelSettingKey::TwitterPollIntervalSecs.into(),
         ],
     }
 }

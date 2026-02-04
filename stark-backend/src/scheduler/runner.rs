@@ -23,8 +23,6 @@ pub const HEARTBEAT_CHAT_ID: &str = "heartbeat:global";
 pub struct SchedulerConfig {
     /// Enable cron job processing
     pub cron_enabled: bool,
-    /// Enable heartbeat processing
-    pub heartbeat_enabled: bool,
     /// Poll interval in seconds for checking due jobs
     pub poll_interval_secs: u64,
     /// Maximum concurrent job executions
@@ -35,8 +33,7 @@ impl Default for SchedulerConfig {
     fn default() -> Self {
         SchedulerConfig {
             cron_enabled: true,
-            heartbeat_enabled: false,  // Disabled - too noisy
-            poll_interval_secs: 60,    // Check once per minute instead of 10 seconds
+            poll_interval_secs: 1,     // Check every second
             max_concurrent_jobs: 5,
         }
     }
@@ -83,9 +80,8 @@ impl Scheduler {
     /// Start the scheduler background task
     pub async fn start(self: Arc<Self>, mut shutdown_rx: oneshot::Receiver<()>) {
         log::info!(
-            "Scheduler started (cron: {}, heartbeat: {}, poll: {}s)",
+            "Scheduler started (cron: {}, heartbeat: always, poll: {}s)",
             self.config.cron_enabled,
-            self.config.heartbeat_enabled,
             self.config.poll_interval_secs
         );
 
@@ -115,11 +111,9 @@ impl Scheduler {
             }
         }
 
-        // Process heartbeats
-        if self.config.heartbeat_enabled {
-            if let Err(e) = self.process_heartbeats().await {
-                log::error!("Error processing heartbeats: {}", e);
-            }
+        // Process heartbeats (always enabled - individual configs control their own enabled state)
+        if let Err(e) = self.process_heartbeats().await {
+            log::error!("Error processing heartbeats: {}", e);
         }
     }
 
@@ -402,8 +396,18 @@ impl Scheduler {
             let start_time = NaiveTime::parse_from_str(start, "%H:%M").unwrap_or(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
             let end_time = NaiveTime::parse_from_str(end, "%H:%M").unwrap_or(NaiveTime::from_hms_opt(23, 59, 59).unwrap());
 
-            if current_time < start_time || current_time > end_time {
-                return false;
+            // Handle overnight schedules (e.g., 22:00-06:00)
+            if start_time <= end_time {
+                // Normal case: start and end are on same day (e.g., 09:00-17:00)
+                if current_time < start_time || current_time > end_time {
+                    return false;
+                }
+            } else {
+                // Overnight case: end is before start (e.g., 22:00-06:00)
+                // Valid times are: after start OR before end
+                if current_time < start_time && current_time > end_time {
+                    return false;
+                }
             }
         }
 
@@ -510,10 +514,10 @@ impl Scheduler {
             log::error!("Failed to update heartbeat mind position: {}", e);
         }
 
-        // Update last_beat_at
-        self.db
-            .update_heartbeat_last_beat(config.id, &now_str, &next_beat_str)
-            .map_err(|e| format!("Failed to update heartbeat status: {}", e))?;
+        // Update last_beat_at only (next_beat_at was already set at the start to prevent race conditions)
+        if let Err(e) = self.db.update_heartbeat_last_beat_only(config.id, &now_str) {
+            log::error!("Failed to update heartbeat last_beat_at: {}", e);
+        }
 
         // Check for HEARTBEAT_OK suppression
         if result.response.contains("HEARTBEAT_OK") {
@@ -661,8 +665,8 @@ async fn execute_heartbeat_isolated(
         }
     };
 
-    // Skip depth calculation for now - the recursive CTE is slow/hanging
-    let node_depth = 0;
+    // Calculate depth using iterative BFS (safe from cycles)
+    let node_depth = db.get_mind_node_depth(next_node.id).unwrap_or(0);
 
     log::info!(
         "[HEARTBEAT-ISOLATED] Visiting mind node {} (is_trunk: {})",
@@ -676,8 +680,8 @@ async fn execute_heartbeat_isolated(
         log::error!("[HEARTBEAT-ISOLATED] Failed to update mind position: {}", e);
     }
 
-    // Update last_beat_at immediately
-    if let Err(e) = db.update_heartbeat_last_beat(config.id, &now_str, &next_beat_str) {
+    // Update last_beat_at only (next_beat_at was already set above)
+    if let Err(e) = db.update_heartbeat_last_beat_only(config.id, &now_str) {
         log::error!("[HEARTBEAT-ISOLATED] Failed to update last_beat_at: {}", e);
     }
 

@@ -2,21 +2,16 @@
 //!
 //! Posts tweets on behalf of a user using their OAuth 1.0a credentials.
 
+use super::twitter_oauth::{generate_oauth_header, TwitterCredentials};
 use crate::controllers::api_keys::ApiKeyId;
 use crate::tools::registry::Tool;
 use crate::tools::types::{
     PropertySchema, ToolContext, ToolDefinition, ToolGroup, ToolInputSchema, ToolResult,
 };
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use hmac::{Hmac, Mac};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sha1::Sha1;
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-type HmacSha1 = Hmac<Sha1>;
 
 /// Tool for posting tweets via Twitter API v2
 pub struct TwitterPostTool {
@@ -96,109 +91,12 @@ impl TwitterPostTool {
 
         None
     }
-
-    /// Generate OAuth 1.0a Authorization header
-    fn generate_oauth_header(
-        &self,
-        method: &str,
-        url: &str,
-        consumer_key: &str,
-        consumer_secret: &str,
-        access_token: &str,
-        access_token_secret: &str,
-    ) -> String {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            .to_string();
-
-        let nonce: String = (0..32)
-            .map(|_| format!("{:x}", rand::random::<u8>()))
-            .collect();
-
-        // OAuth parameters
-        let mut oauth_params: Vec<(&str, String)> = vec![
-            ("oauth_consumer_key", consumer_key.to_string()),
-            ("oauth_nonce", nonce.clone()),
-            ("oauth_signature_method", "HMAC-SHA1".to_string()),
-            ("oauth_timestamp", timestamp.clone()),
-            ("oauth_token", access_token.to_string()),
-            ("oauth_version", "1.0".to_string()),
-        ];
-
-        // Sort parameters
-        oauth_params.sort_by(|a, b| a.0.cmp(&b.0));
-
-        // Create parameter string
-        let param_string: String = oauth_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", percent_encode(k), percent_encode(v)))
-            .collect::<Vec<_>>()
-            .join("&");
-
-        // Create signature base string
-        let base_string = format!(
-            "{}&{}&{}",
-            method.to_uppercase(),
-            percent_encode(url),
-            percent_encode(&param_string)
-        );
-
-        // Create signing key
-        let signing_key = format!(
-            "{}&{}",
-            percent_encode(consumer_secret),
-            percent_encode(access_token_secret)
-        );
-
-        // Generate HMAC-SHA1 signature
-        let mut mac = HmacSha1::new_from_slice(signing_key.as_bytes())
-            .expect("HMAC can take key of any size");
-        mac.update(base_string.as_bytes());
-        let signature = BASE64.encode(mac.finalize().into_bytes());
-
-        // Build Authorization header
-        let auth_params = [
-            ("oauth_consumer_key", consumer_key),
-            ("oauth_nonce", &nonce),
-            ("oauth_signature", &signature),
-            ("oauth_signature_method", "HMAC-SHA1"),
-            ("oauth_timestamp", &timestamp),
-            ("oauth_token", access_token),
-            ("oauth_version", "1.0"),
-        ];
-
-        let auth_string: String = auth_params
-            .iter()
-            .map(|(k, v)| format!("{}=\"{}\"", k, percent_encode(v)))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        format!("OAuth {}", auth_string)
-    }
 }
 
 impl Default for TwitterPostTool {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Percent-encode a string per OAuth spec (RFC 3986)
-fn percent_encode(s: &str) -> String {
-    let mut result = String::new();
-    for byte in s.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                result.push(byte as char);
-            }
-            _ => {
-                result.push_str(&format!("%{:02X}", byte));
-            }
-        }
-    }
-    result
 }
 
 #[derive(Debug, Deserialize)]
@@ -306,15 +204,14 @@ impl Tool for TwitterPostTool {
         // Twitter API v2 endpoint
         let url = "https://api.twitter.com/2/tweets";
 
-        // Generate OAuth header
-        let auth_header = self.generate_oauth_header(
-            "POST",
-            url,
-            &consumer_key,
-            &consumer_secret,
-            &access_token,
-            &access_token_secret,
+        // Generate OAuth header using shared module
+        let credentials = TwitterCredentials::new(
+            consumer_key,
+            consumer_secret,
+            access_token,
+            access_token_secret,
         );
+        let auth_header = generate_oauth_header("POST", url, &credentials, None);
 
         // Make the request
         let client = reqwest::Client::new();
@@ -376,6 +273,7 @@ impl Tool for TwitterPostTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::twitter_oauth::percent_encode;
 
     #[test]
     fn test_percent_encode() {
