@@ -192,6 +192,19 @@ docker run -d -p 8080:8080 --env-file .env -v $(pwd)/data:/app/.db --name starkb
 docker stop starkbot && docker rm starkbot
 ```
 
+### Build and Push to Registry (Railway)
+
+To build and push a new Docker image to the GitHub Container Registry for Railway deployment:
+
+```bash
+# Build with tags for flash and latest
+docker build -t ghcr.io/starkbotai/starkbot:flash -t ghcr.io/starkbotai/starkbot:latest .
+
+# Push both tags
+docker push ghcr.io/starkbotai/starkbot:flash
+docker push ghcr.io/starkbotai/starkbot:latest
+```
+
 ### Test the Container
 
 ```bash
