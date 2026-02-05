@@ -185,8 +185,8 @@ impl X402Signer {
             deadline: U256::from(deadline),
         };
 
-        // Sign the typed data
-        let signature = self.sign_eip712(&domain, message.struct_hash()).await?;
+        // Sign the typed data (compatible with both Standard and Flash mode)
+        let signature = self.sign_permit_typed_data(&domain, &message).await?;
 
         // Build EIP-2612 authorization format
         let authorization = Eip2612Authorization {
@@ -256,8 +256,8 @@ impl X402Signer {
             deadline: U256::from(deadline),
         };
 
-        // Sign the typed data
-        let signature = self.sign_eip712(&domain, message.struct_hash()).await?;
+        // Sign the typed data (compatible with both Standard and Flash mode)
+        let signature = self.sign_permit_typed_data(&domain, &message).await?;
 
         // Build EIP-2612 authorization format
         let authorization = Eip2612Authorization {
@@ -323,8 +323,8 @@ impl X402Signer {
             nonce,
         };
 
-        // Sign the typed data
-        let signature = self.sign_eip712(&domain, message.struct_hash()).await?;
+        // Sign the typed data (compatible with both Standard and Flash mode)
+        let signature = self.sign_transfer_auth_typed_data(&domain, &message).await?;
 
         // Build EIP-3009 authorization format
         let authorization = Eip3009Authorization {
@@ -384,8 +384,8 @@ impl X402Signer {
             nonce,
         };
 
-        // Sign the typed data
-        let signature = self.sign_eip712(&domain, message.struct_hash()).await?;
+        // Sign the typed data (compatible with both Standard and Flash mode)
+        let signature = self.sign_transfer_auth_typed_data(&domain, &message).await?;
 
         // Build EIP-3009 authorization format
         let authorization = Eip3009Authorization {
@@ -417,16 +417,50 @@ impl X402Signer {
         Ok(payload)
     }
 
-    /// Sign EIP-712 typed data with a pre-computed struct hash
-    async fn sign_eip712(
+    /// Sign EIP-712 typed data for Permit (EIP-2612)
+    /// Uses sign_typed_data to ensure compatibility with both Standard and Flash mode
+    async fn sign_permit_typed_data(
         &self,
         domain: &Eip712Domain,
-        struct_hash: H256,
+        message: &PermitMessage,
     ) -> Result<String, String> {
-        // Calculate domain separator
-        let domain_separator = domain.separator();
+        // Build full EIP-712 typed data JSON
+        let typed_data = serde_json::json!({
+            "types": {
+                "EIP712Domain": [
+                    {"name": "name", "type": "string"},
+                    {"name": "version", "type": "string"},
+                    {"name": "chainId", "type": "uint256"},
+                    {"name": "verifyingContract", "type": "address"}
+                ],
+                "Permit": [
+                    {"name": "owner", "type": "address"},
+                    {"name": "spender", "type": "address"},
+                    {"name": "value", "type": "uint256"},
+                    {"name": "nonce", "type": "uint256"},
+                    {"name": "deadline", "type": "uint256"}
+                ]
+            },
+            "primaryType": "Permit",
+            "domain": {
+                "name": domain.name,
+                "version": domain.version,
+                "chainId": domain.chain_id,
+                "verifyingContract": format!("{:?}", domain.verifying_contract)
+            },
+            "message": {
+                "owner": format!("{:?}", message.owner),
+                "spender": format!("{:?}", message.spender),
+                "value": message.value.to_string(),
+                "nonce": message.nonce.to_string(),
+                "deadline": message.deadline.to_string()
+            }
+        });
 
-        // Calculate final hash: keccak256("\x19\x01" ++ domainSeparator ++ structHash)
+        // Also compute the hash for Standard mode optimization
+        // Standard mode will use _hash directly, Flash mode will compute from typed_data
+        let domain_separator = domain.separator();
+        let struct_hash = message.struct_hash();
         let mut to_sign = Vec::with_capacity(66);
         to_sign.push(0x19);
         to_sign.push(0x01);
@@ -434,11 +468,80 @@ impl X402Signer {
         to_sign.extend_from_slice(struct_hash.as_bytes());
         let digest = H256::from(keccak256(&to_sign));
 
-        // Sign the digest using WalletProvider
+        // Add pre-computed hash to typed data (for Standard mode optimization)
+        let mut typed_data_with_hash = typed_data;
+        typed_data_with_hash["_hash"] = serde_json::json!(format!("0x{}", hex::encode(digest.as_bytes())));
+
+        // Sign using sign_typed_data - works correctly in both modes
         let signature = self.wallet_provider
-            .sign_hash(digest)
+            .sign_typed_data(&typed_data_with_hash)
             .await
-            .map_err(|e| format!("Failed to sign: {}", e))?;
+            .map_err(|e| format!("Failed to sign permit: {}", e))?;
+
+        Ok(format!("0x{}", hex::encode(signature.to_vec())))
+    }
+
+    /// Sign EIP-712 typed data for TransferWithAuthorization (EIP-3009)
+    /// Uses sign_typed_data to ensure compatibility with both Standard and Flash mode
+    async fn sign_transfer_auth_typed_data(
+        &self,
+        domain: &Eip712Domain,
+        message: &TransferWithAuthorizationMessage,
+    ) -> Result<String, String> {
+        // Build full EIP-712 typed data JSON
+        let typed_data = serde_json::json!({
+            "types": {
+                "EIP712Domain": [
+                    {"name": "name", "type": "string"},
+                    {"name": "version", "type": "string"},
+                    {"name": "chainId", "type": "uint256"},
+                    {"name": "verifyingContract", "type": "address"}
+                ],
+                "TransferWithAuthorization": [
+                    {"name": "from", "type": "address"},
+                    {"name": "to", "type": "address"},
+                    {"name": "value", "type": "uint256"},
+                    {"name": "validAfter", "type": "uint256"},
+                    {"name": "validBefore", "type": "uint256"},
+                    {"name": "nonce", "type": "bytes32"}
+                ]
+            },
+            "primaryType": "TransferWithAuthorization",
+            "domain": {
+                "name": domain.name,
+                "version": domain.version,
+                "chainId": domain.chain_id,
+                "verifyingContract": format!("{:?}", domain.verifying_contract)
+            },
+            "message": {
+                "from": format!("{:?}", message.from),
+                "to": format!("{:?}", message.to),
+                "value": message.value.to_string(),
+                "validAfter": message.valid_after.to_string(),
+                "validBefore": message.valid_before.to_string(),
+                "nonce": format!("{:?}", message.nonce)
+            }
+        });
+
+        // Also compute the hash for Standard mode optimization
+        let domain_separator = domain.separator();
+        let struct_hash = message.struct_hash();
+        let mut to_sign = Vec::with_capacity(66);
+        to_sign.push(0x19);
+        to_sign.push(0x01);
+        to_sign.extend_from_slice(domain_separator.as_bytes());
+        to_sign.extend_from_slice(struct_hash.as_bytes());
+        let digest = H256::from(keccak256(&to_sign));
+
+        // Add pre-computed hash to typed data (for Standard mode optimization)
+        let mut typed_data_with_hash = typed_data;
+        typed_data_with_hash["_hash"] = serde_json::json!(format!("0x{}", hex::encode(digest.as_bytes())));
+
+        // Sign using sign_typed_data - works correctly in both modes
+        let signature = self.wallet_provider
+            .sign_typed_data(&typed_data_with_hash)
+            .await
+            .map_err(|e| format!("Failed to sign transfer authorization: {}", e))?;
 
         Ok(format!("0x{}", hex::encode(signature.to_vec())))
     }
