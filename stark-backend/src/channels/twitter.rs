@@ -295,33 +295,23 @@ pub async fn start_twitter_listener(
     // Load configuration
     let config = TwitterConfig::from_channel(&channel, &db)?;
 
-    // SECURITY: Safe mode handling for Twitter channels
-    // If an admin X account is configured, we use per-message force_safe_mode (like Discord)
-    // so admin tweets get standard mode while everyone else gets safe mode.
-    // If no admin is configured, enable channel-level safe_mode for all tweets.
+    // SECURITY: Safe mode is always handled per-message via force_safe_mode.
+    // If an admin X account is configured, admin tweets get standard mode while others get safe mode.
+    // If no admin is configured, ALL tweets get safe mode.
+    // We never set channel-level safe_mode, so the channel stays eligible for cloud backup.
     if config.admin_user_id.is_some() {
         log::info!(
             "Twitter: Admin user ID configured ({}) — admin tweets use standard mode, others use safe mode",
             config.admin_user_id.as_deref().unwrap_or("?")
         );
-        // Disable channel-level safe_mode since we handle it per-message
-        if channel.safe_mode {
-            if let Err(e) = db.set_channel_safe_mode(channel_id, false) {
-                log::error!("Failed to disable channel-level safe_mode for per-message handling: {}", e);
-            }
-        }
     } else {
-        // No admin configured — all tweets are untrusted, force safe mode on the channel
-        if !channel.safe_mode {
-            log::warn!(
-                "Twitter channel {} does not have safe_mode enabled - enabling now for security",
-                channel_id
-            );
-            if let Err(e) = db.set_channel_safe_mode(channel_id, true) {
-                log::error!("Failed to enable safe_mode on Twitter channel {}: {}", channel_id, e);
-            }
+        log::info!("Twitter: No admin configured — all tweets use safe mode (per-message)");
+    }
+    // Ensure channel-level safe_mode is off (per-message handling is sufficient)
+    if channel.safe_mode {
+        if let Err(e) = db.set_channel_safe_mode(channel_id, false) {
+            log::error!("Failed to disable channel-level safe_mode: {}", e);
         }
-        log::info!("Twitter: Safe mode ENABLED for all tweets - tool access restricted to Web only");
     }
 
     log::info!(
@@ -494,16 +484,16 @@ pub async fn start_twitter_listener(
                                     }
                                 );
 
-                                // Determine safe mode: if admin user ID is configured,
-                                // check if author's numeric ID matches
+                                // Determine safe mode: admin gets standard mode, everyone else gets safe mode.
+                                // When no admin is configured, all tweets are safe mode.
                                 let is_admin = config.admin_user_id.as_ref()
                                     .map(|admin_id| admin_id == &mention.author_id)
                                     .unwrap_or(false);
-                                let force_safe_mode = !is_admin && config.admin_user_id.is_some();
+                                let force_safe_mode = !is_admin;
 
                                 if is_admin {
                                     log::info!("Twitter: @{} is admin — using standard mode", author_username);
-                                } else if force_safe_mode {
+                                } else {
                                     log::info!("Twitter: @{} is not admin — using safe mode", author_username);
                                 }
 
