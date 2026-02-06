@@ -223,9 +223,8 @@ fn find_original_guidelines() -> Option<PathBuf> {
 
 /// Initialize the workspace, journal, and soul directories
 /// This should be called at startup before any agent processing begins
-/// SOUL.md is copied fresh on every startup from the original to the soul directory
-/// This protects the original from agent modifications while allowing the user
-/// to edit the original (via web UI) with changes propagating on restart
+/// SOUL.md is copied from the original to the soul directory only if it doesn't exist,
+/// preserving agent modifications and user edits across restarts
 pub fn initialize_workspace() -> std::io::Result<()> {
     let workspace = workspace_dir();
     let workspace_path = Path::new(&workspace);

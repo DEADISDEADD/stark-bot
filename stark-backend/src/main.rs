@@ -482,16 +482,21 @@ async fn restore_backup_data(
         }
     }
 
-    // Restore soul document if present
+    // Restore soul document if present in backup AND no local copy exists
+    // (preserves agent modifications and user edits across restarts)
     if let Some(soul_content) = &backup_data.soul_document {
         let soul_path = config::soul_document_path();
-        // Ensure soul directory exists
-        if let Some(parent) = soul_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        match std::fs::write(&soul_path, soul_content) {
-            Ok(_) => log::info!("[Keystore] Restored soul document"),
-            Err(e) => log::warn!("[Keystore] Failed to restore soul document: {}", e),
+        if soul_path.exists() {
+            log::info!("[Keystore] Soul document already exists locally, skipping restore from backup");
+        } else {
+            // Ensure soul directory exists
+            if let Some(parent) = soul_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            match std::fs::write(&soul_path, soul_content) {
+                Ok(_) => log::info!("[Keystore] Restored soul document from backup"),
+                Err(e) => log::warn!("[Keystore] Failed to restore soul document: {}", e),
+            }
         }
     }
 

@@ -1407,21 +1407,27 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
         }
     }
 
-    // Restore soul document if present
+    // Restore soul document if present in backup AND no local copy exists
+    // (preserves agent modifications and user edits)
     let mut has_soul = false;
     if let Some(soul_content) = &backup_data.soul_document {
         let soul_path = crate::config::soul_document_path();
-        // Ensure soul directory exists
-        if let Some(parent) = soul_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        match std::fs::write(&soul_path, soul_content) {
-            Ok(_) => {
-                has_soul = true;
-                log::info!("[Keystore] Restored soul document");
+        if soul_path.exists() {
+            has_soul = true;
+            log::info!("[Keystore] Soul document already exists locally, skipping restore from backup");
+        } else {
+            // Ensure soul directory exists
+            if let Some(parent) = soul_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
             }
-            Err(e) => {
-                log::warn!("[Keystore] Failed to restore soul document: {}", e);
+            match std::fs::write(&soul_path, soul_content) {
+                Ok(_) => {
+                    has_soul = true;
+                    log::info!("[Keystore] Restored soul document from backup");
+                }
+                Err(e) => {
+                    log::warn!("[Keystore] Failed to restore soul document: {}", e);
+                }
             }
         }
     }

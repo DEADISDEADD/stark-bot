@@ -111,19 +111,6 @@ fn format_mode_change_for_discord(mode: &str, label: &str, reason: Option<&str>)
 }
 
 /// Check if a tool terminates the chat loop and sets the final response.
-/// When true, the tool's output will be included in the final response, so we skip direct output.
-/// When false, the tool does NOT set the final response, so we must output directly.
-fn tool_terminates_loop(tool_name: &str, is_safe_mode: bool) -> bool {
-    match tool_name {
-        // say_to_user only terminates the loop in safe mode
-        // In admin mode, it continues and final response may not include the message
-        "say_to_user" => is_safe_mode,
-        // task_complete always terminates
-        "task_complete" => true,
-        // Other tools don't terminate
-        _ => false,
-    }
-}
 
 struct DiscordHandler {
     channel_id: i64,
@@ -366,8 +353,8 @@ impl DiscordHandler {
                         // For tools that terminate the loop, skip output here (final response handles it)
                         // For tools that don't terminate, output directly if they have user-facing content
                         if tool_name == "say_to_user" {
-                            if !tool_terminates_loop(tool_name, is_safe_mode) && success && !content.is_empty() {
-                                // Send as permanent message (won't be in final response)
+                            if success && !content.is_empty() {
+                                // Always send say_to_user messages directly — the final response no longer carries them
                                 let say_text = content.to_string();
                                 if say_text.len() <= 2000 {
                                     if let Err(e) = discord_channel_id.say(&http, &say_text).await {
@@ -534,9 +521,8 @@ impl DiscordHandler {
             let error_msg = format!("Sorry, I encountered an error: {}", error);
             let _ = msg.channel_id.say(&ctx.http, &error_msg).await;
         } else if result.response.is_empty() {
-            // Empty response with no error - this shouldn't happen but handle gracefully
-            log::warn!("Discord: Dispatch returned empty response with no error for user {}", user_name);
-            let _ = msg.channel_id.say(&ctx.http, "I processed your request but have nothing to say. Please try rephrasing your question.").await;
+            // Empty response with no error — say_to_user already delivered the message via events
+            log::debug!("Discord: Empty final response (say_to_user likely already delivered via events) for user {}", user_name);
         }
     }
 }

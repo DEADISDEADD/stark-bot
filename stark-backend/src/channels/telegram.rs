@@ -195,11 +195,12 @@ pub async fn start_telegram_listener(
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("");
 
-                                    // say_to_user messages: skip sending via event stream for gateway channels
-                                    // because the final response already contains this content.
-                                    // Sending here would cause duplicate messages.
-                                    if tool_name == "say_to_user" {
-                                        None // Don't send - final response will handle it
+                                    // say_to_user messages: always send directly — the final response
+                                    // no longer carries them (they're delivered via events only)
+                                    if tool_name == "say_to_user" && success && !content.is_empty() {
+                                        Some(content.to_string())
+                                    } else if tool_name == "say_to_user" {
+                                        None
                                     } else {
                                         Some(format_tool_result_for_telegram(tool_name, success, duration_ms, content))
                                     }
