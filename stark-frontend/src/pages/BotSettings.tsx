@@ -277,13 +277,9 @@ export default function BotSettings() {
                       <Copy className="w-4 h-4 text-slate-400" />
                     )}
                   </button>
-                  {walletMode && (
-                    <span className={`text-xs px-2 py-1 rounded font-medium ${
-                      walletMode === 'flash'
-                        ? 'bg-purple-500/20 text-purple-400'
-                        : 'bg-blue-500/20 text-blue-400'
-                    }`}>
-                      {walletMode === 'flash' ? 'Flash Mode' : walletMode === 'standard' ? 'Standard' : walletMode}
+                  {walletMode === 'flash' && (
+                    <span className="text-xs px-2 py-1 rounded font-medium bg-purple-500/20 text-purple-400">
+                      Flash
                     </span>
                   )}
                 </div>

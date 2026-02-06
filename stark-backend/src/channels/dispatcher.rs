@@ -901,12 +901,14 @@ impl MessageDispatcher {
                     }
                 }
 
-                // Emit response event
-                self.broadcaster.broadcast(GatewayEvent::agent_response(
-                    message.channel_id,
-                    &message.user_name,
-                    &response,
-                ));
+                // Emit response event (skip if empty - say_to_user already delivered the message)
+                if !response.trim().is_empty() {
+                    self.broadcaster.broadcast(GatewayEvent::agent_response(
+                        message.channel_id,
+                        &message.user_name,
+                        &response,
+                    ));
+                }
 
                 log::info!(
                     "Generated response for {} on channel {} using {} archetype",
@@ -1752,12 +1754,16 @@ impl MessageDispatcher {
                 }
 
                 if orchestrator_complete {
-                    let response = if tool_call_log.is_empty() {
-                        format!("{}\n\n{}", final_summary, ai_response.content)
-                    } else {
-                        let tool_log_text = tool_call_log.join("\n");
-                        format!("{}\n\n{}\n\n{}", tool_log_text, final_summary, ai_response.content)
-                    };
+                    // Build response from non-empty parts to avoid duplicate output
+                    let mut parts: Vec<&str> = Vec::new();
+                    if !tool_call_log.is_empty() {
+                        // tool_call_log is joined below
+                    }
+                    let tool_log_text = tool_call_log.join("\n");
+                    if !tool_log_text.is_empty() { parts.push(&tool_log_text); }
+                    if !final_summary.is_empty() { parts.push(&final_summary); }
+                    if !ai_response.content.trim().is_empty() { parts.push(&ai_response.content); }
+                    let response = parts.join("\n\n");
                     return Ok(response);
                 } else {
                     // No tool calls but not complete - return content as-is
@@ -1836,12 +1842,7 @@ impl MessageDispatcher {
             let current_iteration_has_say_to_user = ai_response.tool_calls.iter().any(|c| c.name == "say_to_user");
             if current_iteration_has_say_to_user && previous_iteration_had_say_to_user {
                 log::warn!("[SAY_TO_USER_LOOP] Detected consecutive say_to_user calls, terminating loop");
-                // Return the last say_to_user message as the final response
-                if let Some(say_call) = ai_response.tool_calls.iter().find(|c| c.name == "say_to_user") {
-                    if let Some(msg) = say_call.arguments.get("message").and_then(|v| v.as_str()) {
-                        final_summary = msg.to_string();
-                    }
-                }
+                // Don't set final_summary - the message was already broadcast via tool_result
                 orchestrator_complete = true;
                 break;
             }
@@ -2121,7 +2122,7 @@ impl MessageDispatcher {
                             if finished_task || is_safe_mode {
                                 log::info!("[ORCHESTRATED_LOOP] say_to_user terminating loop (finished_task={}, safe_mode={})", finished_task, is_safe_mode);
                                 orchestrator_complete = true;
-                                final_summary = result.content.clone();
+                                // Don't set final_summary - the message was already broadcast via tool_result
                             }
                         }
 
@@ -2525,10 +2526,7 @@ impl MessageDispatcher {
                         let current_iteration_has_say_to_user = tool_call.tool_name == "say_to_user";
                         if current_iteration_has_say_to_user && previous_iteration_had_say_to_user {
                             log::warn!("[TEXT_SAY_TO_USER_LOOP] Detected consecutive say_to_user calls, terminating loop");
-                            // Return the say_to_user message as the final response
-                            if let Some(msg) = tool_call.tool_params.get("message").and_then(|v| v.as_str()) {
-                                final_response = msg.to_string();
-                            }
+                            // Don't set final_response - the message was already broadcast via tool_result
                             orchestrator_complete = true;
                             break;
                         }
@@ -2756,7 +2754,7 @@ impl MessageDispatcher {
                                     if finished_task || is_safe_mode {
                                         log::info!("[TEXT_ORCHESTRATED] say_to_user terminating loop (finished_task={}, safe_mode={})", finished_task, is_safe_mode);
                                         orchestrator_complete = true;
-                                        final_response = result.content.clone();
+                                        // Don't set final_response - the message was already broadcast via tool_result
                                     }
                                 }
 
