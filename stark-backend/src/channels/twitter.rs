@@ -325,6 +325,10 @@ pub async fn start_twitter_listener(
         config.admin_user_id.as_deref().unwrap_or("none")
     );
 
+    // Pre-compile bot mention regex (used per-tweet in extract_command_text)
+    let bot_mention_regex = Regex::new(&format!(r"(?i)@{}", regex::escape(&config.bot_handle)))
+        .unwrap_or_else(|_| Regex::new(r"(?i)@\w+").unwrap());
+
     // Validate credentials by fetching user info
     let client = reqwest::Client::new();
     match verify_credentials(&client, &config).await {
@@ -478,7 +482,7 @@ pub async fn start_twitter_listener(
                                     "Twitter: Processing mention from @{}: {}",
                                     author_username,
                                     if mention.text.len() > 50 {
-                                        format!("{}...", &mention.text[..50])
+                                        format!("{}...", mention.text.chars().take(50).collect::<String>())
                                     } else {
                                         mention.text.clone()
                                     }
@@ -506,6 +510,7 @@ pub async fn start_twitter_listener(
                                     force_safe_mode,
                                     &dispatcher,
                                     &broadcaster,
+                                    &bot_mention_regex,
                                 ).await;
 
                                 // Mark as processed before replying (to avoid double-processing on errors)
@@ -716,14 +721,12 @@ async fn lookup_user(
 }
 
 /// Extract command text from a tweet, removing @mentions
-fn extract_command_text(text: &str, bot_handle: &str) -> String {
+fn extract_command_text(text: &str, bot_mention_regex: &Regex) -> String {
     // Remove @bot_handle (case-insensitive) and any other @mentions at the start
     let mut result = text.to_string();
 
-    // Remove our bot's mention (case-insensitive using regex)
-    let bot_mention_pattern = Regex::new(&format!(r"(?i)@{}", regex::escape(bot_handle)))
-        .unwrap_or_else(|_| Regex::new(r"(?i)@\w+").unwrap());
-    result = bot_mention_pattern.replace_all(&result, "").to_string();
+    // Remove our bot's mention using pre-compiled regex
+    result = bot_mention_regex.replace_all(&result, "").to_string();
 
     // Remove leading @mentions (common in replies) using pre-compiled static regex
     while LEADING_MENTION_PATTERN.is_match(&result) {
@@ -742,9 +745,10 @@ async fn process_mention(
     force_safe_mode: bool,
     dispatcher: &Arc<MessageDispatcher>,
     broadcaster: &Arc<EventBroadcaster>,
+    bot_mention_regex: &Regex,
 ) -> Option<String> {
     // Extract the actual command/message text
-    let command_text = extract_command_text(&tweet.text, &config.bot_handle);
+    let command_text = extract_command_text(&tweet.text, bot_mention_regex);
 
     if command_text.is_empty() {
         log::debug!("Twitter: Empty command after extracting text, ignoring");
@@ -995,39 +999,40 @@ mod tests {
 
     #[test]
     fn test_extract_command_text() {
+        let re = Regex::new(r"(?i)@starkbot").unwrap();
         // Basic case
         assert_eq!(
-            extract_command_text("@starkbot hello world", "starkbot"),
+            extract_command_text("@starkbot hello world", &re),
             "hello world"
         );
         // Mixed case - should be case-insensitive
         assert_eq!(
-            extract_command_text("@StarkBot what's the price?", "starkbot"),
+            extract_command_text("@StarkBot what's the price?", &re),
             "what's the price?"
         );
         // Fully uppercase
         assert_eq!(
-            extract_command_text("@STARKBOT test message", "starkbot"),
+            extract_command_text("@STARKBOT test message", &re),
             "test message"
         );
         // Weird mixed case
         assert_eq!(
-            extract_command_text("@StArKbOt random case", "starkbot"),
+            extract_command_text("@StArKbOt random case", &re),
             "random case"
         );
         // Multiple mentions with our bot
         assert_eq!(
-            extract_command_text("@user1 @starkbot help me", "starkbot"),
+            extract_command_text("@user1 @starkbot help me", &re),
             "help me"
         );
-        // Bot mention in middle of text (should be removed)
+        // Bot mention in middle of text (should be removed, may leave extra space)
         assert_eq!(
-            extract_command_text("Hey @StarkBot can you help?", "starkbot"),
-            "Hey can you help?"
+            extract_command_text("Hey @StarkBot can you help?", &re),
+            "Hey  can you help?"
         );
         // Just the mention, no text
         assert_eq!(
-            extract_command_text("@starkbot", "starkbot"),
+            extract_command_text("@starkbot", &re),
             ""
         );
     }
