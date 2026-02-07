@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Calendar, Trash2, MessageSquare, Download, ChevronLeft, User, Bot, Wrench, CheckCircle, XCircle, AlertCircle, Play, Pause, RefreshCw } from 'lucide-react';
+import clsx from 'clsx';
+import { Calendar, Trash2, MessageSquare, Download, ChevronLeft, User, Bot, Wrench, CheckCircle, XCircle, AlertCircle, Play, Pause, RefreshCw, Loader2 } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { getSessions, getSession, deleteSession, deleteAllSessions, getSessionTranscript, SessionMessage, getCronJobs, CronJobInfo, stopSession, resumeSession } from '@/lib/api';
@@ -50,6 +51,8 @@ export default function Sessions() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [modeFilter, setModeFilter] = useState<string>('all');
 
   useEffect(() => {
     loadSessions();
@@ -83,6 +86,31 @@ export default function Sessions() {
         console.error('Poll refresh failed:', err);
       }
     }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [selectedSession]);
+
+  // Polling for sessions list refresh (every 10s when on list view)
+  useEffect(() => {
+    if (selectedSession) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const [data, jobs] = await Promise.all([
+          getSessions(),
+          getCronJobs().catch(() => []),
+        ]);
+        const sorted = data
+          .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+          .slice(0, 100);
+        setSessions(sorted);
+        const jobMap = new Map<string, CronJobInfo>();
+        jobs.forEach(job => jobMap.set(job.job_id, job));
+        setCronJobs(jobMap);
+      } catch (err) {
+        console.error('Sessions list poll failed:', err);
+      }
+    }, 10000);
 
     return () => clearInterval(pollInterval);
   }, [selectedSession]);
@@ -326,6 +354,20 @@ export default function Sessions() {
     URL.revokeObjectURL(url);
   };
 
+  const availableTypes = useMemo(() => {
+    const types = new Set(sessions.map(s => s.channel_type.toLowerCase()));
+    return Array.from(types).sort();
+  }, [sessions]);
+
+  const filteredSessions = useMemo(() => {
+    return sessions.filter(session => {
+      if (typeFilter !== 'all' && session.channel_type.toLowerCase() !== typeFilter) return false;
+      if (modeFilter === 'safe' && session.safe_mode !== true) return false;
+      if (modeFilter === 'standard' && session.safe_mode === true) return false;
+      return true;
+    });
+  }, [sessions, typeFilter, modeFilter]);
+
   if (isLoading) {
     return (
       <div className="p-4 sm:p-8 flex items-center justify-center">
@@ -563,8 +605,64 @@ export default function Sessions() {
       )}
 
       {sessions.length > 0 ? (
-        <div className="space-y-3">
-          {sessions.map((session) => (
+        <>
+          {/* Filters */}
+          <div className="mb-4 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm text-slate-400">Type:</span>
+              <button
+                onClick={() => setTypeFilter('all')}
+                className={clsx(
+                  'px-3 py-1 rounded-full text-sm transition-colors',
+                  typeFilter === 'all'
+                    ? 'bg-stark-500 text-white'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                )}
+              >
+                All
+              </button>
+              {availableTypes.map((type) => (
+                <button
+                  key={type}
+                  onClick={() => setTypeFilter(type)}
+                  className={clsx(
+                    'px-3 py-1 rounded-full text-sm transition-colors',
+                    typeFilter === type
+                      ? 'bg-stark-500 text-white'
+                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  )}
+                >
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm text-slate-400">Mode:</span>
+              {(['all', 'standard', 'safe'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setModeFilter(mode)}
+                  className={clsx(
+                    'px-3 py-1 rounded-full text-sm transition-colors',
+                    modeFilter === mode
+                      ? 'bg-stark-500 text-white'
+                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  )}
+                >
+                  {mode === 'all' ? 'All' : mode === 'safe' ? 'Safe Mode' : 'Standard'}
+                </button>
+              ))}
+            </div>
+            {(typeFilter !== 'all' || modeFilter !== 'all') && (
+              <p className="text-xs text-slate-500">
+                Showing {filteredSessions.length} of {sessions.length}
+              </p>
+            )}
+          </div>
+
+          {filteredSessions.length > 0 ? (
+          <div className="space-y-3">
+          {filteredSessions.map((session) => (
             <Card
               key={session.id}
               className="cursor-pointer hover:border-stark-500/50 transition-colors"
@@ -641,6 +739,10 @@ export default function Sessions() {
                   </div>
                   {/* Action buttons */}
                   <div className="flex items-center gap-1 sm:gap-2 self-end sm:self-center shrink-0">
+                    {/* Spinning indicator for active sessions */}
+                    {session.completion_status === 'active' && (
+                      <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                    )}
                     {/* Play/Pause button - don't show for completed sessions */}
                     {session.completion_status !== 'complete' && (
                       <Button
@@ -679,6 +781,15 @@ export default function Sessions() {
             </Card>
           ))}
         </div>
+          ) : (
+            <Card>
+              <CardContent className="text-center py-12">
+                <Calendar className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                <p className="text-slate-400">No sessions match the selected filters</p>
+              </CardContent>
+            </Card>
+          )}
+        </>
       ) : (
         <Card>
           <CardContent className="text-center py-12">

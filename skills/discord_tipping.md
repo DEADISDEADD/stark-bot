@@ -1,11 +1,11 @@
 ---
 name: discord_tipping
 description: "Tip Discord users with tokens. Resolves Discord mentions to wallet addresses and executes ERC20 transfers."
-version: 1.2.0
+version: 1.3.0
 author: starkbot
 metadata: {"clawdbot":{"emoji":"💸"}}
 tags: [discord, tipping, crypto, transfer, erc20]
-requires_tools: [discord_resolve_user, token_lookup, to_raw_amount, register_set, web3_preset_function_call, list_queued_web3_tx, broadcast_web3_tx]
+requires_tools: [discord_resolve_user, token_lookup, to_raw_amount, web3_preset_function_call, list_queued_web3_tx, broadcast_web3_tx]
 ---
 
 # Discord Tipping
@@ -14,13 +14,12 @@ Send tokens to Discord users by resolving their mention to a registered wallet a
 
 ## Quick Start
 
-When a user says "tip @someone X TOKEN", follow these 5 steps in order:
+When a user says "tip @someone X TOKEN", follow these 4 steps in order:
 
-1. **Resolve the mention** -> Get wallet address
+1. **Resolve the mention** -> Get wallet address (recipient_address register is automatically set)
 2. **Look up the token** -> Get contract address and decimals
 3. **Convert amount** -> Human readable to raw units
-4. **Set recipient** -> Store wallet address in register
-5. **Transfer** -> Execute the ERC20 transfer via preset
+4. **Transfer** -> Execute the ERC20 transfer via preset
 
 **Amount shorthand:** Users can use "k" for thousands (1k = 1,000) and "m" for millions (1m = 1,000,000). For example: "tip @user 5k STARKBOT" means 5,000 tokens.
 
@@ -34,8 +33,8 @@ user_mention: "1234567890"
 
 **Note:** Pass the numeric user ID, not the raw mention format. Extract the numbers from mentions like `<@1234567890>`.
 
-- If `registered: true` -> proceed with the address
-- If `registered: false` -> tell user they need to register with `@starkbot register 0x...`
+- If `registered: true` -> proceed (the `recipient_address` register is automatically set)
+- If error/not registered -> tell user they need to register with `@starkbot register 0x...`
 
 ## Step 2: Look Up Token
 
@@ -58,13 +57,7 @@ cache_as: "transfer_amount"
 
 Reads `token_address_decimals` automatically and outputs raw amount.
 
-## Step 4: Set Recipient Address
-
-```json
-{"tool": "register_set", "key": "recipient_address", "value": "<wallet_address from step 1>"}
-```
-
-## Step 5: Transfer
+## Step 4: Transfer
 
 ```tool:web3_preset_function_call
 preset: erc20_transfer
@@ -81,7 +74,7 @@ The `erc20_transfer` preset reads `token_address`, `recipient_address`, and `tra
 ```tool:discord_resolve_user
 user_mention: "987654321"
 ```
--> `{"public_address": "0x04abc...", "registered": true}`
+-> `{"public_address": "0x04abc...", "registered": true, "recipient_address_set": true}`
 
 3. Token lookup:
 ```tool:token_lookup
@@ -98,18 +91,13 @@ cache_as: "transfer_amount"
 ```
 -> `1000000000000000000`
 
-5. Set recipient:
-```json
-{"tool": "register_set", "key": "recipient_address", "value": "0x04abc..."}
-```
-
-6. Transfer:
+5. Transfer:
 ```tool:web3_preset_function_call
 preset: erc20_transfer
 network: base
 ```
 
-7. Confirm: "Sent 1 STARKBOT to @jimmy!"
+6. Confirm: "Sent 1 STARKBOT to @jimmy!"
 
 ## Common Tokens (Base Network)
 

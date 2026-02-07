@@ -130,6 +130,37 @@ impl Tool for Web3PresetFunctionCallTool {
             }
         };
 
+        // Defense-in-depth: In Discord channels, erc20_transfer requires
+        // recipient_address to have been set by discord_resolve_user (not register_set
+        // or any other tool). This prevents sending tokens to unverified addresses
+        // when discord_resolve_user fails but the AI continues the flow.
+        if params.preset == "erc20_transfer" {
+            if let Some(ref ch) = context.channel_type {
+                if ch == "discord" {
+                    match context.registers.get_entry("recipient_address") {
+                        Some(entry) if entry.source_tool == "discord_resolve_user" => {
+                            // Valid — address was verified via Discord user resolution
+                        }
+                        Some(entry) => {
+                            return ToolResult::error(format!(
+                                "SAFETY BLOCK: In Discord channels, 'recipient_address' must be set by \
+                                 'discord_resolve_user' tool (source was '{}'). This prevents sending \
+                                 tokens to unverified addresses. Resolve the Discord user first.",
+                                entry.source_tool
+                            ));
+                        }
+                        None => {
+                            return ToolResult::error(
+                                "SAFETY BLOCK: 'recipient_address' register is not set. In Discord \
+                                 channels, you must use 'discord_resolve_user' first to resolve the \
+                                 recipient's mention to a verified wallet address.",
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         // Get contract address — either from register or hardcoded per network
         let contract = if let Some(ref contract_reg) = preset.contract_register {
             match context.registers.get(contract_reg) {
@@ -212,5 +243,105 @@ impl Tool for Web3PresetFunctionCallTool {
             Some(&params.preset),
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::types::ToolContext;
+
+    #[tokio::test]
+    async fn test_erc20_transfer_discord_blocks_wrong_source() {
+        let tool = Web3PresetFunctionCallTool::new();
+        let context = ToolContext::new()
+            .with_channel(1, "discord".to_string())
+            .with_selected_network(Some("base".to_string()));
+
+        // Set recipient_address via register_set (wrong source for Discord)
+        context.set_register(
+            "recipient_address",
+            json!("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
+            "register_set",
+        );
+
+        let result = tool
+            .execute(json!({"preset": "erc20_transfer"}), &context)
+            .await;
+
+        assert!(!result.success);
+        assert!(result.content.contains("SAFETY BLOCK"));
+        assert!(result.content.contains("register_set"));
+    }
+
+    #[tokio::test]
+    async fn test_erc20_transfer_discord_blocks_missing_register() {
+        let tool = Web3PresetFunctionCallTool::new();
+        let context = ToolContext::new()
+            .with_channel(1, "discord".to_string())
+            .with_selected_network(Some("base".to_string()));
+
+        // Don't set recipient_address at all
+        let result = tool
+            .execute(json!({"preset": "erc20_transfer"}), &context)
+            .await;
+
+        assert!(!result.success);
+        assert!(result.content.contains("SAFETY BLOCK"));
+        assert!(result.content.contains("not set"));
+    }
+
+    #[tokio::test]
+    async fn test_erc20_transfer_discord_allows_correct_source() {
+        let tool = Web3PresetFunctionCallTool::new();
+        let context = ToolContext::new()
+            .with_channel(1, "discord".to_string())
+            .with_selected_network(Some("base".to_string()));
+
+        // Set recipient_address via discord_resolve_user (correct source)
+        context.set_register(
+            "recipient_address",
+            json!("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
+            "discord_resolve_user",
+        );
+        // Set other required registers so it passes the safety check
+        // (it will fail later due to missing token_address, but NOT with SAFETY BLOCK)
+        let result = tool
+            .execute(json!({"preset": "erc20_transfer"}), &context)
+            .await;
+
+        // Should NOT contain SAFETY BLOCK — it should fail for a different reason
+        // (missing token_address register or ABI file)
+        assert!(
+            !result.content.contains("SAFETY BLOCK"),
+            "Should pass safety check; got: {}",
+            result.content
+        );
+    }
+
+    #[tokio::test]
+    async fn test_erc20_transfer_web_skips_source_check() {
+        let tool = Web3PresetFunctionCallTool::new();
+        let context = ToolContext::new()
+            .with_channel(1, "web".to_string())
+            .with_selected_network(Some("base".to_string()));
+
+        // Set recipient_address via register_set — should be fine for web
+        context.set_register(
+            "recipient_address",
+            json!("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
+            "register_set",
+        );
+
+        let result = tool
+            .execute(json!({"preset": "erc20_transfer"}), &context)
+            .await;
+
+        // Should NOT contain SAFETY BLOCK — web channels are not restricted
+        assert!(
+            !result.content.contains("SAFETY BLOCK"),
+            "Web channels should skip source check; got: {}",
+            result.content
+        );
     }
 }

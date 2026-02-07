@@ -765,7 +765,7 @@ async fn process_mention(
         "Keep response under 280 chars or it will be threaded"
     };
     let text_with_hint = format!(
-        "[TWITTER MENTION from @{} - {}]\n\n{}",
+        "[TWITTER MENTION from @{} - {}. Reply using say_to_user — your reply will be posted to Twitter automatically.]\n\n{}",
         author_username, char_hint, command_text
     );
 
@@ -773,7 +773,9 @@ async fn process_mention(
     let normalized = NormalizedMessage {
         channel_id,
         channel_type: ChannelType::Twitter.to_string(),
-        chat_id: tweet.conversation_id.clone().unwrap_or_else(|| tweet.id.clone()),
+        // Each mention gets its own session (tweet ID, not conversation ID).
+        // This prevents non-admin mentions from poisoning an admin session's safe mode flag.
+        chat_id: tweet.id.clone(),
         user_id: tweet.author_id.clone(),
         user_name: author_username.to_string(),
         text: text_with_hint,
@@ -816,8 +818,11 @@ async fn process_mention(
     log::info!("Twitter: Dispatching message to AI for @{}", author_username);
     let result = dispatcher.dispatch(normalized).await;
 
-    // Unsubscribe from events and stop event task
+    // Unsubscribe prevents new events; give the capture task a moment to drain
+    // any events already in the mpsc buffer (avoids race where say_to_user event
+    // is buffered but not yet processed when we check).
     broadcaster.unsubscribe(&client_id);
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     event_task.abort();
 
     log::info!(
@@ -835,10 +840,10 @@ async fn process_mention(
         // Dispatch returned empty response — check if say_to_user delivered via events
         let captured = say_to_user_messages.lock().await;
         if !captured.is_empty() {
-            // Combine all say_to_user messages (usually just one)
-            let combined = captured.join("\n\n");
-            log::info!("Twitter: Using say_to_user message from events ({} chars)", combined.len());
-            Some(combined)
+            // Use the LAST say_to_user message (the final response, not intermediate ones)
+            let last = captured.last().unwrap().clone();
+            log::info!("Twitter: Using say_to_user message from events ({} chars, {} total captured)", last.len(), captured.len());
+            Some(last)
         } else {
             log::warn!("Twitter: No response from dispatch and no say_to_user events for @{}", author_username);
             None

@@ -124,6 +124,7 @@ impl RegisterSetTool {
         "token_address",
         "contract_address",
         "spender",
+        "recipient_address",
     ];
 
     /// Check if a register key is blocked from being set via register_set
@@ -215,6 +216,19 @@ impl Tool for RegisterSetTool {
         // Check if this register is blocked (must use specific tools)
         if let Err(e) = Self::check_blocked(&params.key) {
             return ToolResult::error(e);
+        }
+
+        // In Discord channels, recipient_address must be set by discord_resolve_user
+        if params.key == "recipient_address" {
+            if let Some(ref ch) = context.channel_type {
+                if ch == "discord" {
+                    return ToolResult::error(
+                        "Cannot set 'recipient_address' via register_set in Discord channels. \
+                         Use 'discord_resolve_user' tool instead — it automatically sets this register \
+                         after verifying the recipient's identity.",
+                    );
+                }
+            }
         }
 
         // Determine value to store (json_value takes precedence, then value)
@@ -366,5 +380,61 @@ mod tests {
         // sell_amount does NOT require address (any value ok)
         assert!(RegisterSetTool::validate_address_register("sell_amount", &json!("1000000")).is_ok());
         assert!(RegisterSetTool::validate_address_register("sell_amount", &invalid_symbol).is_ok());
+
+        // recipient_address requires valid address
+        assert!(
+            RegisterSetTool::validate_address_register("recipient_address", &valid_addr).is_ok()
+        );
+        assert!(
+            RegisterSetTool::validate_address_register("recipient_address", &invalid_symbol)
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_recipient_address_blocked_in_discord() {
+        use crate::tools::types::ToolContext;
+
+        let tool = RegisterSetTool::new();
+        let context = ToolContext::new().with_channel(1, "discord".to_string());
+
+        let result = tool
+            .execute(
+                json!({
+                    "key": "recipient_address",
+                    "value": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+                }),
+                &context,
+            )
+            .await;
+
+        assert!(!result.success, "recipient_address should be blocked in Discord");
+        assert!(
+            result.content.contains("discord_resolve_user"),
+            "Error should mention discord_resolve_user"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_recipient_address_allowed_in_web() {
+        use crate::tools::types::ToolContext;
+
+        let tool = RegisterSetTool::new();
+        let context = ToolContext::new().with_channel(1, "web".to_string());
+
+        let result = tool
+            .execute(
+                json!({
+                    "key": "recipient_address",
+                    "value": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+                }),
+                &context,
+            )
+            .await;
+
+        assert!(
+            result.success,
+            "recipient_address should be allowed in web channels"
+        );
     }
 }
