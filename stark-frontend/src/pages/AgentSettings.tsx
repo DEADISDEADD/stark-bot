@@ -3,14 +3,8 @@ import { Save, Settings } from 'lucide-react';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
-import { getAgentSettings, updateAgentSettings, getBotSettings, updateBotSettings } from '@/lib/api';
+import { getAgentSettings, updateAgentSettings, getBotSettings, updateBotSettings, getAiEndpointPresets, AiEndpointPreset } from '@/lib/api';
 
-const ENDPOINTS = {
-  kimi: 'https://kimi.defirelay.com/api/v1/chat/completions',
-  llama: 'https://llama.defirelay.com/api/v1/chat/completions',
-};
-
-type EndpointOption = 'kimi' | 'llama' | 'custom';
 type ModelArchetype = 'kimi' | 'llama' | 'claude' | 'openai';
 
 interface Settings {
@@ -22,7 +16,8 @@ interface Settings {
 }
 
 export default function AgentSettings() {
-  const [endpointOption, setEndpointOption] = useState<EndpointOption>('kimi');
+  const [presets, setPresets] = useState<AiEndpointPreset[]>([]);
+  const [endpointOption, setEndpointOption] = useState<string>('kimi');
   const [customEndpoint, setCustomEndpoint] = useState('');
   const [modelArchetype, setModelArchetype] = useState<ModelArchetype>('kimi');
   const [maxResponseTokens, setMaxResponseTokens] = useState(40000);
@@ -36,18 +31,29 @@ export default function AgentSettings() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
-    loadSettings();
+    loadPresets();
     loadBotSettings();
   }, []);
 
-  // Lock archetype for known endpoints
-  useEffect(() => {
-    if (endpointOption === 'kimi') {
-      setModelArchetype('kimi');
-    } else if (endpointOption === 'llama') {
-      setModelArchetype('llama');
+  const loadPresets = async () => {
+    try {
+      const data = await getAiEndpointPresets();
+      setPresets(data);
+    } catch (err) {
+      console.error('Failed to load AI endpoint presets:', err);
+    } finally {
+      // Load settings after presets so we can match against them
+      loadSettings();
     }
-  }, [endpointOption]);
+  };
+
+  // Lock archetype for preset endpoints
+  useEffect(() => {
+    const preset = presets.find(p => p.id === endpointOption);
+    if (preset) {
+      setModelArchetype(preset.model_archetype as ModelArchetype);
+    }
+  }, [endpointOption, presets]);
 
   // Archetype is only selectable for custom endpoints
   const isArchetypeLocked = endpointOption !== 'custom';
@@ -57,15 +63,14 @@ export default function AgentSettings() {
       const data = await getAgentSettings() as Settings;
 
       // Determine which endpoint option is being used
-      if (data.endpoint === ENDPOINTS.kimi) {
-        setEndpointOption('kimi');
-      } else if (data.endpoint === ENDPOINTS.llama) {
-        setEndpointOption('llama');
+      const matchedPreset = presets.find(p => p.endpoint === data.endpoint);
+      if (matchedPreset) {
+        setEndpointOption(matchedPreset.id);
       } else if (data.endpoint) {
         setEndpointOption('custom');
         setCustomEndpoint(data.endpoint);
       } else {
-        setEndpointOption('kimi');
+        setEndpointOption(presets.length > 0 ? presets[0].id : 'custom');
       }
 
       // Set secret key indicator
@@ -121,10 +126,9 @@ export default function AgentSettings() {
     setMessage(null);
 
     let endpoint: string;
-    if (endpointOption === 'kimi') {
-      endpoint = ENDPOINTS.kimi;
-    } else if (endpointOption === 'llama') {
-      endpoint = ENDPOINTS.llama;
+    const selectedPreset = presets.find(p => p.id === endpointOption);
+    if (selectedPreset) {
+      endpoint = selectedPreset.endpoint;
     } else {
       endpoint = customEndpoint;
     }
@@ -139,10 +143,8 @@ export default function AgentSettings() {
     const contextTokens = Math.max(maxContextTokens, 80000);
 
     try {
-      // Enforce archetype for known endpoints
-      const archetype = endpointOption === 'kimi' ? 'kimi'
-        : endpointOption === 'llama' ? 'llama'
-        : modelArchetype;
+      // Enforce archetype for preset endpoints
+      const archetype = selectedPreset ? selectedPreset.model_archetype : modelArchetype;
 
       // Only include secret_key for custom endpoints, and only if provided
       const payload: {
@@ -208,13 +210,28 @@ export default function AgentSettings() {
                 </label>
                 <select
                   value={endpointOption}
-                  onChange={(e) => setEndpointOption(e.target.value as EndpointOption)}
+                  onChange={(e) => setEndpointOption(e.target.value)}
                   className="w-full px-4 py-3 bg-slate-900/50 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-stark-500 focus:border-transparent"
                 >
-                  <option value="kimi">kimi.defirelay.com</option>
-                  <option value="llama">llama.defirelay.com</option>
+                  {presets.map(preset => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.display_name}{preset.x402_cost ? ` (${(preset.x402_cost / 1_000_000).toFixed(4)} USDC/call)` : ''}
+                    </option>
+                  ))}
                   <option value="custom">Custom Endpoint</option>
                 </select>
+                {(() => {
+                  const selected = presets.find(p => p.id === endpointOption);
+                  if (selected?.x402_cost) {
+                    const cost = (selected.x402_cost / 1_000_000).toFixed(4);
+                    return (
+                      <p className="text-xs text-yellow-400 mt-1">
+                        x402 payment: {cost} USDC per API call
+                      </p>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
               {endpointOption === 'custom' && (

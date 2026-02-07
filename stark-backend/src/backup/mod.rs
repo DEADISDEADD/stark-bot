@@ -57,6 +57,8 @@ pub struct BackupData {
     pub discord_registrations: Vec<DiscordRegistrationEntry>,
     /// Skills (custom agent skills)
     pub skills: Vec<SkillEntry>,
+    /// AI model / agent settings (endpoint, archetype, tokens, etc.)
+    pub agent_settings: Vec<AgentSettingsEntry>,
 }
 
 /// Manual Default because DateTime<Utc> doesn't derive Default
@@ -78,6 +80,7 @@ impl Default for BackupData {
             soul_document: None,
             discord_registrations: Vec::new(),
             skills: Vec::new(),
+            agent_settings: Vec::new(),
         }
     }
 }
@@ -107,6 +110,7 @@ impl BackupData {
             + if self.soul_document.is_some() { 1 } else { 0 }
             + self.discord_registrations.len()
             + self.skills.len()
+            + self.agent_settings.len()
     }
 }
 
@@ -264,6 +268,20 @@ pub struct SkillScriptEntry {
     pub name: String,
     pub code: String,
     pub language: String,
+}
+
+/// AI model / agent settings entry in backup
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentSettingsEntry {
+    pub endpoint: String,
+    pub model_archetype: String,
+    pub max_response_tokens: i32,
+    pub max_context_tokens: i32,
+    pub enabled: bool,
+    /// Secret key is included so the user doesn't have to re-enter API keys after restore.
+    /// The entire backup payload is already encrypted with ECIES — this is not stored in plaintext.
+    pub secret_key: Option<String>,
 }
 
 /// Options for what to include in a backup

@@ -5,6 +5,7 @@ use dotenv::dotenv;
 use std::sync::Arc;
 
 mod ai;
+mod ai_endpoint_config;
 mod backup;
 mod channels;
 mod config;
@@ -554,6 +555,8 @@ async fn main() -> std::io::Result<()> {
     tools::builtin::cryptocurrency::network_lookup::load_networks(config_dir);
     log::info!("Loading RPC provider configs from config directory");
     tools::rpc_config::load_rpc_providers(config_dir);
+    log::info!("Loading AI endpoint presets from config directory");
+    ai_endpoint_config::load_ai_endpoints(config_dir);
 
     let mut config = Config::from_env();
     let port = config.port;

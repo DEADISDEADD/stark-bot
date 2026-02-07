@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
 
 use crate::backup::{
-    ApiKeyEntry, BackupData, BotSettingsEntry, ChannelEntry, ChannelSettingEntry, CronJobEntry,
-    DiscordRegistrationEntry, HeartbeatConfigEntry, MindConnectionEntry, MindNodeEntry,
-    SkillEntry, SkillScriptEntry,
+    AgentSettingsEntry, ApiKeyEntry, BackupData, BotSettingsEntry, ChannelEntry,
+    ChannelSettingEntry, CronJobEntry, DiscordRegistrationEntry, HeartbeatConfigEntry,
+    MindConnectionEntry, MindNodeEntry, SkillEntry, SkillScriptEntry,
 };
 use crate::db::tables::mind_nodes::{CreateMindNodeRequest, UpdateMindNodeRequest};
 use crate::keystore_client::KEYSTORE_CLIENT;
@@ -302,6 +302,8 @@ pub struct BackupResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_settings_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub has_settings: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_heartbeat: Option<bool>,
@@ -340,6 +342,8 @@ pub struct PreviewKeysResponse {
     pub discord_registration_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_settings_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_settings: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -583,6 +587,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -609,6 +614,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                     channel_setting_count: None,
                     discord_registration_count: None,
                     skill_count: None,
+                    agent_settings_count: None,
                     has_settings: None,
                     has_heartbeat: None,
                     has_soul: None,
@@ -637,6 +643,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -875,8 +882,28 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
         }
     }
 
+    // Get agent settings (AI model configurations)
+    match state.db.list_agent_settings() {
+        Ok(settings) => {
+            backup.agent_settings = settings
+                .iter()
+                .map(|s| AgentSettingsEntry {
+                    endpoint: s.endpoint.clone(),
+                    model_archetype: s.model_archetype.clone(),
+                    max_response_tokens: s.max_response_tokens,
+                    max_context_tokens: s.max_context_tokens,
+                    enabled: s.enabled,
+                    secret_key: s.secret_key.clone(),
+                })
+                .collect();
+        }
+        Err(e) => {
+            log::warn!("Failed to list agent settings for backup: {}", e);
+        }
+    }
+
     // Check if there's anything to backup
-    if backup.api_keys.is_empty() && backup.mind_map_nodes.is_empty() && backup.cron_jobs.is_empty() && backup.bot_settings.is_none() && backup.heartbeat_config.is_none() && backup.channel_settings.is_empty() && backup.channels.is_empty() && backup.soul_document.is_none() && backup.discord_registrations.is_empty() && backup.skills.is_empty() {
+    if backup.api_keys.is_empty() && backup.mind_map_nodes.is_empty() && backup.cron_jobs.is_empty() && backup.bot_settings.is_none() && backup.heartbeat_config.is_none() && backup.channel_settings.is_empty() && backup.channels.is_empty() && backup.soul_document.is_none() && backup.discord_registrations.is_empty() && backup.skills.is_empty() && backup.agent_settings.is_empty() {
         return HttpResponse::BadRequest().json(BackupResponse {
             success: false,
             key_count: None,
@@ -887,6 +914,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
             channel_setting_count: None,
             discord_registration_count: None,
             skill_count: None,
+            agent_settings_count: None,
             has_settings: None,
             has_heartbeat: None,
             has_soul: None,
@@ -904,6 +932,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
     let channel_setting_count = backup.channel_settings.len();
     let discord_registration_count = backup.discord_registrations.len();
     let skill_count = backup.skills.len();
+    let agent_settings_count = backup.agent_settings.len();
     let has_settings = backup.bot_settings.is_some();
     let has_heartbeat = backup.heartbeat_config.is_some();
     let item_count = backup.item_count();
@@ -923,6 +952,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -947,6 +977,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -981,11 +1012,12 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: Some(channel_setting_count),
                 discord_registration_count: Some(discord_registration_count),
                 skill_count: Some(skill_count),
+                agent_settings_count: Some(agent_settings_count),
                 has_settings: Some(has_settings),
                 has_heartbeat: Some(has_heartbeat),
                 has_soul: Some(has_soul),
                 message: Some(format!(
-                    "Backed up {} items ({} keys, {} nodes, {} connections, {} cron jobs, {} channels, {} channel settings, {} discord registrations, {} skills{}{}{})",
+                    "Backed up {} items ({} keys, {} nodes, {} connections, {} cron jobs, {} channels, {} channel settings, {} discord registrations, {} skills, {} AI models{}{}{})",
                     item_count,
                     key_count,
                     node_count,
@@ -995,6 +1027,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                     channel_setting_count,
                     discord_registration_count,
                     skill_count,
+                    agent_settings_count,
                     if has_settings { ", settings" } else { "" },
                     if has_heartbeat { ", heartbeat" } else { "" },
                     if has_soul { ", soul" } else { "" }
@@ -1014,6 +1047,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -1033,6 +1067,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -1063,6 +1098,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -1093,6 +1129,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -1115,6 +1152,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -1132,6 +1170,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
             channel_setting_count: None,
             discord_registration_count: None,
             skill_count: None,
+            agent_settings_count: None,
             has_settings: None,
             has_heartbeat: None,
             has_soul: None,
@@ -1153,6 +1192,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -1177,6 +1217,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -1205,6 +1246,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                         channel_setting_count: None,
                         discord_registration_count: None,
                         skill_count: None,
+                        agent_settings_count: None,
                         has_settings: None,
                         has_heartbeat: None,
                         has_soul: None,
@@ -1588,6 +1630,38 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
         }
     }
 
+    // Restore agent settings (AI model configurations)
+    let mut restored_agent_settings = 0;
+    if !backup_data.agent_settings.is_empty() {
+        // Clear existing agent settings before restore
+        if let Err(e) = state.db.disable_agent_settings() {
+            log::warn!("Failed to disable existing agent settings for restore: {}", e);
+        }
+        for entry in &backup_data.agent_settings {
+            match state.db.save_agent_settings(
+                &entry.endpoint,
+                &entry.model_archetype,
+                entry.max_response_tokens,
+                entry.max_context_tokens,
+                entry.secret_key.as_deref(),
+            ) {
+                Ok(saved) => {
+                    // save_agent_settings enables the last one saved; if the backup entry was
+                    // disabled we need to disable all again and rely on the enabled one being
+                    // saved last (they are ordered by id in the backup).
+                    if !entry.enabled {
+                        let _ = state.db.disable_agent_settings();
+                    }
+                    restored_agent_settings += 1;
+                    log::info!("Restored agent settings: {} ({})", saved.endpoint, saved.model_archetype);
+                }
+                Err(e) => {
+                    log::warn!("Failed to restore agent settings for {}: {}", entry.endpoint, e);
+                }
+            }
+        }
+    }
+
     // Auto-start channels with auto_start_on_boot setting enabled
     let mut auto_started_channels = 0;
     for (old_id, new_id) in &old_channel_to_new_id {
@@ -1633,11 +1707,12 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
         channel_setting_count: Some(restored_channel_settings),
         discord_registration_count: Some(restored_discord_registrations),
         skill_count: Some(restored_skills),
+        agent_settings_count: Some(restored_agent_settings),
         has_settings: Some(has_settings),
         has_heartbeat: Some(has_heartbeat),
         has_soul: Some(has_soul),
         message: Some(format!(
-            "Restored {} keys, {} nodes, {} connections, {} cron jobs, {} channels, {} channel settings, {} discord registrations, {} skills{}{}{}",
+            "Restored {} keys, {} nodes, {} connections, {} cron jobs, {} channels, {} channel settings, {} discord registrations, {} skills, {} AI models{}{}{}",
             restored_keys,
             restored_nodes,
             restored_connections,
@@ -1646,6 +1721,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
             restored_channel_settings,
             restored_discord_registrations,
             restored_skills,
+            restored_agent_settings,
             if has_settings { ", settings" } else { "" },
             if has_heartbeat { ", heartbeat" } else { "" },
             if has_soul { ", soul" } else { "" }
@@ -1726,6 +1802,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -1758,6 +1835,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -1782,6 +1860,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -1801,6 +1880,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
             channel_setting_count: None,
             discord_registration_count: None,
             skill_count: None,
+            agent_settings_count: None,
             has_settings: None,
             has_heartbeat: None,
             has_soul: None,
@@ -1824,6 +1904,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -1850,6 +1931,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -1889,6 +1971,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
             channel_setting_count: Some(backup_data.channel_settings.len()),
             discord_registration_count: Some(backup_data.discord_registrations.len()),
             skill_count: Some(backup_data.skills.len()),
+            agent_settings_count: Some(backup_data.agent_settings.len()),
             has_settings: Some(backup_data.bot_settings.is_some()),
             has_heartbeat: Some(backup_data.heartbeat_config.is_some()),
             has_soul: Some(backup_data.soul_document.is_some()),
@@ -1914,6 +1997,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 discord_registration_count: None,
                 skill_count: None,
+                agent_settings_count: None,
                 has_settings: None,
                 has_heartbeat: None,
                 has_soul: None,
@@ -1945,6 +2029,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
         channel_setting_count: None,
         discord_registration_count: None,
         skill_count: None,
+        agent_settings_count: None,
         has_settings: None,
         has_heartbeat: None,
         has_soul: None,

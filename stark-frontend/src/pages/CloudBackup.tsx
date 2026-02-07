@@ -64,7 +64,7 @@ export default function CloudBackup() {
       const result = await backupKeysToCloud();
       setMessage({
         type: 'success',
-        text: `Backup complete! ${result.key_count || 0} keys, ${result.node_count || 0} mind nodes, ${result.connection_count || 0} connections, ${result.cron_job_count || 0} cron jobs, ${result.channel_count || 0} channels, ${result.skill_count || 0} skills${result.has_settings ? ', settings' : ''}${result.has_heartbeat ? ', heartbeat' : ''}${result.has_soul ? ', soul' : ''}`
+        text: `Backup complete! ${result.key_count || 0} keys, ${result.node_count || 0} mind nodes, ${result.connection_count || 0} connections, ${result.cron_job_count || 0} cron jobs, ${result.channel_count || 0} channels, ${result.skill_count || 0} skills, ${result.agent_settings_count || 0} AI models${result.has_settings ? ', settings' : ''}${result.has_heartbeat ? ', heartbeat' : ''}${result.has_soul ? ', soul' : ''}`
       });
       setNoBackupWarning(false);
       // Refresh preview after successful backup
@@ -89,7 +89,7 @@ export default function CloudBackup() {
       const result = await restoreKeysFromCloud();
       setMessage({
         type: 'success',
-        text: `Restore complete! ${result.key_count || 0} keys, ${result.node_count || 0} mind nodes, ${result.connection_count || 0} connections, ${result.cron_job_count || 0} cron jobs, ${result.channel_count || 0} channels, ${result.skill_count || 0} skills${result.has_settings ? ', settings' : ''}${result.has_heartbeat ? ', heartbeat' : ''}${result.has_soul ? ', soul' : ''}`
+        text: `Restore complete! ${result.key_count || 0} keys, ${result.node_count || 0} mind nodes, ${result.connection_count || 0} connections, ${result.cron_job_count || 0} cron jobs, ${result.channel_count || 0} channels, ${result.skill_count || 0} skills, ${result.agent_settings_count || 0} AI models${result.has_settings ? ', settings' : ''}${result.has_heartbeat ? ', heartbeat' : ''}${result.has_soul ? ', soul' : ''}`
       });
     } catch (err) {
       setMessage({ type: 'error', text: formatKeystoreError(err) });
@@ -304,6 +304,15 @@ export default function CloudBackup() {
                         <span className="text-xs text-slate-400">Skills</span>
                       </div>
                       <span className="text-xl font-bold text-white">{previewData.skill_count}</span>
+                    </div>
+                  )}
+                  {(previewData.agent_settings_count ?? 0) > 0 && (
+                    <div className="p-3 bg-slate-900/50 rounded-lg border border-slate-700">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Settings className="w-4 h-4 text-cyan-400" />
+                        <span className="text-xs text-slate-400">AI Models</span>
+                      </div>
+                      <span className="text-xl font-bold text-white">{previewData.agent_settings_count}</span>
                     </div>
                   )}
                 </div>
@@ -569,6 +578,12 @@ export default function CloudBackup() {
                   <div className="flex items-center gap-2 p-2 bg-slate-900/50 rounded-lg">
                     <Zap className="w-4 h-4 text-amber-400" />
                     <span className="text-sm text-slate-300">{previewData.skill_count} Skills</span>
+                  </div>
+                )}
+                {(previewData.agent_settings_count ?? 0) > 0 && (
+                  <div className="flex items-center gap-2 p-2 bg-slate-900/50 rounded-lg">
+                    <Settings className="w-4 h-4 text-cyan-400" />
+                    <span className="text-sm text-slate-300">{previewData.agent_settings_count} AI Models</span>
                   </div>
                 )}
               </div>

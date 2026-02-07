@@ -882,6 +882,7 @@ export interface BackupResponse {
   channel_setting_count?: number;
   discord_registration_count?: number;
   skill_count?: number;
+  agent_settings_count?: number;
   has_settings?: boolean;
   has_heartbeat?: boolean;
   has_soul?: boolean;
@@ -905,6 +906,7 @@ export interface CloudBackupPreview {
   channel_setting_count?: number;
   discord_registration_count?: number;
   skill_count?: number;
+  agent_settings_count?: number;
   has_settings?: boolean;
   has_heartbeat?: boolean;
   has_soul?: boolean;
@@ -1192,6 +1194,19 @@ export async function updateBotSettings(data: {
     method: 'PUT',
     body: JSON.stringify(data),
   });
+}
+
+// AI Endpoint Presets API
+export interface AiEndpointPreset {
+  id: string;
+  display_name: string;
+  endpoint: string;
+  model_archetype: string;
+  x402_cost: number | null;
+}
+
+export async function getAiEndpointPresets(): Promise<AiEndpointPreset[]> {
+  return apiFetch('/agent-settings/endpoints');
 }
 
 // RPC Providers API

@@ -1,0 +1,14 @@
+{
+    "kimi": (
+        display_name: "kimi2.defirelay.com",
+        endpoint: "https://kimi2.defirelay.com/api/v1/chat/completions",
+        model_archetype: "kimi",
+        x402_cost: Some(5000),
+    ),
+    "kimi-turbo": (
+        display_name: "kimi2turbo.defirelay.com",
+        endpoint: "https://kimi2turbo.defirelay.com/api/v1/chat/completions",
+        model_archetype: "kimi",
+        x402_cost: Some(2500),
+    ),
+}

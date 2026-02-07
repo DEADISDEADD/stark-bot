@@ -2,6 +2,7 @@ use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use crate::ai::ArchetypeId;
 use crate::keystore_client::{KEYSTORE_CLIENT, DEFAULT_KEYSTORE_URL};
 use crate::models::{AgentSettings, AgentSettingsResponse, UpdateAgentSettingsRequest, UpdateBotSettingsRequest};
+use crate::ai_endpoint_config;
 use crate::tools::rpc_config;
 use crate::AppState;
 
@@ -360,6 +361,31 @@ pub async fn get_rpc_providers(
     HttpResponse::Ok().json(providers)
 }
 
+/// Get available AI endpoint presets
+pub async fn get_ai_endpoint_presets(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    let presets: Vec<serde_json::Value> = ai_endpoint_config::list_ai_endpoints()
+        .into_iter()
+        .map(|(id, preset)| {
+            serde_json::json!({
+                "id": id,
+                "display_name": preset.display_name,
+                "endpoint": preset.endpoint,
+                "model_archetype": preset.model_archetype,
+                "x402_cost": preset.x402_cost,
+            })
+        })
+        .collect();
+
+    HttpResponse::Ok().json(presets)
+}
+
 /// Configure routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -368,6 +394,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("", web::put().to(update_agent_settings))
             .route("/list", web::get().to(list_agent_settings))
             .route("/archetypes", web::get().to(get_available_archetypes))
+            .route("/endpoints", web::get().to(get_ai_endpoint_presets))
             .route("/disable", web::post().to(disable_agent))
     );
     cfg.service(

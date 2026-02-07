@@ -1,4 +1,4 @@
-import { Github, Monitor, BookOpen } from 'lucide-react'
+import { Github, Monitor, BookOpen, Palette } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 function DiscordIcon({ className }: { className?: string }) {
@@ -34,6 +34,13 @@ export function Navbar() {
           >
             <BookOpen className="w-5 h-5" />
             <span className="hidden sm:inline">Docs</span>
+          </Link>
+          <Link
+            to="/brand-kit"
+            className="flex items-center gap-2 px-4 py-2 text-white/60 hover:text-white transition-colors"
+          >
+            <Palette className="w-5 h-5" />
+            <span className="hidden sm:inline">Brand Kit</span>
           </Link>
           <a
             href="https://discord.gg/V26YeqBfXc"
