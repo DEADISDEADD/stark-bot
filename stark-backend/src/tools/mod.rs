@@ -11,8 +11,8 @@ pub use context_bank::{scan_input, ContextBank, ContextBankItem};
 pub use register::{PresetOrCustom, RegisterStore};
 pub use registry::{Tool, ToolRegistry};
 pub use types::{
-    PropertySchema, ToolConfig, ToolContext, ToolDefinition, ToolExecution, ToolGroup,
-    ToolInputSchema, ToolProfile, ToolResult, SAFE_MODE_ALLOW_LIST,
+    ChannelOutputType, PropertySchema, ToolConfig, ToolContext, ToolDefinition, ToolExecution,
+    ToolGroup, ToolInputSchema, ToolProfile, ToolResult, SAFE_MODE_ALLOW_LIST,
 };
 
 use std::sync::Arc;
@@ -61,6 +61,8 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::PolymarketTradeTool::new()));
     // DexScreener market data
     registry.register(Arc::new(builtin::DexScreenerTool::new()));
+    // GeckoTerminal interactive price charts
+    registry.register(Arc::new(builtin::GeckoTerminalTool::new()));
     // Cross-chain USDC bridging via Across Protocol
     registry.register(Arc::new(builtin::BridgeUsdcTool::new()));
 

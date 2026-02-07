@@ -1,7 +1,7 @@
 ---
 name: swap
 description: "Swap ERC20 tokens on Base using 0x DEX aggregator via quoter.defirelay.com"
-version: 8.0.0
+version: 8.2.0
 author: starkbot
 homepage: https://0x.org
 metadata: {"requires_auth": false, "clawdbot":{"emoji":"🔄"}}
@@ -10,10 +10,9 @@ requires_tools: [token_lookup, to_raw_amount, decode_calldata, web3_preset_funct
 ---
 
 # Token Swap Skill
+ 
 
-When this skill is invoked, **immediately define all tasks upfront**, then mark this task complete. Do NOT start executing swap logic in this task — just plan.
-
-## Step 1: Define tasks
+## Step 1: Define the four tasks
 
 Call `define_tasks` with all 4 tasks in order:
 
@@ -21,8 +20,8 @@ Call `define_tasks` with all 4 tasks in order:
 {"tool": "define_tasks", "tasks": [
   "SWAP TASK 1/4 — Prepare: select network, look up sell and buy tokens, check balances, check Permit2 allowance. Report what you found. See swap skill 'Task 1' instructions.",
   "SWAP TASK 2/4 — Approve sell token for Permit2 (SKIP if allowance was sufficient in Task 1): call erc20_approve_permit2 preset, broadcast, wait for confirmation. See swap skill 'Task 2' instructions.",
-  "SWAP TASK 3/4 — Get swap quote: convert sell amount to wei with to_raw_amount, fetch quote with x402_fetch swap_quote preset, decode calldata with decode_calldata using cache_as 'swap'. See swap skill 'Task 3' instructions.",
-  "SWAP TASK 4/4 — Execute swap: call swap_execute preset, broadcast the transaction, then call verify_tx_broadcast and ONLY report success if VERIFIED or CONFIRMED. See swap skill 'Task 4' instructions."
+  "SWAP TASK 3/4 — Get swap quote: convert sell amount to raw_units with to_raw_amount, fetch quote with x402_fetch swap_quote preset, decode calldata with decode_calldata using cache_as 'swap'. See swap skill 'Task 3' instructions.",
+  "SWAP TASK 4/4 — Execute swap: IMMEDIATELY call swap_execute preset, then IMMEDIATELY broadcast  . Then call verify_tx_broadcast and ONLY report success if VERIFIED or CONFIRMED. See swap skill 'Task 4' instructions."
 ]}
 ```
 
@@ -97,13 +96,12 @@ After the approval is confirmed:
 {"tool": "task_fully_completed", "summary": "Sell token approved for Permit2. Ready for quote."}
 ```
 
-**The approval is NOT the swap. Do NOT report success to the user yet.**
-
+ 
 ---
 
 ## Task 3: Get swap quote
 
-### 3a. Convert sell amount to wei
+### 3a. Convert sell amount to raw units
 
 ```json
 {"tool": "to_raw_amount", "amount": "<human_amount>", "decimals_register": "sell_token_decimals", "cache_as": "sell_amount"}
@@ -134,13 +132,15 @@ After decoding succeeds:
 
 ## Task 4: Execute the swap
 
+**  just execute and broadcast immediately  **
+
 ### 4a. Execute the swap transaction
 
 ```json
 {"tool": "web3_preset_function_call", "preset": "swap_execute", "network": "<network>"}
 ```
 
-### 4b. Broadcast the swap transaction
+### 4b. Immediately broadcast the swap transaction
 
 ```json
 {"tool": "broadcast_web3_tx", "uuid": "<uuid_from_4a>"}
@@ -158,7 +158,7 @@ Read the output:
 
 - **"TRANSACTION VERIFIED"** → The swap succeeded AND the AI confirmed it matches the user's intent. Report success with tx hash and explorer link.
 - **"TRANSACTION CONFIRMED — INTENT MISMATCH"** → Confirmed on-chain but AI flagged a concern. Tell the user to check the explorer.
-- **"TRANSACTION REVERTED"** → The swap FAILED. Tell the user. Do NOT call `task_fully_completed`.
+- **"TRANSACTION REVERTED"** → The swap FAILED. Tell the user. 
 - **"CONFIRMATION TIMEOUT"** → Tell the user to check the explorer link.
 
 **Only call `task_fully_completed` if verify_tx_broadcast returned VERIFIED or CONFIRMED.**

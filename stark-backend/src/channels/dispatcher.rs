@@ -1899,6 +1899,11 @@ impl MessageDispatcher {
                 break;
             }
 
+            // Track if define_tasks replaced the queue in this batch of tool calls.
+            // If so, any task_fully_completed in the same batch should be ignored —
+            // it was meant for the pre-replacement task, not the new Task 1.
+            let mut define_tasks_replaced_queue = false;
+
             for call in &ai_response.tool_calls {
                 let args_pretty = serde_json::to_string_pretty(&call.arguments)
                     .unwrap_or_else(|_| call.arguments.to_string());
@@ -1938,6 +1943,22 @@ impl MessageDispatcher {
                     None,
                 ) {
                     log::error!("Failed to save tool call to session: {}", e);
+                }
+
+                // If define_tasks just replaced the queue, skip all remaining tool calls.
+                // The LLM planned these before the queue existed — the next iteration
+                // will have the proper task context and re-plan correctly.
+                if define_tasks_replaced_queue {
+                    log::info!(
+                        "[ORCHESTRATED_LOOP] Skipping tool '{}' — define_tasks replaced the queue this batch",
+                        call.name
+                    );
+                    tool_responses.push(ToolResponse::error(
+                        call.id.clone(),
+                        "⚠️ Task queue was just replaced by define_tasks. This tool call was not executed. \
+                         The next iteration will start with the correct task context.".to_string(),
+                    ));
+                    continue;
                 }
 
                 // Check if this is an orchestrator tool
@@ -2196,11 +2217,23 @@ impl MessageDispatcher {
                                             session_id,
                                             orchestrator,
                                         );
+                                        // Prevent any task_fully_completed in this same batch from
+                                        // accidentally completing the newly-started first task
+                                        define_tasks_replaced_queue = true;
                                     }
                                 }
                             }
                             // Check if task_fully_completed was called - agent signals current task is done
-                            if metadata.get("task_fully_completed").and_then(|v| v.as_bool()).unwrap_or(false) {
+                            // Skip if define_tasks just replaced the queue in this same batch — the
+                            // task_fully_completed was meant for the pre-replacement task, not the new Task 1
+                            if define_tasks_replaced_queue
+                                && metadata.get("task_fully_completed").and_then(|v| v.as_bool()).unwrap_or(false)
+                            {
+                                log::info!(
+                                    "[ORCHESTRATED_LOOP] Ignoring task_fully_completed — \
+                                     define_tasks replaced the queue in this same batch"
+                                );
+                            } else if metadata.get("task_fully_completed").and_then(|v| v.as_bool()).unwrap_or(false) {
                                 let summary = metadata.get("summary")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or(&result.content)
@@ -2234,7 +2267,8 @@ impl MessageDispatcher {
 
                         // say_to_user with finished_task=true terminates the loop (any mode)
                         // In safe mode, say_to_user always terminates (no ongoing tasks)
-                        if call.name == "say_to_user" && result.success {
+                        // But NOT if define_tasks just replaced the queue — new tasks need to run
+                        if call.name == "say_to_user" && result.success && !define_tasks_replaced_queue {
                             let finished_task = result.metadata.as_ref()
                                 .and_then(|m| m.get("finished_task"))
                                 .and_then(|v| v.as_bool())
@@ -2246,6 +2280,11 @@ impl MessageDispatcher {
                                 // say_to_user messages via their event forwarders. Polling-based
                                 // channels (Twitter) capture the message from broadcast events.
                             }
+                        } else if call.name == "say_to_user" && define_tasks_replaced_queue {
+                            log::info!(
+                                "[ORCHESTRATED_LOOP] Ignoring say_to_user finished_task — \
+                                 define_tasks replaced the queue in this same batch"
+                            );
                         }
 
                         // Extract duration_ms from metadata if available

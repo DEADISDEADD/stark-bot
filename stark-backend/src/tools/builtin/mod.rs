@@ -33,9 +33,10 @@ pub use core::{
 };
 pub use cryptocurrency::{
     load_networks, load_tokens, BridgeUsdcTool, BroadcastWeb3TxTool, DecodeCalldataTool,
-    DexScreenerTool, ListQueuedWeb3TxTool, PolymarketTradeTool, SelectWeb3NetworkTool,
-    SendEthTool, SetAddressTool, ToRawAmountTool, TokenLookupTool, VerifyTxBroadcastTool,
-    Web3PresetFunctionCallTool, X402AgentInvokeTool, X402FetchTool, X402PostTool, X402RpcTool,
+    DexScreenerTool, GeckoTerminalTool, ListQueuedWeb3TxTool, PolymarketTradeTool,
+    SelectWeb3NetworkTool, SendEthTool, SetAddressTool, ToRawAmountTool, TokenLookupTool,
+    VerifyTxBroadcastTool, Web3PresetFunctionCallTool, X402AgentInvokeTool, X402FetchTool,
+    X402PostTool, X402RpcTool,
 };
 pub use social_media::{DiscordLookupTool, DiscordReadTool, DiscordWriteTool, GithubUserTool, TelegramReadTool, TwitterPostTool};
 

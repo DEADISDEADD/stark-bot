@@ -15,6 +15,16 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use strum::{EnumIter, IntoEnumIterator};
 
+/// Describes what kind of rich content a channel can render
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ChannelOutputType {
+    /// Plain text only — Discord, Telegram, Twitter, Slack
+    #[default]
+    TextOnly,
+    /// Supports HTML rendering — Web UI (iframes, embeds, etc.)
+    RichHtml,
+}
+
 /// Tool groups for access control
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, EnumIter)]
 #[serde(rename_all = "lowercase")]
@@ -327,6 +337,7 @@ impl ToolResult {
 pub struct ToolContext {
     pub channel_id: Option<i64>,
     pub channel_type: Option<String>,
+    pub output_type: ChannelOutputType,
     pub user_id: Option<String>,
     pub session_id: Option<i64>,
     pub identity_id: Option<String>,
@@ -395,6 +406,7 @@ impl Default for ToolContext {
         ToolContext {
             channel_id: None,
             channel_type: None,
+            output_type: ChannelOutputType::TextOnly,
             user_id: None,
             session_id: None,
             identity_id: None,
@@ -423,6 +435,10 @@ impl ToolContext {
 
     pub fn with_channel(mut self, channel_id: i64, channel_type: String) -> Self {
         self.channel_id = Some(channel_id);
+        self.output_type = match channel_type.as_str() {
+            "web" => ChannelOutputType::RichHtml,
+            _ => ChannelOutputType::TextOnly,
+        };
         self.channel_type = Some(channel_type);
         self
     }
