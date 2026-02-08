@@ -1480,8 +1480,16 @@ impl MessageDispatcher {
                         system_msg.content = planner_prompt;
                     }
                 }
-                // Filter to only define_tasks from the registry tools
-                tools.iter().filter(|t| t.name == "define_tasks").cloned().collect()
+                // define_tasks is ALWAYS available in TaskPlanner mode, regardless of
+                // tool config (safe mode, standard, etc.). Pull directly from registry
+                // to bypass tool config filtering.
+                match self.tool_registry.get("define_tasks") {
+                    Some(tool) => vec![tool.definition()],
+                    None => {
+                        log::error!("[ORCHESTRATED_LOOP] define_tasks tool not found in registry!");
+                        vec![]
+                    }
+                }
             } else {
                 // In assistant mode, strip define_tasks — it should only be available
                 // in TaskPlanner mode or when a skill explicitly requires it.
