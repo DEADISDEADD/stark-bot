@@ -774,6 +774,11 @@ async fn main() -> std::io::Result<()> {
         ""
     };
 
+    let dev_mode = std::env::var("STARKBOT_DEV").map(|v| v == "true" || v == "1").unwrap_or(false);
+    if dev_mode {
+        log::warn!("⚠️  DEV MODE ENABLED — /api/dev/chat is accessible without auth");
+    }
+
     log::info!("Starting StarkBot server on port {}", port);
     log::info!("WebSocket Gateway available at /ws");
     log::info!("Scheduler started with cron and heartbeat support");
@@ -797,6 +802,7 @@ async fn main() -> std::io::Result<()> {
     let safe_mode_rl = safe_mode_rate_limiter.clone();
     let wallet_prov = wallet_provider.clone();
     let frontend_dist = frontend_dist.to_string();
+    let dev_mode = dev_mode;
 
     let server = HttpServer::new(move || {
         let cors = Cors::default()
@@ -856,6 +862,10 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::well_known::config)
             // WebSocket Gateway route (same port as HTTP, required for single-port platforms)
             .route("/ws", web::get().to(gateway::actix_ws::ws_handler));
+
+        if dev_mode {
+            app = app.configure(controllers::dev_chat::config);
+        }
 
         // Serve static files only if frontend dist exists
         if !frontend_dist.is_empty() {

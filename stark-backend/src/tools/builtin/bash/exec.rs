@@ -345,6 +345,18 @@ impl ExecTool {
             }
         }
 
+        // Also inject custom runtime API keys
+        for name in context.list_api_key_names() {
+            if env_vars.contains_key(&name) {
+                continue;
+            }
+            if let Some(value) = context.get_api_key(&name) {
+                if !value.is_empty() {
+                    env_vars.insert(name, value);
+                }
+            }
+        }
+
         // Add custom env vars from params
         if let Some(ref param_env) = params.env {
             for (key, value) in param_env {
@@ -524,6 +536,19 @@ impl Tool for ExecTool {
                     cmd.env("GIT_AUTHOR_EMAIL", &bot_email);
                     cmd.env("GIT_COMMITTER_NAME", &bot_name);
                     cmd.env("GIT_COMMITTER_EMAIL", &bot_email);
+                }
+            }
+        }
+
+        // Also inject custom runtime API keys as env vars
+        for name in context.list_api_key_names() {
+            if available_env_vars.contains(&name) {
+                continue; // already set by built-in key above
+            }
+            if let Some(value) = context.get_api_key(&name) {
+                if !value.is_empty() {
+                    cmd.env(&name, &value);
+                    available_env_vars.push(name);
                 }
             }
         }

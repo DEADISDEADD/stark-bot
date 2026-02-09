@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
-import { Calendar, Trash2, MessageSquare, Download, ChevronLeft, User, Bot, Wrench, CheckCircle, XCircle, AlertCircle, Play, Pause, RefreshCw, Loader2 } from 'lucide-react';
+import { Calendar, Trash2, MessageSquare, Download, ChevronLeft, User, Bot, Wrench, CheckCircle, XCircle, AlertCircle, Play, Pause, RefreshCw, Loader2, Terminal } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { getSessions, getSession, deleteSession, deleteAllSessions, getSessionTranscript, SessionMessage, getCronJobs, CronJobInfo, stopSession, resumeSession } from '@/lib/api';
@@ -448,6 +448,12 @@ export default function Sessions() {
                 <h1 className="text-xl sm:text-2xl font-bold text-white">
                   {selectedSession.channel_type} - Session {selectedSession.id}
                 </h1>
+                {selectedSession.channel_type === 'dev_chat' && (
+                  <span className="text-xs px-2 py-1 bg-purple-500/20 text-purple-400 rounded-full flex items-center gap-1">
+                    <Terminal className="w-3 h-3" />
+                    Dev Chat
+                  </span>
+                )}
                 {selectedSession.safe_mode && (
                   <span className="text-xs px-2 py-1 bg-orange-500/20 text-orange-400 rounded-full flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" />
@@ -707,6 +713,12 @@ export default function Sessions() {
                             </span>
                           );
                         })()}
+                        {session.channel_type === 'dev_chat' && (
+                          <span className="text-xs px-1.5 sm:px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded-full flex items-center gap-1">
+                            <Terminal className="w-3 h-3" />
+                            <span className="hidden sm:inline">Dev Chat</span>
+                          </span>
+                        )}
                         {session.safe_mode && (
                           <span className="text-xs px-1.5 sm:px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded-full flex items-center gap-1">
                             <AlertCircle className="w-3 h-3" />

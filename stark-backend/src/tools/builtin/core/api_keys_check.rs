@@ -69,11 +69,18 @@ impl Tool for ApiKeysCheckTool {
         };
 
         if let Some(key_name) = params.key_name {
-            // Check specific key — works for both built-in and custom keys
+            // Check specific key — works for both built-in and custom keys.
+            // Also checks legacy names for renamed keys (e.g. RAILWAY_TOKEN → RAILWAY_API_TOKEN).
             let is_set = context
                 .get_api_key(&key_name)
                 .map(|k| !k.is_empty())
-                .unwrap_or(false);
+                .unwrap_or(false)
+                || ApiKeyId::iter()
+                    .find(|k| k.as_str() == key_name)
+                    .and_then(|k| k.legacy_name())
+                    .and_then(|legacy| context.get_api_key(legacy))
+                    .map(|k| !k.is_empty())
+                    .unwrap_or(false);
 
             ToolResult::success(json!({
                 "key": key_name,

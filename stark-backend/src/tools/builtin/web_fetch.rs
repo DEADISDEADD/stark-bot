@@ -321,9 +321,33 @@ impl Tool for WebFetchTool {
         // Add request body for POST/PUT/PATCH
         if let Some(ref body) = params.body {
             if matches!(method.as_str(), "POST" | "PUT" | "PATCH") {
+                // Log the body type and content for debugging API issues
+                let body_type = match body {
+                    Value::Object(_) => "object",
+                    Value::String(_) => "string (WARNING: may cause issues with GraphQL APIs)",
+                    Value::Array(_) => "array",
+                    _ => "other",
+                };
+                log::debug!("web_fetch POST body type={}, content={}", body_type,
+                    serde_json::to_string(body).unwrap_or_else(|_| "<serialize error>".to_string()));
+
+                // If body is a string that looks like JSON, try parsing it as a JSON object
+                // This handles the case where the AI passes a JSON string instead of a JSON object
+                let effective_body = if let Value::String(s) = body {
+                    match serde_json::from_str::<Value>(s) {
+                        Ok(parsed) if parsed.is_object() => {
+                            log::info!("web_fetch: auto-parsed JSON string body into object");
+                            parsed
+                        }
+                        _ => body.clone(),
+                    }
+                } else {
+                    body.clone()
+                };
+
                 request = request
                     .header("Content-Type", "application/json")
-                    .json(body);
+                    .json(&effective_body);
             }
         }
 

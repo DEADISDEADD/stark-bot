@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Zap, Upload, Trash2, ExternalLink, Code, X, Save, Edit2 } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -10,6 +10,25 @@ export default function Skills() {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Filter state
+  const [activeFilter, setActiveFilter] = useState('All');
+
+  const FILTER_CATEGORIES: Record<string, string[]> = {
+    'All': [],
+    'Finance': ['crypto', 'defi', 'finance', 'trading', 'swap', 'transfer', 'wallet', 'yield', 'lending', 'bridge', 'payments'],
+    'Code': ['development', 'git', 'code', 'debugging', 'testing', 'deployment', 'ci-cd', 'devops', 'infrastructure'],
+    'Social': ['social', 'messaging', 'twitter', 'discord', 'telegram', 'communication', 'social-media'],
+    'Secretary': ['journal', 'secretary', 'productivity', 'notes', 'scheduling', 'cron', 'automation'],
+  };
+
+  const filteredSkills = useMemo(() => {
+    if (activeFilter === 'All') return skills;
+    const tags = FILTER_CATEGORIES[activeFilter] || [];
+    return skills.filter((s) =>
+      s.tags?.some((t) => tags.includes(t.toLowerCase()))
+    );
+  }, [skills, activeFilter]);
 
   // Editor state
   const [selectedSkill, setSelectedSkill] = useState<SkillDetail | null>(null);
@@ -179,6 +198,23 @@ export default function Skills() {
         </div>
       )}
 
+      {/* Filter Pills */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        {Object.keys(FILTER_CATEGORIES).map((category) => (
+          <button
+            key={category}
+            onClick={() => setActiveFilter(category)}
+            className={`px-3 py-1.5 text-sm rounded-full transition-colors ${
+              activeFilter === category
+                ? 'bg-stark-500 text-white'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
+            }`}
+          >
+            {category}
+          </button>
+        ))}
+      </div>
+
       {/* Skill Detail/Editor Panel */}
       {selectedSkill && (
         <Card className="mb-6 border-stark-500/30">
@@ -300,9 +336,9 @@ export default function Skills() {
         </div>
       )}
 
-      {skills.length > 0 ? (
+      {filteredSkills.length > 0 ? (
         <div className="grid gap-4">
-          {skills.map((skill) => (
+          {filteredSkills.map((skill) => (
             <Card key={skill.name} className={selectedSkill?.name === skill.name ? 'border-stark-500/50' : ''}>
               <CardContent>
                 {/* Mobile: stacked layout, Desktop: side by side */}
@@ -400,14 +436,20 @@ export default function Skills() {
         <Card>
           <CardContent className="text-center py-12">
             <Zap className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-            <p className="text-slate-400 mb-4">No skills installed</p>
-            <Button
-              variant="secondary"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Upload className="w-4 h-4 mr-2" />
-              Upload Your First Skill
-            </Button>
+            {skills.length > 0 ? (
+              <p className="text-slate-400">No skills matching "{activeFilter}"</p>
+            ) : (
+              <>
+                <p className="text-slate-400 mb-4">No skills installed</p>
+                <Button
+                  variant="secondary"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  Upload Your First Skill
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       )}

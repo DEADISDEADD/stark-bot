@@ -512,9 +512,12 @@ impl ToolContext {
     }
 
     /// Get an API key from the context using the type-safe ApiKeyId enum
-    /// This is the preferred method as it prevents typos in key names
+    /// This is the preferred method as it prevents typos in key names.
+    /// Falls back to legacy key names for backward compatibility after renames.
     pub fn get_api_key_by_id(&self, key_id: ApiKeyId) -> Option<String> {
-        self.get_api_key(key_id.as_str())
+        self.get_api_key(key_id.as_str()).or_else(|| {
+            key_id.legacy_name().and_then(|legacy| self.get_api_key(legacy))
+        })
     }
 
     /// Install an API key at runtime (takes &self, writes via RwLock)
