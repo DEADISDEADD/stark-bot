@@ -2202,7 +2202,7 @@ impl MessageDispatcher {
                                 crate::tools::ToolResult::error(format!(
                                     "❌ No toolbox selected! You MUST call `set_agent_subtype` FIRST before using '{}'.\n\n\
                                     Choose based on the user's request:\n\
-                                    • set_agent_subtype(subtype=\"finance\") - for crypto/DeFi operations\n\
+                                    • set_agent_subtype(subtype=\"finance\") - for crypto/DeFi/tipping operations\n\
                                     • set_agent_subtype(subtype=\"code_engineer\") - for code/git operations\n\
                                     • set_agent_subtype(subtype=\"secretary\") - for social/messaging",
                                     call.name
@@ -3087,7 +3087,7 @@ impl MessageDispatcher {
                                         crate::tools::ToolResult::error(format!(
                                             "❌ No toolbox selected! You MUST call `set_agent_subtype` FIRST before using '{}'.\n\n\
                                             Choose based on the user's request:\n\
-                                            • set_agent_subtype(subtype=\"finance\") - for crypto/DeFi operations\n\
+                                            • set_agent_subtype(subtype=\"finance\") - for crypto/DeFi/tipping operations\n\
                                             • set_agent_subtype(subtype=\"code_engineer\") - for code/git operations\n\
                                             • set_agent_subtype(subtype=\"secretary\") - for social/messaging",
                                             tool_call.tool_name
