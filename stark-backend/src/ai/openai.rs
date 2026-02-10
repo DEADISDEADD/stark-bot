@@ -230,7 +230,7 @@ impl OpenAIClient {
                 } else if endpoint_url.contains("openai.com") {
                     Some("gpt-4o".to_string())
                 } else if endpoint_url.contains("kimi") || endpoint_url.contains("moonshot") {
-                    Some("moonshot-v1-32k".to_string())
+                    Some("kimi-k2-turbo-preview".to_string())
                 } else {
                     Some("default".to_string())
                 }
