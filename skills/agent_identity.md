@@ -1,7 +1,7 @@
 ---
 name: agent_identity
 description: "Create, manage, and publish your EIP-8004 agent identity registration file"
-version: 1.2.2
+version: 1.2.3
 author: starkbot
 homepage: https://eips.ethereum.org/EIPS/eip-8004
 tags: [crypto, identity, eip8004, registration, agent, discovery, nft]
