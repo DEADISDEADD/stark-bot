@@ -914,23 +914,20 @@ impl MessageDispatcher {
                             log::error!("[DISPATCH] Failed to record x402 payment: {}", e);
                         }
                     }
-                    Ok((content, false))
+                    Ok(content)
                 }
                 Err(e) => Err(e),
             }
         };
 
         match final_response {
-            Ok((response, from_say_to_user)) => {
+            Ok(response) => {
                 // Estimate tokens for the response
                 let response_tokens = estimate_tokens(&response);
 
                 // Store AI response in session with token count
                 // Skip storing empty responses (nothing useful to persist)
-                // Skip if from_say_to_user — already saved as ToolResult, avoid duplicate in transcript
-                if from_say_to_user {
-                    log::info!("[DISPATCH] Skipping assistant save — say_to_user already stored as ToolResult");
-                } else if response.trim().is_empty() {
+                if response.trim().is_empty() {
                     log::info!("[DISPATCH] Skipping empty assistant response");
                 } else if let Err(e) = self.db.add_session_message(
                     session.id,
@@ -1066,7 +1063,7 @@ impl MessageDispatcher {
         original_message: &NormalizedMessage,
         archetype_id: ArchetypeId,
         is_safe_mode: bool,
-    ) -> Result<(String, bool), String> {
+    ) -> Result<String, String> {
         // Load existing agent context or create new one
         let mut orchestrator = match self.db.get_agent_context(session_id) {
             Ok(Some(context)) => {
@@ -1229,7 +1226,7 @@ impl MessageDispatcher {
                     log::error!("[TOOL_LOOP] Failed to record x402 payment: {}", e);
                 }
             }
-            return Ok((content, false));
+            return Ok(content);
         }
 
         // Get the archetype for this request
@@ -2200,12 +2197,7 @@ impl MessageDispatcher {
         final_summary: &str,
         user_question_content: &str,
         max_tool_iterations: usize,
-    ) -> Result<(String, bool), String> {
-        // The bool in the return tuple indicates whether the response came from say_to_user
-        // (already saved as ToolResult in the DB, so dispatch() should skip the Assistant save)
-        let from_say_to_user = !last_say_to_user_content.is_empty()
-            && !waiting_for_user_response;
-
+    ) -> Result<String, String> {
         // Clear active skill when the orchestrator loop completes
         if orchestrator_complete || was_cancelled {
             if orchestrator.context().active_skill.is_some() {

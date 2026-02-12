@@ -1,11 +1,11 @@
 ---
 name: starkhub
 description: "Browse, search, install, and submit skills on StarkHub (hub.starkbot.ai) — the decentralized skills directory for StarkBot agents."
-version: 1.1.0
+version: 1.2.0
 author: starkbot
 homepage: https://hub.starkbot.ai
 metadata: {"clawdbot":{"emoji":"🌐"}}
-requires_tools: [web_fetch, manage_skills, siwa_auth]
+requires_tools: [web_fetch, manage_skills, siwa_auth, define_tasks]
 tags: [general, all, skills, hub, discovery, meta, management]
 arguments:
   query:
@@ -29,6 +29,46 @@ StarkHub (https://hub.starkbot.ai) is the public skills marketplace for StarkBot
 All read endpoints are public. Submitting requires authentication.
 
 **Important:** Skills are scoped to authors using the `@username/slug` format (like npm packages). Most skill-specific endpoints require both the author's username and the skill slug.
+
+## CRITICAL RULES
+
+1. **ONE TASK AT A TIME.** Only do the work described in the CURRENT task. Do NOT work ahead.
+2. **Do NOT call `say_to_user` with `finished_task: true` until the current task is truly done.** Using `finished_task: true` advances the task queue — if you use it prematurely, tasks get skipped.
+3. **Use `say_to_user` WITHOUT `finished_task`** for progress updates. Only set `finished_task: true` OR call `task_fully_completed` when ALL steps in the current task are done.
+
+## Step 1: Define tasks
+
+Before doing any work, call `define_tasks` based on the requested action.
+
+**For search / trending / featured / browse / tags / view:**
+
+```json
+{"tool": "define_tasks", "tasks": [
+  "TASK 1 — Fetch: call web_fetch with the appropriate StarkHub API endpoint for the requested action. See starkhub skill.",
+  "TASK 2 — Present results to the user in a clear, readable format."
+]}
+```
+
+**For install:**
+
+```json
+{"tool": "define_tasks", "tasks": [
+  "TASK 1 — Download: fetch the raw skill markdown from StarkHub via web_fetch. See starkhub skill 'Install'.",
+  "TASK 2 — Install: install the skill locally via manage_skills. See starkhub skill 'Install'.",
+  "TASK 3 — Record: POST the install to StarkHub and confirm to the user. See starkhub skill 'Install'."
+]}
+```
+
+**For submit:**
+
+```json
+{"tool": "define_tasks", "tasks": [
+  "TASK 1 — Authenticate: use siwa_auth to sign in to StarkHub and cache the auth token. See starkhub skill 'Submit Step 1'.",
+  "TASK 2 — Prepare: read the local skill markdown via manage_skills. See starkhub skill 'Submit Step 2'.",
+  "TASK 3 — Submit: POST the skill markdown to StarkHub with the auth token. See starkhub skill 'Submit Step 3'.",
+  "TASK 4 — Confirm: report the submission status to the user."
+]}
+```
 
 ---
 

@@ -1848,7 +1848,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
         }
     }
 
-    // Restore skills
+    // Restore skills (version-aware: won't downgrade bundled skills that have newer versions on disk)
     let mut restored_skills = 0;
     for skill_entry in &backup_data.skills {
         let now = chrono::Utc::now().to_rfc3339();
@@ -1874,7 +1874,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
             updated_at: now.clone(),
         };
 
-        match state.db.create_skill_force(&db_skill) {
+        match state.db.create_skill(&db_skill) {
             Ok(skill_id) => {
                 // Restore scripts for this skill
                 for script in &skill_entry.scripts {
@@ -1895,6 +1895,14 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
             Err(e) => {
                 log::warn!("Failed to restore skill '{}': {}", skill_entry.name, e);
             }
+        }
+    }
+
+    // Re-apply bundled skills from disk to ensure newer versions aren't downgraded by cloud restore
+    if restored_skills > 0 {
+        match state.skill_registry.load_all().await {
+            Ok(count) => log::info!("Re-applied {} file-based skills after cloud restore", count),
+            Err(e) => log::warn!("Failed to re-apply file-based skills after restore: {}", e),
         }
     }
 

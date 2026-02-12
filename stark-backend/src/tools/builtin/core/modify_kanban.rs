@@ -110,7 +110,7 @@ impl ModifyKanbanTool {
                     properties,
                     required: vec!["action".to_string()],
                 },
-                group: ToolGroup::System,
+                group: ToolGroup::Development,
                 hidden: false,
             },
         }
@@ -325,6 +325,6 @@ mod tests {
         let tool = ModifyKanbanTool::new();
         let def = tool.definition();
         assert_eq!(def.name, "modify_kanban");
-        assert_eq!(def.group, ToolGroup::System);
+        assert_eq!(def.group, ToolGroup::Development);
     }
 }

@@ -617,7 +617,7 @@ async fn restore_backup_data(
         log::info!("[Keystore] Restored {} discord registrations", restored_discord_registrations);
     }
 
-    // Restore skills
+    // Restore skills (version-aware: won't downgrade bundled skills that have newer versions on disk)
     let mut restored_skills = 0;
     for skill_entry in &backup_data.skills {
         let now = chrono::Utc::now().to_rfc3339();
@@ -643,7 +643,7 @@ async fn restore_backup_data(
             updated_at: now.clone(),
         };
 
-        match db.create_skill_force(&db_skill) {
+        match db.create_skill(&db_skill) {
             Ok(skill_id) => {
                 for script in &skill_entry.scripts {
                     let db_script = skills::DbSkillScript {

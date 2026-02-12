@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Zap, Upload, Trash2, ExternalLink, Code, X, Save, Edit2 } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -215,131 +215,11 @@ export default function Skills() {
         ))}
       </div>
 
-      {/* Skill Detail/Editor Panel */}
-      {selectedSkill && (
-        <Card className="mb-6 border-stark-500/30">
-          <CardContent>
-            {/* Header */}
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-amber-500/20 rounded-lg">
-                  <Code className="w-5 h-5 text-amber-400" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-white">{selectedSkill.name}</h3>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    {selectedSkill.version && (
-                      <span className="text-xs px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded">
-                        v{selectedSkill.version}
-                      </span>
-                    )}
-                    <span className="text-xs text-slate-500">{selectedSkill.source}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {saveMessage && (
-                  <span className="text-xs text-green-400">{saveMessage}</span>
-                )}
-                {!isEditing && (
-                  <button
-                    onClick={handleStartEdit}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                    Edit
-                  </button>
-                )}
-                {isEditing && (
-                  <>
-                    <button
-                      onClick={handleCancelEdit}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleSave}
-                      disabled={isSaving}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-stark-400 hover:text-white hover:bg-stark-500/20 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      <Save className="w-4 h-4" />
-                      {isSaving ? 'Saving...' : 'Save'}
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={handleCloseDetail}
-                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Metadata */}
-            {selectedSkill.description && (
-              <p className="text-sm text-slate-400 mb-3">{selectedSkill.description}</p>
-            )}
-            {selectedSkill.tags && selectedSkill.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1 mb-3">
-                {selectedSkill.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="text-xs px-1.5 py-0.5 bg-stark-500/10 text-stark-400 rounded"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Body Editor/Viewer */}
-            <div className="border border-slate-700 rounded-lg overflow-hidden bg-slate-900/50">
-              <div className="px-3 py-1.5 bg-slate-800/50 border-b border-slate-700 text-xs text-slate-500">
-                Prompt Template
-              </div>
-              {isEditing ? (
-                <textarea
-                  value={editedBody}
-                  onChange={(e) => setEditedBody(e.target.value)}
-                  className="w-full h-80 p-4 bg-transparent text-sm text-slate-300 font-mono resize-none focus:outline-none"
-                  spellCheck={false}
-                />
-              ) : (
-                <pre className="p-4 text-sm text-slate-300 font-mono whitespace-pre-wrap break-words max-h-80 overflow-y-auto">
-                  {selectedSkill.prompt_template}
-                </pre>
-              )}
-            </div>
-
-            {/* Scripts info */}
-            {selectedSkill.scripts && selectedSkill.scripts.length > 0 && (
-              <div className="mt-3">
-                <span className="text-xs text-slate-500">Scripts: </span>
-                {selectedSkill.scripts.map((s) => (
-                  <span key={s.name} className="text-xs px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded mr-1">
-                    {s.name} ({s.language})
-                  </span>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Loading detail indicator */}
-      {isLoadingDetail && (
-        <div className="mb-6 flex items-center justify-center py-8">
-          <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
-        </div>
-      )}
-
       {filteredSkills.length > 0 ? (
         <div className="grid gap-4">
           {filteredSkills.map((skill) => (
-            <Card key={skill.name} className={selectedSkill?.name === skill.name ? 'border-stark-500/50' : ''}>
+            <React.Fragment key={skill.name}>
+            <Card className={selectedSkill?.name === skill.name ? 'border-stark-500/50' : ''}>
               <CardContent>
                 {/* Mobile: stacked layout, Desktop: side by side */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
@@ -430,6 +310,122 @@ export default function Skills() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Inline detail/editor panel - renders right below the clicked skill */}
+            {selectedSkill?.name === skill.name && (
+              <Card className="border-stark-500/30">
+                <CardContent>
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-amber-500/20 rounded-lg">
+                        <Code className="w-5 h-5 text-amber-400" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-white">{selectedSkill.name}</h3>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {selectedSkill.version && (
+                            <span className="text-xs px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded">
+                              v{selectedSkill.version}
+                            </span>
+                          )}
+                          <span className="text-xs text-slate-500">{selectedSkill.source}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {saveMessage && (
+                        <span className="text-xs text-green-400">{saveMessage}</span>
+                      )}
+                      {!isEditing && (
+                        <button
+                          onClick={handleStartEdit}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                          Edit
+                        </button>
+                      )}
+                      {isEditing && (
+                        <>
+                          <button
+                            onClick={handleCancelEdit}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                            Cancel
+                          </button>
+                          <button
+                            onClick={handleSave}
+                            disabled={isSaving}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-stark-400 hover:text-white hover:bg-stark-500/20 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            <Save className="w-4 h-4" />
+                            {isSaving ? 'Saving...' : 'Save'}
+                          </button>
+                        </>
+                      )}
+                      <button
+                        onClick={handleCloseDetail}
+                        className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Metadata */}
+                  {selectedSkill.description && (
+                    <p className="text-sm text-slate-400 mb-3">{selectedSkill.description}</p>
+                  )}
+                  {selectedSkill.tags && selectedSkill.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-3">
+                      {selectedSkill.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="text-xs px-1.5 py-0.5 bg-stark-500/10 text-stark-400 rounded"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Body Editor/Viewer */}
+                  <div className="border border-slate-700 rounded-lg overflow-hidden bg-slate-900/50">
+                    <div className="px-3 py-1.5 bg-slate-800/50 border-b border-slate-700 text-xs text-slate-500">
+                      Prompt Template
+                    </div>
+                    {isEditing ? (
+                      <textarea
+                        value={editedBody}
+                        onChange={(e) => setEditedBody(e.target.value)}
+                        className="w-full h-80 p-4 bg-transparent text-sm text-slate-300 font-mono resize-none focus:outline-none"
+                        spellCheck={false}
+                      />
+                    ) : (
+                      <pre className="p-4 text-sm text-slate-300 font-mono whitespace-pre-wrap break-words max-h-80 overflow-y-auto">
+                        {selectedSkill.prompt_template}
+                      </pre>
+                    )}
+                  </div>
+
+                  {/* Scripts info */}
+                  {selectedSkill.scripts && selectedSkill.scripts.length > 0 && (
+                    <div className="mt-3">
+                      <span className="text-xs text-slate-500">Scripts: </span>
+                      {selectedSkill.scripts.map((s) => (
+                        <span key={s.name} className="text-xs px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded mr-1">
+                          {s.name} ({s.language})
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            </React.Fragment>
           ))}
         </div>
       ) : (
