@@ -1222,6 +1222,24 @@ impl Database {
             [],
         )?;
 
+        // Installed modules - plugin system registry
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS installed_modules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                module_name TEXT UNIQUE NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                version TEXT NOT NULL DEFAULT '1.0.0',
+                description TEXT NOT NULL,
+                has_db_tables INTEGER NOT NULL DEFAULT 0,
+                has_tools INTEGER NOT NULL DEFAULT 0,
+                has_worker INTEGER NOT NULL DEFAULT 0,
+                required_api_keys TEXT NOT NULL DEFAULT '[]',
+                installed_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+            [],
+        )?;
+
         // Keystore state - track backup/retrieval status per wallet
         conn.execute(
             "CREATE TABLE IF NOT EXISTS keystore_state (
