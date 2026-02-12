@@ -49,6 +49,8 @@ pub enum ApiKeyId {
     SupabaseAccessToken,
     #[strum(serialize = "CLOUDFLARE_API_TOKEN")]
     CloudflareApiToken,
+    #[strum(serialize = "ALCHEMY_API_KEY")]
+    AlchemyApiKey,
 }
 
 impl ApiKeyId {
@@ -69,6 +71,7 @@ impl ApiKeyId {
             Self::RailwayToken => "RAILWAY_TOKEN",
             Self::SupabaseAccessToken => "SUPABASE_ACCESS_TOKEN",
             Self::CloudflareApiToken => "CLOUDFLARE_API_TOKEN",
+            Self::AlchemyApiKey => "ALCHEMY_API_KEY",
         }
     }
 
@@ -88,6 +91,7 @@ impl ApiKeyId {
             Self::RailwayToken => Some(&["RAILWAY_API_TOKEN"]),
             Self::SupabaseAccessToken => Some(&["SUPABASE_ACCESS_TOKEN"]),
             Self::CloudflareApiToken => Some(&["CLOUDFLARE_API_TOKEN"]),
+            Self::AlchemyApiKey => Some(&["ALCHEMY_API_KEY"]),
         }
     }
 

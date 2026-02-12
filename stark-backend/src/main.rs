@@ -34,6 +34,7 @@ mod tx_queue;
 mod web3;
 mod keystore_client;
 mod identity_client;
+mod modules;
 
 use channels::{ChannelManager, MessageDispatcher, SafeModeChannelRateLimiter};
 use tx_queue::TxQueueManager;
@@ -788,9 +789,27 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
-    // Initialize Tool Registry with built-in tools
+    // Initialize Module Registry (compile-time plugin registry)
+    let module_registry = modules::ModuleRegistry::new();
+
+    // Initialize Tool Registry with built-in tools + installed module tools
     log::info!("Initializing tool registry");
-    let tool_registry = Arc::new(tools::create_default_registry());
+    let mut tool_registry_mut = tools::create_default_registry();
+
+    // Register tools from installed & enabled modules
+    let installed_modules = db.list_installed_modules().unwrap_or_default();
+    for module_entry in &installed_modules {
+        if module_entry.enabled {
+            if let Some(module) = module_registry.get(&module_entry.module_name) {
+                for tool in module.create_tools() {
+                    log::info!("[MODULE] Registered tool: {} (from {})", tool.name(), module_entry.module_name);
+                    tool_registry_mut.register(tool);
+                }
+            }
+        }
+    }
+
+    let tool_registry = Arc::new(tool_registry_mut);
     log::info!("Registered {} tools", tool_registry.len());
 
     // Initialize Skill Registry (database-backed)
@@ -937,6 +956,17 @@ async fn main() -> std::io::Result<()> {
         scheduler_handle.start(scheduler_shutdown_rx).await;
     });
 
+    // Spawn workers for installed & enabled modules
+    for entry in &installed_modules {
+        if entry.enabled {
+            if let Some(module) = module_registry.get(&entry.module_name) {
+                if let Some(_handle) = module.spawn_worker(db.clone(), broadcaster.clone(), dispatcher.clone()) {
+                    log::info!("[MODULE] Started worker for: {}", entry.module_name);
+                }
+            }
+        }
+    }
+
     // Determine frontend dist path (check both locations)
     // Set DISABLE_FRONTEND=1 to disable static file serving (for separate dev server)
     let frontend_dist = if std::env::var("DISABLE_FRONTEND").map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false) {
@@ -1036,6 +1066,7 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::broadcasted_transactions::config)
             .configure(controllers::mindmap::config)
             .configure(controllers::kanban::config)
+            .configure(controllers::modules::config)
             .configure(controllers::memory::config)
             .configure(controllers::well_known::config)
             .configure(controllers::x402_limits::config)

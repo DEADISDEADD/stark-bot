@@ -161,7 +161,7 @@ impl Tool for WalletWatchlistTool {
             Err(e) => return ToolResult::error(format!("Invalid parameters: {}", e)),
         };
 
-        let db = match context.db.as_ref() {
+        let db = match context.database.as_ref() {
             Some(db) => db,
             None => return ToolResult::error("Database not available"),
         };
@@ -377,7 +377,7 @@ impl Tool for WalletActivityTool {
             Err(e) => return ToolResult::error(format!("Invalid parameters: {}", e)),
         };
 
-        let db = match context.db.as_ref() {
+        let db = match context.database.as_ref() {
             Some(db) => db,
             None => return ToolResult::error("Database not available"),
         };
@@ -547,7 +547,7 @@ impl Tool for WalletMonitorControlTool {
             Err(e) => return ToolResult::error(format!("Invalid parameters: {}", e)),
         };
 
-        let db = match context.db.as_ref() {
+        let db = match context.database.as_ref() {
             Some(db) => db,
             None => return ToolResult::error("Database not available"),
         };

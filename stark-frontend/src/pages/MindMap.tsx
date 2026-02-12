@@ -38,6 +38,9 @@ export default function MindMap() {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const simulationRef = useRef<d3.Simulation<D3Node, D3Link> | null>(null);
+  const longPressRef = useRef<{ timer: number | null; triggered: boolean; startX: number; startY: number }>({
+    timer: null, triggered: false, startX: 0, startY: 0
+  });
 
   const [nodes, setNodes] = useState<MindNodeInfo[]>([]);
   const [connections, setConnections] = useState<MindConnectionInfo[]>([]);
@@ -659,6 +662,10 @@ export default function MindMap() {
     // Click handler for creating children
     node.on('click', (event, d) => {
       event.stopPropagation();
+      if (longPressRef.current.triggered) {
+        longPressRef.current.triggered = false;
+        return;
+      }
       handleNodeClick(d);
     });
 
@@ -685,6 +692,45 @@ export default function MindMap() {
       });
 
     (node as d3.Selection<SVGGElement, D3Node, SVGGElement, unknown>).call(drag);
+
+    // Disable native long-press context menu on nodes for mobile
+    node
+      .style('touch-action', 'none')
+      .style('-webkit-touch-callout', 'none');
+
+    // Long-press detection for mobile (opens edit modal)
+    node.on('touchstart', function(event: TouchEvent, d: D3Node) {
+      const touch = event.touches[0];
+      longPressRef.current.startX = touch.clientX;
+      longPressRef.current.startY = touch.clientY;
+      longPressRef.current.triggered = false;
+
+      longPressRef.current.timer = window.setTimeout(() => {
+        longPressRef.current.triggered = true;
+        // Haptic feedback
+        if (navigator.vibrate) navigator.vibrate(50);
+        // Open edit modal (reuse right-click handler)
+        handleNodeRightClick(event as unknown as MouseEvent, d);
+      }, 500);
+    });
+
+    node.on('touchmove', function(event: TouchEvent) {
+      if (longPressRef.current.timer === null) return;
+      const touch = event.touches[0];
+      const dx = touch.clientX - longPressRef.current.startX;
+      const dy = touch.clientY - longPressRef.current.startY;
+      if (Math.sqrt(dx * dx + dy * dy) > 10) {
+        window.clearTimeout(longPressRef.current.timer);
+        longPressRef.current.timer = null;
+      }
+    });
+
+    node.on('touchend', function() {
+      if (longPressRef.current.timer !== null) {
+        window.clearTimeout(longPressRef.current.timer);
+        longPressRef.current.timer = null;
+      }
+    });
 
     // Update positions on tick
     simulation.on('tick', () => {

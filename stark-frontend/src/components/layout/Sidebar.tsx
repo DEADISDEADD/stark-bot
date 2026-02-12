@@ -26,6 +26,7 @@ import {
   Heart,
   Cloud,
   Columns,
+  Package,
 } from 'lucide-react';
 import HeartbeatIcon from '@/components/HeartbeatIcon';
 import NavItem from './NavItem';
@@ -106,6 +107,7 @@ export default function Sidebar() {
           <NavItem to="/channels" icon={Monitor} label="Channels" />
           <NavItem to="/heartbeat" icon={Heart} label="Heartbeat" />
           <NavItem to="/scheduling" icon={Clock} label="Scheduling" />
+          <NavItem to="/modules" icon={Package} label="Modules" />
           <NavItem to="/api-keys" icon={Key} label="API Keys" />
           <NavItem to="/cloud-backup" icon={Cloud} label="Cloud Backup" />
         </div>

@@ -343,6 +343,7 @@ impl Database {
         let conn = self.conn();
         let mut conditions = vec!["1=1".to_string()];
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        #[allow(unused_assignments)]
         let mut param_idx = 1u32;
 
         if let Some(wid) = filter.watchlist_id {

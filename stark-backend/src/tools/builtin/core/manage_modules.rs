@@ -80,7 +80,7 @@ impl Tool for ManageModulesTool {
             Err(e) => return ToolResult::error(format!("Invalid parameters: {}", e)),
         };
 
-        let db = match context.db.as_ref() {
+        let db = match context.database.as_ref() {
             Some(db) => db,
             None => return ToolResult::error("Database not available"),
         };
@@ -194,7 +194,7 @@ impl Tool for ManageModulesTool {
                         // Install skill if module provides one
                         if let Some(skill_md) = module.skill_content() {
                             if let Some(skill_registry) = context.skill_registry.as_ref() {
-                                match skill_registry.create_skill_from_markdown(skill_md, None).await {
+                                match skill_registry.create_skill_from_markdown(skill_md) {
                                     Ok(_) => result_parts.push("Skill installed.".to_string()),
                                     Err(e) => result_parts.push(format!("Warning: Failed to install skill: {}", e)),
                                 }

@@ -17,6 +17,7 @@ pub mod journal;
 pub mod kanban;
 pub mod memory;
 pub mod mindmap;
+pub mod modules;
 pub mod payments;
 pub mod sessions;
 pub mod skills;

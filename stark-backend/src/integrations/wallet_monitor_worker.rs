@@ -3,7 +3,6 @@
 //! Polls Alchemy Enhanced APIs every 60s for new activity on watched wallets.
 //! Detects swaps, estimates USD values, and dispatches alerts for large trades.
 
-use crate::channels::MessageDispatcher;
 use crate::db::Database;
 use crate::db::tables::wallet_monitor::WatchlistEntry;
 use crate::gateway::events::EventBroadcaster;
@@ -24,7 +23,6 @@ const PRICE_CACHE_TTL_SECS: u64 = 60;
 pub async fn run_worker(
     db: Arc<Database>,
     broadcaster: Arc<EventBroadcaster>,
-    dispatcher: Arc<MessageDispatcher>,
 ) {
     log::info!("[WALLET_MONITOR] Worker started");
     let client = crate::http::shared_client().clone();
@@ -60,7 +58,6 @@ pub async fn run_worker(
             &client,
             &api_key,
             &broadcaster,
-            &dispatcher,
             &price_cache,
         )
         .await
@@ -76,7 +73,6 @@ async fn wallet_monitor_tick(
     client: &reqwest::Client,
     api_key: &str,
     broadcaster: &EventBroadcaster,
-    dispatcher: &MessageDispatcher,
     price_cache: &Arc<Mutex<PriceCache>>,
 ) -> Result<(), String> {
     let watchlist = db
@@ -122,14 +118,20 @@ async fn wallet_monitor_tick(
         }),
     ));
 
-    // Dispatch large trade alerts through AI
+    // Broadcast large trade alerts
     if !large_trade_alerts.is_empty() {
-        let alert_message = format!(
-            "[WALLET MONITOR ALERT] {} large trade(s) detected:\n\n{}",
-            large_trade_alerts.len(),
-            large_trade_alerts.join("\n\n")
+        broadcaster.broadcast(GatewayEvent::custom(
+            "wallet_monitor_alert",
+            serde_json::json!({
+                "type": "large_trades",
+                "count": large_trade_alerts.len(),
+                "alerts": large_trade_alerts,
+            }),
+        ));
+        log::warn!(
+            "[WALLET_MONITOR] LARGE TRADE ALERT: {}",
+            large_trade_alerts.join(" | ")
         );
-        dispatch_alert(dispatcher, &alert_message).await;
     }
 
     if total_new > 0 {
@@ -430,23 +432,3 @@ async fn estimate_usd_value(
     }
 }
 
-/// Dispatch an alert message through the AI dispatcher
-async fn dispatch_alert(dispatcher: &MessageDispatcher, message: &str) {
-    use crate::channels::types::NormalizedMessage;
-
-    // Create a system event message that will be processed by the AI
-    let normalized = NormalizedMessage {
-        content: message.to_string(),
-        sender_id: "system".to_string(),
-        sender_name: "Wallet Monitor".to_string(),
-        channel_id: 0, // System channel
-        is_bot: true,
-        reply_to: None,
-        attachments: vec![],
-        platform_message_id: None,
-    };
-
-    if let Err(e) = dispatcher.dispatch_system_event("wallet_monitor_alert", &normalized).await {
-        log::error!("[WALLET_MONITOR] Failed to dispatch alert: {}", e);
-    }
-}
