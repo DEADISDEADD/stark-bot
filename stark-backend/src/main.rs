@@ -23,6 +23,7 @@ mod qmd_memory;
 mod scheduler;
 mod skills;
 mod tools;
+mod siwa;
 mod wallet;
 mod x402;
 mod erc8128;
@@ -34,6 +35,7 @@ mod tx_queue;
 mod web3;
 mod keystore_client;
 mod identity_client;
+mod modules;
 
 use channels::{ChannelManager, MessageDispatcher, SafeModeChannelRateLimiter};
 use tx_queue::TxQueueManager;
@@ -65,6 +67,9 @@ pub struct AppState {
     /// Either EnvWalletProvider (Standard mode) or FlashWalletProvider (Flash mode)
     /// None if no wallet is configured (graceful degradation - shows warning on login page)
     pub wallet_provider: Option<Arc<dyn WalletProvider>>,
+    /// Handles for module background workers (keyed by module name).
+    /// Used for hot-reload: abort old worker, spawn new one without restart.
+    pub module_workers: Arc<tokio::sync::Mutex<std::collections::HashMap<String, tokio::task::JoinHandle<()>>>>,
 }
 
 /// Auto-retrieve backup from keystore on fresh instance
@@ -251,7 +256,7 @@ async fn restore_backup_data(
     private_key: &str,
     encrypted_data: &str,
 ) -> Result<(usize, usize), String> {
-    let backup_data = keystore_client::decrypt_backup_data(private_key, encrypted_data)?;
+    let mut backup_data = keystore_client::decrypt_backup_data(private_key, encrypted_data)?;
 
     log::info!(
         "[Keystore] Restoring backup v{} with {} items from {}",
@@ -526,18 +531,28 @@ async fn restore_backup_data(
         }
     }
 
-    // Restore identity document (IDENTITY.json) from backup if not already present
-    if let Some(identity_content) = &backup_data.identity_document {
-        let identity_path = config::identity_document_path();
-        if identity_path.exists() {
-            log::info!("[Keystore] Identity document already exists locally, skipping restore from backup");
-        } else {
-            if let Some(parent) = identity_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            match std::fs::write(&identity_path, identity_content) {
-                Ok(_) => log::info!("[Keystore] Restored identity document from backup"),
-                Err(e) => log::warn!("[Keystore] Failed to restore identity document: {}", e),
+    // Legacy: if old backup has identity_document but no agent_identity entry,
+    // parse and migrate to DB (only if no DB row exists yet)
+    if backup_data.agent_identity.is_none() {
+        if let Some(identity_content) = &backup_data.identity_document {
+            let existing: i64 = db.conn()
+                .query_row("SELECT COUNT(*) FROM agent_identity", [], |r| r.get(0))
+                .unwrap_or(0);
+            if existing == 0 {
+                if let Ok(reg) = serde_json::from_str::<crate::eip8004::types::RegistrationFile>(identity_content) {
+                    let services_json = serde_json::to_string(&reg.services).unwrap_or_else(|_| "[]".to_string());
+                    let supported_trust_json = serde_json::to_string(&reg.supported_trust).unwrap_or_else(|_| "[]".to_string());
+                    match db.upsert_agent_identity(
+                        0, "", 0,
+                        Some(&reg.name), Some(&reg.description), reg.image.as_deref(),
+                        reg.x402_support, reg.active,
+                        &services_json, &supported_trust_json,
+                        None,
+                    ) {
+                        Ok(_) => log::info!("[Keystore] Migrated legacy identity_document to DB"),
+                        Err(e) => log::warn!("[Keystore] Failed to migrate legacy identity_document: {}", e),
+                    }
+                }
             }
         }
     }
@@ -545,10 +560,10 @@ async fn restore_backup_data(
     // Restore x402 payment limits
     let mut restored_x402_limits = 0;
     for limit in &backup_data.x402_payment_limits {
-        match db.set_x402_payment_limit(&limit.asset, &limit.max_amount, limit.decimals, &limit.display_name) {
+        match db.set_x402_payment_limit(&limit.asset, &limit.max_amount, limit.decimals, &limit.display_name, limit.address.as_deref()) {
             Ok(_) => {
                 // Also update the in-memory global
-                crate::x402::payment_limits::set_limit(&limit.asset, &limit.max_amount, limit.decimals, &limit.display_name);
+                crate::x402::payment_limits::set_limit(&limit.asset, &limit.max_amount, limit.decimals, &limit.display_name, limit.address.as_deref());
                 restored_x402_limits += 1;
             }
             Err(e) => log::warn!("[Keystore] Failed to restore x402 payment limit for {}: {}", limit.asset, e),
@@ -558,17 +573,25 @@ async fn restore_backup_data(
         log::info!("[Keystore] Restored {} x402 payment limits", restored_x402_limits);
     }
 
-    // Restore on-chain agent identity registration if present and no local row exists
+    // Restore agent identity from backup (with full metadata)
     if let Some(ref ai) = backup_data.agent_identity {
         let conn = db.conn();
         let existing: i64 = conn
             .query_row("SELECT COUNT(*) FROM agent_identity", [], |r| r.get(0))
             .unwrap_or(0);
         if existing == 0 {
-            match conn.execute(
-                "INSERT INTO agent_identity (agent_id, agent_registry, chain_id) \
-                 VALUES (?1, ?2, ?3)",
-                rusqlite::params![ai.agent_id, ai.agent_registry, ai.chain_id],
+            match db.upsert_agent_identity(
+                ai.agent_id,
+                &ai.agent_registry,
+                ai.chain_id,
+                ai.name.as_deref(),
+                ai.description.as_deref(),
+                ai.image.as_deref(),
+                ai.x402_support,
+                ai.active,
+                &ai.services_json,
+                &ai.supported_trust_json,
+                ai.registration_uri.as_deref(),
             ) {
                 Ok(_) => {
                     log::info!(
@@ -585,36 +608,56 @@ async fn restore_backup_data(
         }
     }
 
-    // Restore discord registrations
-    let mut restored_discord_registrations = 0;
-    if !backup_data.discord_registrations.is_empty() {
-        match discord_hooks::db::clear_registrations_for_restore(db) {
-            Ok(deleted) => {
-                log::info!("[Keystore] Cleared {} discord registrations for restore", deleted);
-            }
-            Err(e) => {
-                log::warn!("[Keystore] Failed to clear discord registrations for restore: {}", e);
-            }
+    // Restore module data (generic module restore)
+    {
+        let module_registry = modules::ModuleRegistry::new();
+
+        // Backward-compat shim: convert legacy discord_registrations to module_data format
+        if !backup_data.discord_registrations.is_empty() && !backup_data.module_data.contains_key("discord_tipping") {
+            log::info!("[Keystore] Converting legacy discord_registrations to module_data format");
+            let legacy_entries: Vec<serde_json::Value> = backup_data.discord_registrations.iter().map(|reg| {
+                serde_json::json!({
+                    "discord_user_id": reg.discord_user_id,
+                    "discord_username": reg.discord_username,
+                    "public_address": reg.public_address,
+                    "registered_at": reg.registered_at,
+                })
+            }).collect();
+            backup_data.module_data.insert("discord_tipping".to_string(), serde_json::Value::Array(legacy_entries));
         }
 
-        for reg in &backup_data.discord_registrations {
-            let username = reg.discord_username.as_deref().unwrap_or("unknown");
-            match discord_hooks::db::get_or_create_profile(db, &reg.discord_user_id, username) {
-                Ok(_) => {
-                    if let Err(e) = discord_hooks::db::register_address(db, &reg.discord_user_id, &reg.public_address) {
-                        log::warn!("[Keystore] Failed to restore discord registration for {}: {}", reg.discord_user_id, e);
-                    } else {
-                        restored_discord_registrations += 1;
+        for (module_name, data) in &backup_data.module_data {
+            if let Some(module) = module_registry.get(module_name) {
+                // Ensure tables exist
+                if module.has_db_tables() {
+                    let conn = db.conn();
+                    if let Err(e) = module.init_tables(&conn) {
+                        log::warn!("[Keystore] Failed to init tables for module '{}': {}", module_name, e);
+                        continue;
                     }
                 }
-                Err(e) => {
-                    log::warn!("[Keystore] Failed to create discord profile for {}: {}", reg.discord_user_id, e);
+                // Auto-install if not already installed
+                if !db.is_module_installed(module_name).unwrap_or(true) {
+                    let required_keys = module.required_api_keys();
+                    let key_strs: Vec<&str> = required_keys.iter().copied().collect();
+                    let _ = db.install_module(
+                        module_name,
+                        module.description(),
+                        module.version(),
+                        module.has_db_tables(),
+                        module.has_tools(),
+                        module.has_worker(),
+                        &key_strs,
+                    );
                 }
+                match module.restore_data(db, data) {
+                    Ok(()) => log::info!("[Keystore] Restored module data for '{}'", module_name),
+                    Err(e) => log::warn!("[Keystore] Failed to restore module data for '{}': {}", module_name, e),
+                }
+            } else {
+                log::warn!("[Keystore] Skipping restore for unknown module '{}'", module_name);
             }
         }
-    }
-    if restored_discord_registrations > 0 {
-        log::info!("[Keystore] Restored {} discord registrations", restored_discord_registrations);
     }
 
     // Restore skills (version-aware: won't downgrade bundled skills that have newer versions on disk)
@@ -759,7 +802,7 @@ async fn main() -> std::io::Result<()> {
     match db.get_all_x402_payment_limits() {
         Ok(limits) => {
             for l in &limits {
-                x402::payment_limits::set_limit(&l.asset, &l.max_amount, l.decimals, &l.display_name);
+                x402::payment_limits::set_limit(&l.asset, &l.max_amount, l.decimals, &l.display_name, l.address.as_deref());
             }
             if !limits.is_empty() {
                 log::info!("Loaded {} x402 payment limits from database", limits.len());
@@ -788,9 +831,60 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
-    // Initialize Tool Registry with built-in tools
+    // Initialize Module Registry (compile-time plugin registry)
+    let module_registry = modules::ModuleRegistry::new();
+
+    // Auto-migration: if discord_user_profiles table exists but discord_tipping module
+    // is not installed, auto-install it so existing deployments keep tipping on upgrade.
+    {
+        let conn = db.conn();
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='discord_user_profiles'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(false);
+
+        if table_exists && !db.is_module_installed("discord_tipping").unwrap_or(true) {
+            log::info!("[MODULE] Auto-migrating: discord_user_profiles table found, installing discord_tipping module");
+            if let Some(module) = module_registry.get("discord_tipping") {
+                let required_keys = module.required_api_keys();
+                let key_strs: Vec<&str> = required_keys.iter().copied().collect();
+                match db.install_module(
+                    "discord_tipping",
+                    module.description(),
+                    module.version(),
+                    module.has_db_tables(),
+                    module.has_tools(),
+                    module.has_worker(),
+                    &key_strs,
+                ) {
+                    Ok(_) => log::info!("[MODULE] Auto-installed discord_tipping module (migration from hardcoded table)"),
+                    Err(e) => log::warn!("[MODULE] Failed to auto-install discord_tipping: {}", e),
+                }
+            }
+        }
+    }
+
+    // Initialize Tool Registry with built-in tools + installed module tools
     log::info!("Initializing tool registry");
-    let tool_registry = Arc::new(tools::create_default_registry());
+    let mut tool_registry_mut = tools::create_default_registry();
+
+    // Register tools from installed & enabled modules
+    let installed_modules = db.list_installed_modules().unwrap_or_default();
+    for module_entry in &installed_modules {
+        if module_entry.enabled {
+            if let Some(module) = module_registry.get(&module_entry.module_name) {
+                for tool in module.create_tools() {
+                    log::info!("[MODULE] Registered tool: {} (from {})", tool.name(), module_entry.module_name);
+                    tool_registry_mut.register(tool);
+                }
+            }
+        }
+    }
+
+    let tool_registry = Arc::new(tool_registry_mut);
     log::info!("Registered {} tools", tool_registry.len());
 
     // Initialize Skill Registry (database-backed)
@@ -937,6 +1031,22 @@ async fn main() -> std::io::Result<()> {
         scheduler_handle.start(scheduler_shutdown_rx).await;
     });
 
+    // Spawn workers for installed & enabled modules (track handles for hot-reload)
+    let module_workers = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, tokio::task::JoinHandle<()>>::new()));
+    {
+        let mut workers = module_workers.lock().await;
+        for entry in &installed_modules {
+            if entry.enabled {
+                if let Some(module) = module_registry.get(&entry.module_name) {
+                    if let Some(handle) = module.spawn_worker(db.clone(), broadcaster.clone(), dispatcher.clone()) {
+                        log::info!("[MODULE] Started worker for: {}", entry.module_name);
+                        workers.insert(entry.module_name.clone(), handle);
+                    }
+                }
+            }
+        }
+    }
+
     // Determine frontend dist path (check both locations)
     // Set DISABLE_FRONTEND=1 to disable static file serving (for separate dev server)
     let frontend_dist = if std::env::var("DISABLE_FRONTEND").map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false) {
@@ -978,6 +1088,7 @@ async fn main() -> std::io::Result<()> {
     let tx_q = tx_queue.clone();
     let safe_mode_rl = safe_mode_rate_limiter.clone();
     let wallet_prov = wallet_provider.clone();
+    let mod_workers = module_workers.clone();
     let frontend_dist = frontend_dist.to_string();
     let dev_mode = dev_mode;
 
@@ -1004,6 +1115,7 @@ async fn main() -> std::io::Result<()> {
                 tx_queue: Arc::clone(&tx_q),
                 safe_mode_rate_limiter: safe_mode_rl.clone(),
                 wallet_provider: wallet_prov.clone(),
+                module_workers: Arc::clone(&mod_workers),
             }))
             .app_data(web::Data::new(Arc::clone(&sched)))
             // WebSocket data for /ws route
@@ -1036,6 +1148,7 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::broadcasted_transactions::config)
             .configure(controllers::mindmap::config)
             .configure(controllers::kanban::config)
+            .configure(controllers::modules::config)
             .configure(controllers::memory::config)
             .configure(controllers::well_known::config)
             .configure(controllers::x402_limits::config)

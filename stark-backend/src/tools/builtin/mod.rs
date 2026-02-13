@@ -28,14 +28,16 @@ pub use bash::{
 pub use code::{CommitterTool, DeployTool, IndexProjectTool, PrQualityTool, VerifyChangesTool};
 pub use core::{
     AddTaskTool, DefineTasksTool, AgentSendTool, ApiKeysCheckTool, AskUserTool, ImportIdentityTool,
-    InstallApiKeyTool, ManageSkillsTool, ModifyIdentityTool, ModifyKanbanTool, ModifySoulTool,
-    SayToUserTool, SetAgentSubtypeTool, SubagentStatusTool, SubagentTool, TaskFullyCompletedTool,
+    InstallApiKeyTool, ManageModulesTool, ManageSkillsTool, ModifyIdentityTool, ModifyKanbanTool,
+    ModifySoulTool, SayToUserTool, SetAgentSubtypeTool, SubagentStatusTool, SubagentTool,
+    TaskFullyCompletedTool,
 };
 pub use cryptocurrency::{
     load_networks, load_tokens, BridgeUsdcTool, BroadcastWeb3TxTool, DecodeCalldataTool,
     DexScreenerTool, Erc8128FetchTool, GeckoTerminalTool, ListQueuedWeb3TxTool, PolymarketTradeTool,
-    SelectWeb3NetworkTool, SendEthTool, SetAddressTool, ToRawAmountTool, TokenLookupTool,
-    VerifyTxBroadcastTool, Web3PresetFunctionCallTool, X402AgentInvokeTool, X402FetchTool,
+    SelectWeb3NetworkTool, SendEthTool, SetAddressTool, SiwaAuthTool, ToRawAmountTool, TokenLookupTool,
+    VerifyTxBroadcastTool, WalletActivityTool, WalletMonitorControlTool, WalletWatchlistTool,
+    Web3PresetFunctionCallTool, X402AgentInvokeTool, X402FetchTool,
     X402PostTool, X402RpcTool,
 };
 pub use social_media::{DiscordLookupTool, DiscordReadTool, DiscordWriteTool, GithubUserTool, TelegramReadTool, TwitterPostTool};

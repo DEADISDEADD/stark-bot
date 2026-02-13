@@ -1,11 +1,11 @@
 ---
 name: starkhub
 description: "Browse, search, install, and submit skills on StarkHub (hub.starkbot.ai) — the decentralized skills directory for StarkBot agents."
-version: 1.2.0
+version: 2.7.0
 author: starkbot
 homepage: https://hub.starkbot.ai
 metadata: {"clawdbot":{"emoji":"🌐"}}
-requires_tools: [web_fetch, manage_skills, siwa_auth, define_tasks]
+requires_tools: [web_fetch, manage_skills, erc8128_fetch, modify_identity, define_tasks]
 tags: [general, all, skills, hub, discovery, meta, management]
 arguments:
   query:
@@ -26,15 +26,22 @@ StarkHub (https://hub.starkbot.ai) is the public skills marketplace for StarkBot
 
 **Base URL:** `https://hub.starkbot.ai/api`
 
-All read endpoints are public. Submitting requires authentication.
+All read endpoints are public. Download, submit, update, and set username require authentication via `erc8128_fetch`.
 
-**Important:** Skills are scoped to authors using the `@username/slug` format (like npm packages). Most skill-specific endpoints require both the author's username and the skill slug.
+**Authentication:** Use `erc8128_fetch` for any endpoint that requires auth. It signs each request with your wallet's Ethereum identity (ERC-8128 / RFC 9421) — no login handshake or tokens needed. Use `web_fetch` for public read-only endpoints.
+
+**Important:** Skills are scoped to authors using the `@username/slug` format (like npm packages).
 
 ## CRITICAL RULES
 
 1. **ONE TASK AT A TIME.** Only do the work described in the CURRENT task. Do NOT work ahead.
 2. **Do NOT call `say_to_user` with `finished_task: true` until the current task is truly done.** Using `finished_task: true` advances the task queue — if you use it prematurely, tasks get skipped.
 3. **Use `say_to_user` WITHOUT `finished_task`** for progress updates. Only set `finished_task: true` OR call `task_fully_completed` when ALL steps in the current task are done.
+4. **During install, do NOT ask the user unnecessary questions.** Just download, install, and report the result. If the installed skill has requirements (API keys, config, binaries), mention them AFTER installation as "next steps" — do NOT block the install by asking about targets, delivery methods, or key configuration.
+5. **NO AUTH TOKENS NEEDED.** Do NOT check for, ask for, or try to create auth tokens (SIWA, session tokens, bearer tokens, etc.). Authentication is handled AUTOMATICALLY by `erc8128_fetch` — it signs requests with the wallet. There is zero setup required.
+6. **EXACT TASK COUNT.** Define EXACTLY the number of tasks shown below for each action. Do NOT add extra tasks for auth, username setup, API key checks, or any other prerequisite unless explicitly listed. The task definitions below are COMPLETE — follow them verbatim.
+7. **`erc8128_fetch` ONLY DOWNLOADS — it does NOT install.** After downloading skill markdown with `erc8128_fetch`, you MUST call `manage_skills` with `action: "install"` to actually save the skill to the database. If you skip this step, the skill will NOT appear on the skills page. NEVER report a skill as "installed" until `manage_skills` returns success.
+8. **Do NOT fabricate tool results.** Only report success/failure based on actual tool call responses. If you did not call `manage_skills install` and receive a success response, the skill is NOT installed.
 
 ## Step 1: Define tasks
 
@@ -44,7 +51,7 @@ Before doing any work, call `define_tasks` based on the requested action.
 
 ```json
 {"tool": "define_tasks", "tasks": [
-  "TASK 1 — Fetch: call web_fetch with the appropriate StarkHub API endpoint for the requested action. See starkhub skill.",
+  "TASK 1 — Fetch: call web_fetch with the appropriate StarkHub API endpoint. See starkhub skill.",
   "TASK 2 — Present results to the user in a clear, readable format."
 ]}
 ```
@@ -53,9 +60,9 @@ Before doing any work, call `define_tasks` based on the requested action.
 
 ```json
 {"tool": "define_tasks", "tasks": [
-  "TASK 1 — Download: fetch the raw skill markdown from StarkHub via web_fetch. See starkhub skill 'Install'.",
-  "TASK 2 — Install: install the skill locally via manage_skills. See starkhub skill 'Install'.",
-  "TASK 3 — Record: POST the install to StarkHub and confirm to the user. See starkhub skill 'Install'."
+  "TASK 1 — Download: fetch skill markdown from StarkHub via erc8128_fetch /download endpoint. Save the FULL response text — you need it for the next step.",
+  "TASK 2 — Install to database: call manage_skills with action 'install' and pass the FULL markdown from Task 1 in the 'markdown' parameter. This saves the skill to the database so it appears on the skills page. Do NOT skip this step. If the skill already exists locally, use action 'update' instead.",
+  "TASK 3 — Confirm: tell the user the skill was installed. Mention any requirements (API keys, config, binaries) as next steps."
 ]}
 ```
 
@@ -63,10 +70,10 @@ Before doing any work, call `define_tasks` based on the requested action.
 
 ```json
 {"tool": "define_tasks", "tasks": [
-  "TASK 1 — Authenticate: use siwa_auth to sign in to StarkHub and cache the auth token. See starkhub skill 'Submit Step 1'.",
-  "TASK 2 — Prepare: read the local skill markdown via manage_skills. See starkhub skill 'Submit Step 2'.",
-  "TASK 3 — Submit: POST the skill markdown to StarkHub with the auth token. See starkhub skill 'Submit Step 3'.",
-  "TASK 4 — Confirm: report the submission status to the user."
+  "TASK 1 — Ensure username: use erc8128_fetch to GET /api/auth/me. If no username, read IDENTITY.json via modify_identity and PUT /api/authors/me/username via erc8128_fetch. See starkhub skill 'Ensure Username'.",
+  "TASK 2 — Prepare: read the local skill markdown via manage_skills or read_file.",
+  "TASK 3 — Submit: POST the skill markdown to StarkHub via erc8128_fetch.",
+  "TASK 4 — Confirm: say_to_user summarizing whether the skill was or was not successfully submitted. Mention it will need to be reviewed before it goes fully live."
 ]}
 ```
 
@@ -164,74 +171,84 @@ Returns: `name`, `description`, `version`, `content`, `raw_markdown`, `tags`, `r
 
 ## Install a Skill from StarkHub
 
-**Step 1:** Download the raw skill markdown:
+> **BOTH steps are required.** Step 1 only downloads — Step 2 saves to the database. Skipping Step 2 means the skill will NOT appear on the skills page.
+
+**Step 1 — Download** (requires auth — uses `erc8128_fetch`). This records the install on StarkHub and handles x402 payment for paid skills automatically.
 
 ```json
 {
-  "tool": "web_fetch",
-  "url": "https://hub.starkbot.ai/api/skills/@{{username}}/{{query}}/raw",
-  "extract_mode": "raw"
+  "tool": "erc8128_fetch",
+  "url": "https://hub.starkbot.ai/api/skills/@{{username}}/{{query}}/download",
+  "chain_id": 8453
 }
 ```
 
-**Step 2:** Install locally:
+Save the full response — it is the skill markdown needed for Step 2.
+
+**Step 2 — Install to database** (REQUIRED — do NOT skip):
 
 ```json
 {
   "tool": "manage_skills",
   "action": "install",
-  "markdown": "<the raw markdown from step 1>"
+  "markdown": "<the FULL raw markdown from Step 1>"
 }
 ```
 
-If the skill already exists locally, use `"action": "update"` instead.
-
-**Step 3 (optional):** Record the install on StarkHub:
-
-```json
-{
-  "tool": "web_fetch",
-  "url": "https://hub.starkbot.ai/api/skills/@{{username}}/{{query}}/install",
-  "method": "POST",
-  "extract_mode": "raw"
-}
-```
+This inserts the skill into the database so it appears on the skills page and is available to the agent. If the skill already exists locally, use `"action": "update"` instead. Only report success after this step returns `"success": true`.
 
 ---
 
 ## Submit a Skill to StarkHub
 
-Publishing a skill to StarkHub requires authentication and a StarkLicense NFT.
+Publishing requires a StarkLicense NFT. Authentication is automatic — `erc8128_fetch` signs every request with your wallet identity.
 
-### Step 1: Authenticate (SIWA)
+### Step 1: Ensure Username
 
-Use the `siwa_auth` tool to perform a real wallet-signed authentication handshake with StarkHub. This signs a SIWA message with your wallet (works with both standard and Privy/Flash wallets) and caches the auth receipt.
+Check whether your account already has a username:
 
 ```json
 {
-  "tool": "siwa_auth",
-  "server_url": "https://hub.starkbot.ai/api",
-  "nonce_path": "/auth/nonce",
-  "verify_path": "/auth/verify",
-  "domain": "hub.starkbot.ai",
-  "uri": "https://hub.starkbot.ai",
-  "chain_id": 8453,
-  "statement": "Sign in to StarkHub",
-  "cache_as": "starkhub_auth"
+  "tool": "erc8128_fetch",
+  "url": "https://hub.starkbot.ai/api/auth/me",
+  "chain_id": 8453
 }
 ```
 
-The tool will:
-1. POST to `/auth/nonce` to get a nonce
-2. Build and **sign** a SIWA message with your wallet private key (EIP-191 personal_sign)
-3. POST the signed message to `/auth/verify`
-4. Cache the server response in the `starkhub_auth` register
+Returns `{"wallet_address": "0x...", "username": "...", ...}`.
 
-The server response contains `{"token": "...", "wallet_address": "...", ...}`.
+**If `username` is `null`**, set one before submitting:
 
-**Extract the `token` from the `starkhub_auth` register** — you need it for the submit request.
+1. Read the agent's identity:
 
-> **IMPORTANT:** Do NOT use placeholder signatures or fake tokens. The `siwa_auth` tool performs real cryptographic signing. If it fails, report the error — do not attempt to submit without a valid token.
+```json
+{
+  "tool": "modify_identity",
+  "action": "read"
+}
+```
+
+2. Extract the `name` field and **sanitize** it: lowercase, replace spaces with hyphens, strip anything not `[a-z0-9-]`, ensure it starts with a letter, is 3–39 chars, no consecutive hyphens, no trailing hyphen.
+
+3. Set the username:
+
+```json
+{
+  "tool": "erc8128_fetch",
+  "url": "https://hub.starkbot.ai/api/authors/me/username",
+  "method": "PUT",
+  "body": "{\"username\": \"<sanitized name>\"}",
+  "chain_id": 8453
+}
+```
+
+Returns `{"success": true, "username": "..."}` on success.
+
+**If username is taken** (409), append `-agent` or `-bot` and retry once. If still fails, ask the user.
+
+**If IDENTITY.json doesn't exist**, ask the user what username to use.
+
+> **Note:** StarkHub usernames are **permanent** — once set, they cannot be changed.
 
 ### Step 2: Prepare the Skill Markdown
 
@@ -261,28 +278,23 @@ If submitting an existing local skill, read its markdown with `manage_skills`:
 }
 ```
 
-The `prompt_template` field contains the body. You will need to reconstruct the full markdown with frontmatter.
+The `prompt_template` field contains the body. Reconstruct the full markdown with frontmatter.
 
 ### Step 3: Submit
 
 ```json
 {
-  "tool": "web_fetch",
+  "tool": "erc8128_fetch",
   "url": "https://hub.starkbot.ai/api/submit",
   "method": "POST",
-  "headers": {
-    "Authorization": "Bearer <token from step 1>"
-  },
-  "body": {
-    "raw_markdown": "<full skill markdown with frontmatter>"
-  },
-  "extract_mode": "raw"
+  "body": "{\"raw_markdown\": \"<full skill markdown with frontmatter>\"}",
+  "chain_id": 8453
 }
 ```
 
 Returns `{"success": true, "slug": "my-skill", "username": "your-username", "id": "...", "status": "pending"}`.
 
-**Note:** Submitted skills start with status `pending` and require admin approval before they appear publicly.
+Submitted skills start with status `pending` and require admin approval before they appear publicly.
 
 ### Requirements
 
@@ -290,22 +302,15 @@ Returns `{"success": true, "slug": "my-skill", "username": "your-username", "id"
 - **Rate limit**: Maximum 5 submissions per 24 hours
 - **Required fields**: `name`, `description`, `version` in the frontmatter
 
-### Step 4: Update an Existing Skill
-
-To update a skill you already submitted:
+### Update an Existing Skill
 
 ```json
 {
-  "tool": "web_fetch",
+  "tool": "erc8128_fetch",
   "url": "https://hub.starkbot.ai/api/skills/@{{username}}/{{query}}",
   "method": "PUT",
-  "headers": {
-    "Authorization": "Bearer <token>"
-  },
-  "body": {
-    "raw_markdown": "<updated full skill markdown>"
-  },
-  "extract_mode": "raw"
+  "body": "{\"raw_markdown\": \"<updated full skill markdown>\"}",
+  "chain_id": 8453
 }
 ```
 
@@ -317,32 +322,31 @@ Only the original author can update their skill.
 
 ### "Find me a skill for X"
 
-1. Search: `GET /api/search?q=X`
+1. Search: `web_fetch GET /api/search?q=X`
 2. Present results with name, description, install count, author username, and tags
 3. If user picks one, install it using `@username/slug`
 
 ### "What's popular on StarkHub?"
 
-1. Fetch trending: `GET /api/skills/trending`
+1. Fetch trending: `web_fetch GET /api/skills/trending`
 2. Summarize top results
 
 ### "Install @username/slug from StarkHub"
 
-1. Download raw: `GET /api/skills/@{username}/{slug}/raw`
-2. Install locally via `manage_skills` → `install`
-3. Record install: `POST /api/skills/@{username}/{slug}/install`
+1. Download: `erc8128_fetch GET /api/skills/@{username}/{slug}/download` (chain_id: 8453)
+2. **Install to DB** (REQUIRED): `manage_skills` → `install` with the full markdown from step 1. This is what makes it show on the skills page.
+3. Verify: `manage_skills` → `get` with the skill name to confirm it's in the database
 
 ### "Publish my skill to StarkHub"
 
-1. Authenticate via `siwa_auth` (real wallet signing → token cached in `starkhub_auth` register)
+1. `erc8128_fetch GET /api/auth/me` — if no username, read IDENTITY.json and `erc8128_fetch PUT /api/authors/me/username`
 2. Read the local skill markdown (via `manage_skills` get or `read_file`)
-3. Extract the `token` from the `starkhub_auth` register
-4. Submit via `POST /api/submit` with `Authorization: Bearer <token>`
-5. Confirm pending status to user
+3. `erc8128_fetch POST /api/submit` with `raw_markdown` in body
+4. Confirm pending status to user
 
 ### "What categories exist?"
 
-1. Fetch tags: `GET /api/tags`
+1. Fetch tags: `web_fetch GET /api/tags`
 2. List names and skill counts
 
 ---
@@ -397,7 +401,7 @@ Use `author_username` + `slug` to construct the scoped URL: `/api/skills/@{autho
 
 ## Paid Skills (x402)
 
-Skills with `x402_cost` > `"0"` cost STARKBOT tokens to install. The install endpoint may return **402 Payment Required** with x402 payment instructions.
+Skills with `x402_cost` > `"0"` cost STARKBOT tokens to install. The `/download` endpoint returns **402 Payment Required** with x402 payment instructions for paid skills — `erc8128_fetch` handles this automatically.
 
 ---
 
@@ -405,7 +409,8 @@ Skills with `x402_cost` > `"0"` cost STARKBOT tokens to install. The install end
 
 - **Scoped URLs** use the `@username/slug` format — always include the author's username
 - **`author_username`** from search/list results tells you the username to use in skill URLs
-- **`extract_mode: "raw"`** is required — the API returns JSON, not HTML
+- **`extract_mode: "raw"`** is required for `web_fetch` calls — the API returns JSON, not HTML
 - After installing, the skill is immediately available — verify with `manage_skills` list
 - If a skill name conflicts locally, use `manage_skills` update instead of install
 - Submitted skills need admin approval before they go live
+- Always use `chain_id: 8453` (Base) with `erc8128_fetch` for StarkHub

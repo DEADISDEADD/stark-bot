@@ -36,6 +36,7 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::AddTaskTool::new()));
     registry.register(Arc::new(builtin::DefineTasksTool::new()));
     registry.register(Arc::new(builtin::ManageSkillsTool::new()));
+    registry.register(Arc::new(builtin::ManageModulesTool::new()));
     registry.register(Arc::new(builtin::ModifyKanbanTool::new()));
     registry.register(Arc::new(builtin::InstallApiKeyTool::new()));
 
@@ -70,6 +71,8 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::BridgeUsdcTool::new()));
     // ERC-8128 signed HTTP requests (Ethereum identity)
     registry.register(Arc::new(builtin::Erc8128FetchTool::new()));
+    // SIWA/SIWE authentication (Sign In With Agent/Ethereum)
+    registry.register(Arc::new(builtin::SiwaAuthTool::new()));
 
     // Filesystem tools (read-only, shared)
     registry.register(Arc::new(builtin::ReadFileTool::new()));
@@ -106,8 +109,8 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::TwitterPostTool::new()));
     registry.register(Arc::new(builtin::TelegramReadTool::new()));
 
-    // Discord hooks tools
-    registry.register(Arc::new(crate::discord_hooks::tools::DiscordResolveUserTool::new()));
+    // NOTE: discord_resolve_user is now provided by the discord_tipping module.
+    // It gets registered when the module is installed/enabled.
 }
 
 /// Create a new ToolRegistry with all built-in tools registered

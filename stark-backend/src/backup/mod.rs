@@ -12,6 +12,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Current backup format version
 pub const BACKUP_VERSION: u32 = 1;
@@ -56,8 +57,11 @@ pub struct BackupData {
     /// Identity document content (IDENTITY.json - EIP-8004 agent identity registration)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub identity_document: Option<String>,
-    /// Discord user registrations (discord_user_id → public_address mappings)
+    /// Discord user registrations (LEGACY — kept for backward compat with old backups)
+    /// New backups store this in module_data["discord_tipping"] instead.
     pub discord_registrations: Vec<DiscordRegistrationEntry>,
+    /// Generic module data — each module stores its backup under its name
+    pub module_data: HashMap<String, serde_json::Value>,
     /// Skills (custom agent skills)
     pub skills: Vec<SkillEntry>,
     /// AI model / agent settings (endpoint, archetype, tokens, etc.)
@@ -90,6 +94,7 @@ impl Default for BackupData {
             soul_document: None,
             identity_document: None,
             discord_registrations: Vec::new(),
+            module_data: HashMap::new(),
             skills: Vec::new(),
             agent_settings: Vec::new(),
             agent_identity: None,
@@ -110,6 +115,11 @@ impl BackupData {
         }
     }
 
+    /// Returns true if there's nothing meaningful to backup
+    pub fn is_empty(&self) -> bool {
+        self.item_count() == 0
+    }
+
     /// Calculate total item count for progress reporting
     pub fn item_count(&self) -> usize {
         self.api_keys.len()
@@ -124,6 +134,7 @@ impl BackupData {
             + if self.soul_document.is_some() { 1 } else { 0 }
             + if self.identity_document.is_some() { 1 } else { 0 }
             + self.discord_registrations.len()
+            + self.module_data.len()
             + self.skills.len()
             + self.agent_settings.len()
             + if self.agent_identity.is_some() { 1 } else { 0 }
@@ -304,13 +315,21 @@ pub struct AgentSettingsEntry {
     pub secret_key: Option<String>,
 }
 
-/// On-chain agent identity registration entry in backup (minimal — everything else fetched from chain)
+/// On-chain agent identity registration entry in backup (full metadata — DB is single source of truth)
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AgentIdentityEntry {
     pub agent_id: i64,
     pub agent_registry: String,
     pub chain_id: i64,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub image: Option<String>,
+    pub x402_support: bool,
+    pub active: bool,
+    pub services_json: String,
+    pub supported_trust_json: String,
+    pub registration_uri: Option<String>,
 }
 
 /// x402 payment limit entry in backup
@@ -321,6 +340,7 @@ pub struct X402PaymentLimitEntry {
     pub max_amount: String,
     pub decimals: u8,
     pub display_name: String,
+    pub address: Option<String>,
 }
 
 /// Kanban board item entry in backup

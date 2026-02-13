@@ -49,6 +49,8 @@ pub enum ApiKeyId {
     SupabaseAccessToken,
     #[strum(serialize = "CLOUDFLARE_API_TOKEN")]
     CloudflareApiToken,
+    #[strum(serialize = "ALCHEMY_API_KEY")]
+    AlchemyApiKey,
 }
 
 impl ApiKeyId {
@@ -69,6 +71,7 @@ impl ApiKeyId {
             Self::RailwayToken => "RAILWAY_TOKEN",
             Self::SupabaseAccessToken => "SUPABASE_ACCESS_TOKEN",
             Self::CloudflareApiToken => "CLOUDFLARE_API_TOKEN",
+            Self::AlchemyApiKey => "ALCHEMY_API_KEY",
         }
     }
 
@@ -88,6 +91,7 @@ impl ApiKeyId {
             Self::RailwayToken => Some(&["RAILWAY_API_TOKEN"]),
             Self::SupabaseAccessToken => Some(&["SUPABASE_ACCESS_TOKEN"]),
             Self::CloudflareApiToken => Some(&["CLOUDFLARE_API_TOKEN"]),
+            Self::AlchemyApiKey => Some(&["ALCHEMY_API_KEY"]),
         }
     }
 
@@ -950,57 +954,38 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
         }
     }
 
-    // Get identity document content
-    let identity_path = crate::config::identity_document_path();
-    match std::fs::read_to_string(&identity_path) {
-        Ok(content) => {
-            backup.identity_document = Some(content);
-            log::info!("Including identity document in backup");
-        }
-        Err(e) => {
-            log::debug!("Identity document not found for backup: {}", e);
-        }
+    // Get agent identity from DB (single source of truth — no more IDENTITY.json)
+    if let Some(row) = state.db.get_agent_identity_full() {
+        log::info!(
+            "Including agent identity (agent_id={}) in backup",
+            row.agent_id
+        );
+        backup.agent_identity = Some(AgentIdentityEntry {
+            agent_id: row.agent_id,
+            agent_registry: row.agent_registry,
+            chain_id: row.chain_id,
+            name: row.name,
+            description: row.description,
+            image: row.image,
+            x402_support: row.x402_support,
+            active: row.active,
+            services_json: row.services_json,
+            supported_trust_json: row.supported_trust_json,
+            registration_uri: row.registration_uri,
+        });
     }
 
-    // Get on-chain agent identity registration (NFT token ID + registry + chain)
+    // Collect backup data from installed modules (generic module backup)
     {
-        let conn = state.db.conn();
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT agent_id, agent_registry, chain_id FROM agent_identity LIMIT 1",
-        ) {
-            if let Ok(Some(entry)) = stmt.query_row([], |row| {
-                Ok(Some(AgentIdentityEntry {
-                    agent_id: row.get(0)?,
-                    agent_registry: row.get(1)?,
-                    chain_id: row.get(2)?,
-                }))
-            }) {
-                log::info!(
-                    "Including agent identity (agent_id={}) in backup",
-                    entry.agent_id
-                );
-                backup.agent_identity = Some(entry);
+        let module_registry = crate::modules::ModuleRegistry::new();
+        let installed = state.db.list_installed_modules().unwrap_or_default();
+        for entry in &installed {
+            if let Some(module) = module_registry.get(&entry.module_name) {
+                if let Some(data) = module.backup_data(&state.db) {
+                    log::info!("Including module '{}' data in backup", entry.module_name);
+                    backup.module_data.insert(entry.module_name.clone(), data);
+                }
             }
-        }
-    }
-
-    // Get discord registrations
-    match crate::discord_hooks::db::list_registered_profiles(&state.db) {
-        Ok(profiles) => {
-            backup.discord_registrations = profiles
-                .iter()
-                .filter_map(|p| {
-                    p.public_address.as_ref().map(|addr| DiscordRegistrationEntry {
-                        discord_user_id: p.discord_user_id.clone(),
-                        discord_username: p.discord_username.clone(),
-                        public_address: addr.clone(),
-                        registered_at: p.registered_at.clone(),
-                    })
-                })
-                .collect();
-        }
-        Err(e) => {
-            log::warn!("Failed to list discord registrations for backup: {}", e);
         }
     }
 
@@ -1072,6 +1057,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                     max_amount: l.max_amount.clone(),
                     decimals: l.decimals,
                     display_name: l.display_name.clone(),
+                    address: l.address.clone(),
                 })
                 .collect();
         }
@@ -1104,7 +1090,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
     }
 
     // Check if there's anything to backup
-    if backup.api_keys.is_empty() && backup.mind_map_nodes.is_empty() && backup.cron_jobs.is_empty() && backup.bot_settings.is_none() && backup.heartbeat_config.is_none() && backup.channel_settings.is_empty() && backup.channels.is_empty() && backup.soul_document.is_none() && backup.identity_document.is_none() && backup.discord_registrations.is_empty() && backup.skills.is_empty() && backup.agent_settings.is_empty() && backup.agent_identity.is_none() {
+    if backup.is_empty() {
         return HttpResponse::BadRequest().json(BackupResponse {
             success: false,
             key_count: None,
@@ -1443,7 +1429,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
     };
 
     // Try to parse as new BackupData format first, fall back to legacy Vec<BackupKey>
-    let backup_data: BackupData = match serde_json::from_str(&decrypted_json) {
+    let mut backup_data: BackupData = match serde_json::from_str(&decrypted_json) {
         Ok(data) => data,
         Err(_) => {
             // Try legacy format (just API keys)
@@ -1768,42 +1754,30 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
         }
     }
 
-    // Restore identity document if present in backup AND no local copy exists
+    // Restore agent identity from backup (DB is single source of truth)
     let mut has_identity = false;
-    if let Some(identity_content) = &backup_data.identity_document {
-        let identity_path = crate::config::identity_document_path();
-        if identity_path.exists() {
-            has_identity = true;
-            log::info!("[Keystore] Identity document already exists locally, skipping restore from backup");
-        } else {
-            if let Some(parent) = identity_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            match std::fs::write(&identity_path, identity_content) {
-                Ok(_) => {
-                    has_identity = true;
-                    log::info!("[Keystore] Restored identity document from backup");
-                }
-                Err(e) => {
-                    log::warn!("[Keystore] Failed to restore identity document: {}", e);
-                }
-            }
-        }
-    }
-
-    // Restore on-chain agent identity registration if present and no local row exists
     if let Some(ref ai) = backup_data.agent_identity {
         let conn = state.db.conn();
         let existing: i64 = conn
             .query_row("SELECT COUNT(*) FROM agent_identity", [], |r| r.get(0))
             .unwrap_or(0);
         if existing == 0 {
-            match conn.execute(
-                "INSERT INTO agent_identity (agent_id, agent_registry, chain_id) \
-                 VALUES (?1, ?2, ?3)",
-                rusqlite::params![ai.agent_id, ai.agent_registry, ai.chain_id],
+            // Use full metadata from backup entry
+            match state.db.upsert_agent_identity(
+                ai.agent_id,
+                &ai.agent_registry,
+                ai.chain_id,
+                ai.name.as_deref(),
+                ai.description.as_deref(),
+                ai.image.as_deref(),
+                ai.x402_support,
+                ai.active,
+                &ai.services_json,
+                &ai.supported_trust_json,
+                ai.registration_uri.as_deref(),
             ) {
                 Ok(_) => {
+                    has_identity = true;
                     log::info!(
                         "[Keystore] Restored agent identity (agent_id={}) from backup",
                         ai.agent_id
@@ -1814,36 +1788,99 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 }
             }
         } else {
+            has_identity = true;
             log::info!("[Keystore] Agent identity already exists locally, skipping restore from backup");
         }
     }
 
-    // Restore discord registrations
-    let mut restored_discord_registrations = 0;
-    if !backup_data.discord_registrations.is_empty() {
-        // Clear existing registrations before restore
-        match crate::discord_hooks::db::clear_registrations_for_restore(&state.db) {
-            Ok(deleted) => {
-                log::info!("Cleared {} discord registrations for restore", deleted);
-            }
-            Err(e) => {
-                log::warn!("Failed to clear discord registrations for restore: {}", e);
-            }
-        }
-
-        for reg in &backup_data.discord_registrations {
-            let username = reg.discord_username.as_deref().unwrap_or("unknown");
-            match crate::discord_hooks::db::get_or_create_profile(&state.db, &reg.discord_user_id, username) {
-                Ok(_) => {
-                    if let Err(e) = crate::discord_hooks::db::register_address(&state.db, &reg.discord_user_id, &reg.public_address) {
-                        log::warn!("Failed to restore discord registration for {}: {}", reg.discord_user_id, e);
-                    } else {
-                        restored_discord_registrations += 1;
+    // Legacy: if old backup has identity_document but no agent_identity entry,
+    // and no DB row exists, parse the JSON and create a minimal DB row
+    if !has_identity {
+        if let Some(identity_content) = &backup_data.identity_document {
+            let existing: i64 = state.db.conn()
+                .query_row("SELECT COUNT(*) FROM agent_identity", [], |r| r.get(0))
+                .unwrap_or(0);
+            if existing == 0 {
+                if let Ok(reg) = serde_json::from_str::<crate::eip8004::types::RegistrationFile>(identity_content) {
+                    let services_json = serde_json::to_string(&reg.services).unwrap_or_else(|_| "[]".to_string());
+                    let supported_trust_json = serde_json::to_string(&reg.supported_trust).unwrap_or_else(|_| "[]".to_string());
+                    match state.db.upsert_agent_identity(
+                        0, "", 0,
+                        Some(&reg.name), Some(&reg.description), reg.image.as_deref(),
+                        reg.x402_support, reg.active,
+                        &services_json, &supported_trust_json,
+                        None,
+                    ) {
+                        Ok(_) => {
+                            has_identity = true;
+                            log::info!("[Keystore] Migrated legacy identity_document to DB");
+                        }
+                        Err(e) => {
+                            log::warn!("[Keystore] Failed to migrate legacy identity_document: {}", e);
+                        }
                     }
                 }
-                Err(e) => {
-                    log::warn!("Failed to create discord profile for {}: {}", reg.discord_user_id, e);
+            }
+        }
+    }
+
+    // Restore module data (generic module restore)
+    let mut restored_discord_registrations = 0;
+    {
+        let module_registry = crate::modules::ModuleRegistry::new();
+
+        // Backward-compat shim: if old discord_registrations field is populated
+        // AND module_data["discord_tipping"] is absent, convert old format
+        if !backup_data.discord_registrations.is_empty() && !backup_data.module_data.contains_key("discord_tipping") {
+            log::info!("Converting legacy discord_registrations to module_data format");
+            let legacy_entries: Vec<serde_json::Value> = backup_data.discord_registrations.iter().map(|reg| {
+                serde_json::json!({
+                    "discord_user_id": reg.discord_user_id,
+                    "discord_username": reg.discord_username,
+                    "public_address": reg.public_address,
+                    "registered_at": reg.registered_at,
+                })
+            }).collect();
+            backup_data.module_data.insert("discord_tipping".to_string(), serde_json::Value::Array(legacy_entries));
+        }
+
+        // Restore each module's data
+        for (module_name, data) in &backup_data.module_data {
+            if let Some(module) = module_registry.get(module_name) {
+                // Ensure the module's tables exist before restoring
+                if module.has_db_tables() {
+                    let conn = state.db.conn();
+                    if let Err(e) = module.init_tables(&conn) {
+                        log::warn!("Failed to init tables for module '{}' during restore: {}", module_name, e);
+                        continue;
+                    }
                 }
+                // Auto-install the module if not already installed
+                if !state.db.is_module_installed(module_name).unwrap_or(true) {
+                    let required_keys = module.required_api_keys();
+                    let key_strs: Vec<&str> = required_keys.iter().copied().collect();
+                    let _ = state.db.install_module(
+                        module_name,
+                        module.description(),
+                        module.version(),
+                        module.has_db_tables(),
+                        module.has_tools(),
+                        module.has_worker(),
+                        &key_strs,
+                    );
+                }
+                match module.restore_data(&state.db, data) {
+                    Ok(()) => {
+                        log::info!("Restored module data for '{}'", module_name);
+                        if module_name == "discord_tipping" {
+                            // Count restored entries for response
+                            restored_discord_registrations = data.as_array().map(|a| a.len()).unwrap_or(0);
+                        }
+                    }
+                    Err(e) => log::warn!("Failed to restore module data for '{}': {}", module_name, e),
+                }
+            } else {
+                log::warn!("Skipping restore for unknown module '{}'", module_name);
             }
         }
     }
@@ -1941,9 +1978,9 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
     // Restore x402 payment limits
     let mut restored_x402_limits = 0;
     for limit in &backup_data.x402_payment_limits {
-        match state.db.set_x402_payment_limit(&limit.asset, &limit.max_amount, limit.decimals, &limit.display_name) {
+        match state.db.set_x402_payment_limit(&limit.asset, &limit.max_amount, limit.decimals, &limit.display_name, limit.address.as_deref()) {
             Ok(_) => {
-                crate::x402::payment_limits::set_limit(&limit.asset, &limit.max_amount, limit.decimals, &limit.display_name);
+                crate::x402::payment_limits::set_limit(&limit.asset, &limit.max_amount, limit.decimals, &limit.display_name, limit.address.as_deref());
                 restored_x402_limits += 1;
             }
             Err(e) => log::warn!("Failed to restore x402 payment limit for {}: {}", limit.asset, e),
@@ -2300,7 +2337,13 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
             cron_job_count: Some(backup_data.cron_jobs.len()),
             channel_count: Some(backup_data.channels.len()),
             channel_setting_count: Some(backup_data.channel_settings.len()),
-            discord_registration_count: Some(backup_data.discord_registrations.len()),
+            discord_registration_count: Some(
+                // Check module_data first (new format), fall back to legacy field
+                backup_data.module_data.get("discord_tipping")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.len())
+                    .unwrap_or_else(|| backup_data.discord_registrations.len())
+            ),
             skill_count: Some(backup_data.skills.len()),
             agent_settings_count: Some(backup_data.agent_settings.len()),
             has_settings: Some(backup_data.bot_settings.is_some()),

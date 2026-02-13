@@ -1662,6 +1662,38 @@ impl MessageDispatcher {
                     "[SKILL] Skill '{}' already active, skipping redundant reload",
                     requested_skill
                 );
+
+                // Ensure subtype is set even if skill was pre-activated without it
+                if !orchestrator.current_subtype().is_selected() {
+                    if let Ok(Some(skill)) = self.db.get_enabled_skill_by_name(requested_skill) {
+                        if let Some(new_subtype) = self.apply_skill_subtype(&skill, orchestrator, original_message.channel_id) {
+                            // Refresh tools for the newly-set subtype
+                            let requires_tools = orchestrator.context().active_skill
+                                .as_ref()
+                                .map(|s| s.requires_tools.clone())
+                                .unwrap_or_default();
+                            *tools = self.tool_registry
+                                .get_tool_definitions_for_subtype_with_required(
+                                    tool_config,
+                                    new_subtype,
+                                    &requires_tools,
+                                );
+                            if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(new_subtype) {
+                                tools.push(skill_tool);
+                            }
+                            tools.extend(orchestrator.get_mode_tools());
+                            if !requires_tools.iter().any(|t| t == "define_tasks") {
+                                tools.retain(|t| t.name != "define_tasks");
+                            }
+                            log::info!(
+                                "[SKILL] Late subtype fix: refreshed toolset to {} with {} tools",
+                                new_subtype.label(),
+                                tools.len()
+                            );
+                        }
+                    }
+                }
+
                 crate::tools::ToolResult::success(&format!(
                     "Skill '{}' is already loaded. Follow the instructions already provided and call the actual tools directly. Do NOT call use_skill again.\n\nUser query: {}",
                     requested_skill, input
@@ -1724,10 +1756,13 @@ impl MessageDispatcher {
                 skill_result
             }
         } else {
-            // Check if subtype is None - allow System tools but block non-System tools
+            // Check if subtype is None - allow System tools and skill-required tools,
+            // but block everything else until a subtype is selected
             let current_subtype = orchestrator.current_subtype();
             let is_system_tool = current_tools.iter().any(|t| t.name == tool_name && t.group == crate::tools::types::ToolGroup::System);
-            if !current_subtype.is_selected() && !is_system_tool {
+            let is_skill_required_tool = orchestrator.context().active_skill.as_ref()
+                .map_or(false, |s| s.requires_tools.iter().any(|t| t == tool_name));
+            if !current_subtype.is_selected() && !is_system_tool && !is_skill_required_tool {
                 log::warn!(
                     "[SUBTYPE] Blocked tool '{}' - no subtype selected. Must call set_agent_subtype first.",
                     tool_name
@@ -2013,10 +2048,44 @@ impl MessageDispatcher {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
 
-            if is_safe_mode && (finished_task || orchestrator.task_queue_is_empty()) {
-                // Safe mode with finished_task or no task queue: terminate
-                log::info!("[ORCHESTRATED_LOOP] say_to_user terminating loop (safe_mode=true, finished_task={}, define_tasks_in_batch={})", finished_task, batch_state.define_tasks_replaced_queue);
+            if is_safe_mode && !batch_state.define_tasks_replaced_queue && orchestrator.task_queue_is_empty() {
+                // Safe mode with no task queue: terminate immediately
+                log::info!("[ORCHESTRATED_LOOP] say_to_user terminating loop (safe_mode=true, no task queue)");
                 processed.orchestrator_complete = true;
+            } else if is_safe_mode && !batch_state.define_tasks_replaced_queue && finished_task && !orchestrator.task_queue_is_empty() {
+                // Safe mode with task queue and finished_task: advance like normal mode
+                if let Some(completed_task_id) = orchestrator.complete_current_task() {
+                    log::info!("[ORCHESTRATED_LOOP] say_to_user (safe_mode) completed task {}", completed_task_id);
+                    self.broadcast_task_status_change(
+                        original_message.channel_id,
+                        session_id,
+                        completed_task_id,
+                        "completed",
+                        &format!("Completed via say_to_user"),
+                    );
+                }
+                match self.advance_to_next_task_or_complete(
+                    original_message.channel_id,
+                    session_id,
+                    orchestrator,
+                ) {
+                    TaskAdvanceResult::AllTasksComplete => {
+                        log::info!("[ORCHESTRATED_LOOP] say_to_user (safe_mode): all tasks done, terminating loop");
+                        processed.orchestrator_complete = true;
+                    }
+                    TaskAdvanceResult::NextTaskStarted => {
+                        log::info!("[ORCHESTRATED_LOOP] say_to_user (safe_mode): advanced to next task, continuing loop");
+                    }
+                    TaskAdvanceResult::InconsistentState => {
+                        log::warn!("[ORCHESTRATED_LOOP] say_to_user (safe_mode): inconsistent task state, terminating");
+                        processed.orchestrator_complete = true;
+                    }
+                }
+            } else if is_safe_mode && batch_state.define_tasks_replaced_queue {
+                // Safe mode but define_tasks just created tasks in this batch — don't terminate
+                log::info!(
+                    "[ORCHESTRATED_LOOP] say_to_user (safe_mode): ignoring termination — define_tasks just replaced queue"
+                );
             } else if finished_task && !batch_state.define_tasks_replaced_queue && !batch_state.auto_completed_task {
                 if !orchestrator.task_queue_is_empty() {
                     // Complete current task and try to advance
@@ -2789,6 +2858,24 @@ impl MessageDispatcher {
                     continue;
                 }
 
+                // If there are pending tasks, don't exit — force the AI to keep working.
+                // The AI might respond with just text after a batched define_tasks + say_to_user,
+                // but we need it to continue executing tasks.
+                if !orchestrator.task_queue_is_empty() && !orchestrator.all_tasks_complete() {
+                    log::info!(
+                        "[ORCHESTRATED_LOOP] AI returned no tool calls but tasks are pending — forcing retry"
+                    );
+                    conversation.push(Message {
+                        role: MessageRole::Assistant,
+                        content: ai_response.content.clone(),
+                    });
+                    conversation.push(Message {
+                        role: MessageRole::User,
+                        content: "[SYSTEM] You have pending tasks to complete. Please call the appropriate tools to continue working on the current task.".to_string(),
+                    });
+                    continue;
+                }
+
                 // say_to_user content takes priority — it IS the final result
                 if !last_say_to_user_content.is_empty() {
                     log::info!("[ORCHESTRATED_LOOP] Returning say_to_user content as final result ({} chars)", last_say_to_user_content.len());
@@ -2930,6 +3017,16 @@ impl MessageDispatcher {
                 } else {
                     ToolResponse::error(call.id.clone(), processed.result_content)
                 });
+            }
+
+            // If define_tasks just replaced the queue in this batch, any orchestrator_complete
+            // set by an earlier tool in the same batch (e.g., say_to_user that ran before
+            // define_tasks) is stale — reset it since there's new work to do.
+            if batch_state.define_tasks_replaced_queue && orchestrator_complete && !orchestrator.all_tasks_complete() {
+                log::info!(
+                    "[ORCHESTRATED_LOOP] Resetting orchestrator_complete — define_tasks created new tasks in this batch"
+                );
+                orchestrator_complete = false;
             }
 
             // Add to tool history (keep only last N entries to prevent context bloat)
@@ -3564,17 +3661,18 @@ impl MessageDispatcher {
             prompt.push_str("\n\n");
         }
 
-        // Load IDENTITY.json summary if available
-        if let Ok(identity_json) = std::fs::read_to_string(crate::config::identity_document_path()) {
-            if let Ok(reg) = serde_json::from_str::<crate::eip8004::types::RegistrationFile>(&identity_json) {
-                prompt.push_str(&format!(
-                    "## Agent Identity (EIP-8004)\nRegistered as: {} — {}. Services: [{}]. x402 support: {}.\n\n",
-                    reg.name,
-                    reg.description,
-                    if reg.services.is_empty() { "none".to_string() } else { reg.services.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ") },
-                    if reg.x402_support { "enabled" } else { "disabled" }
-                ));
-            }
+        // Load agent identity summary from DB if available
+        if let Some(identity_row) = self.db.get_agent_identity_full() {
+            let services: Vec<crate::eip8004::types::ServiceEntry> =
+                serde_json::from_str(&identity_row.services_json).unwrap_or_default();
+            let name = identity_row.name.as_deref().unwrap_or("(unnamed)");
+            let desc = identity_row.description.as_deref().unwrap_or("");
+            prompt.push_str(&format!(
+                "## Agent Identity (EIP-8004)\nRegistered as: {} — {}. Services: [{}]. x402 support: {}.\n\n",
+                name, desc,
+                if services.is_empty() { "none".to_string() } else { services.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ") },
+                if identity_row.x402_support { "enabled" } else { "disabled" }
+            ));
         }
 
         // QMD Memory System: Read from markdown files

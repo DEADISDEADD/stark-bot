@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-/// Tool for the agent to manage its EIP-8004 identity registration file
+/// Tool for the agent to manage its EIP-8004 identity registration (stored in DB)
 pub struct ModifyIdentityTool {
     definition: ToolDefinition,
 }
@@ -122,7 +122,7 @@ impl ModifyIdentityTool {
         ModifyIdentityTool {
             definition: ToolDefinition {
                 name: "modify_identity".to_string(),
-                description: "Manage your EIP-8004 agent identity registration file (IDENTITY.json). Create, read, update fields, add/remove services, or upload to identity.defirelay.com.".to_string(),
+                description: "Manage your EIP-8004 agent identity (stored in DB). Create, read, update fields, add/remove services, or upload to identity.defirelay.com.".to_string(),
                 input_schema: ToolInputSchema {
                     schema_type: "object".to_string(),
                     properties,
@@ -154,34 +154,6 @@ struct ModifyIdentityParams {
     service_version: Option<String>,
 }
 
-fn identity_path() -> std::path::PathBuf {
-    crate::config::identity_document_path()
-}
-
-/// Read and parse the existing IDENTITY.json
-async fn read_identity() -> Result<RegistrationFile, String> {
-    let path = identity_path();
-    let content = tokio::fs::read_to_string(&path)
-        .await
-        .map_err(|e| format!("Failed to read IDENTITY.json: {}", e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse IDENTITY.json: {}", e))
-}
-
-/// Write RegistrationFile back to IDENTITY.json
-async fn write_identity(reg: &RegistrationFile) -> Result<(), String> {
-    let path = identity_path();
-    // Ensure parent directory exists
-    if let Some(parent) = path.parent() {
-        let _ = tokio::fs::create_dir_all(parent).await;
-    }
-    let json = serde_json::to_string_pretty(reg)
-        .map_err(|e| format!("Failed to serialize identity: {}", e))?;
-    tokio::fs::write(&path, &json)
-        .await
-        .map_err(|e| format!("Failed to write IDENTITY.json: {}", e))
-}
-
 #[async_trait]
 impl Tool for ModifyIdentityTool {
     fn definition(&self) -> ToolDefinition {
@@ -194,24 +166,50 @@ impl Tool for ModifyIdentityTool {
             Err(e) => return ToolResult::error(format!("Invalid parameters: {}", e)),
         };
 
+        let db = match &context.database {
+            Some(db) => db,
+            None => return ToolResult::error("Database not available"),
+        };
+
         match params.action.as_str() {
             "read" => {
-                let path = identity_path();
-                match tokio::fs::read_to_string(&path).await {
-                    Ok(content) => ToolResult::success(content).with_metadata(json!({
-                        "action": "read",
-                        "path": path.display().to_string()
-                    })),
-                    Err(_) => ToolResult::success("No identity file exists yet. Use action='create' to create one."),
+                match db.get_agent_identity_full() {
+                    Some(row) => {
+                        let reg = row.to_registration_file();
+                        let json_str = serde_json::to_string_pretty(&reg).unwrap_or_default();
+                        ToolResult::success(format!(
+                            "=== Agent Identity (DB) ===\n\
+                            Agent ID: {}\n\
+                            Registry: {}\n\
+                            Chain ID: {}\n\
+                            Registration URI: {}\n\n\
+                            === Metadata ===\n{}",
+                            row.agent_id, row.agent_registry, row.chain_id,
+                            row.registration_uri.as_deref().unwrap_or("(none)"),
+                            json_str
+                        )).with_metadata(json!({
+                            "action": "read",
+                            "agent_id": row.agent_id,
+                            "agent_registry": row.agent_registry,
+                            "chain_id": row.chain_id,
+                            "name": row.name,
+                            "registered": true,
+                        }))
+                    }
+                    None => {
+                        ToolResult::success(
+                            "No identity found in database.\n\n\
+                            Use action='create' to create a new identity, or import_identity to import an existing on-chain NFT."
+                        )
+                    }
                 }
             }
 
             "create" => {
-                // Refuse to overwrite an existing identity file
-                let path = identity_path();
-                if path.exists() {
+                // Refuse to overwrite an existing identity
+                if db.get_agent_identity_full().is_some() {
                     return ToolResult::error(
-                        "IDENTITY.json already exists. Use 'update_field' to modify it, or delete the file manually before creating a new one."
+                        "Identity already exists in the database. Use 'update_field' to modify it."
                     );
                 }
 
@@ -224,23 +222,32 @@ impl Tool for ModifyIdentityTool {
                     None => return ToolResult::error("'description' is required for create action"),
                 };
 
-                let mut reg = RegistrationFile::new(&name, &description);
+                let reg = RegistrationFile::new(&name, &description);
+                let services_json = serde_json::to_string(&reg.services).unwrap_or_else(|_| "[]".to_string());
+                let supported_trust_json = serde_json::to_string(&reg.supported_trust).unwrap_or_else(|_| "[]".to_string());
 
-                if let Some(img) = params.image {
-                    reg.image = Some(img);
-                }
-
-                match write_identity(&reg).await {
+                // Create with agent_id=0 (not yet registered on-chain)
+                match db.upsert_agent_identity(
+                    0, "", 0,
+                    Some(&name), Some(&description), params.image.as_deref(),
+                    true, true,
+                    &services_json, &supported_trust_json,
+                    None,
+                ) {
                     Ok(_) => {
-                        let json = serde_json::to_string_pretty(&reg).unwrap_or_default();
-                        log::info!("Created IDENTITY.json for agent: {}", name);
-                        ToolResult::success(format!("Identity file created successfully:\n{}", json))
+                        let mut created_reg = reg;
+                        if let Some(ref img) = params.image {
+                            created_reg.image = Some(img.clone());
+                        }
+                        let json = serde_json::to_string_pretty(&created_reg).unwrap_or_default();
+                        log::info!("Created agent identity in DB for agent: {}", name);
+                        ToolResult::success(format!("Identity created successfully:\n{}", json))
                             .with_metadata(json!({
                                 "action": "create",
                                 "name": name
                             }))
                     }
-                    Err(e) => ToolResult::error(e),
+                    Err(e) => ToolResult::error(format!("Failed to create identity: {}", e)),
                 }
             }
 
@@ -254,24 +261,20 @@ impl Tool for ModifyIdentityTool {
                     None => return ToolResult::error("'value' is required for update_field action"),
                 };
 
-                let mut reg = match read_identity().await {
-                    Ok(r) => r,
-                    Err(e) => return ToolResult::error(e),
-                };
-
-                match field.as_str() {
-                    "name" => reg.name = value.clone(),
-                    "description" => reg.description = value.clone(),
-                    "image" => reg.image = Some(value.clone()),
-                    "active" => {
-                        reg.active = value.to_lowercase() == "true";
-                    }
-                    _ => return ToolResult::error(format!("Unknown field '{}'. Valid: name, description, image, active", field)),
+                if db.get_agent_identity_full().is_none() {
+                    return ToolResult::error("No identity found. Use action='create' first.");
                 }
 
-                match write_identity(&reg).await {
+                // For 'active' field, convert to integer
+                let db_value = match field.as_str() {
+                    "active" => if value.to_lowercase() == "true" { "1".to_string() } else { "0".to_string() },
+                    "name" | "description" | "image" => value.clone(),
+                    _ => return ToolResult::error(format!("Unknown field '{}'. Valid: name, description, image, active", field)),
+                };
+
+                match db.update_agent_identity_field(&field, &db_value) {
                     Ok(_) => {
-                        log::info!("Updated IDENTITY.json field '{}' to '{}'", field, value);
+                        log::info!("Updated agent identity field '{}' to '{}'", field, value);
                         ToolResult::success(format!("Updated '{}' to '{}'", field, value))
                             .with_metadata(json!({
                                 "action": "update_field",
@@ -279,7 +282,7 @@ impl Tool for ModifyIdentityTool {
                                 "value": value
                             }))
                     }
-                    Err(e) => ToolResult::error(e),
+                    Err(e) => ToolResult::error(format!("Failed to update field: {}", e)),
                 }
             }
 
@@ -294,20 +297,23 @@ impl Tool for ModifyIdentityTool {
                 };
                 let version = params.service_version.unwrap_or_else(|| "1.0".to_string());
 
-                let mut reg = match read_identity().await {
-                    Ok(r) => r,
-                    Err(e) => return ToolResult::error(e),
+                let row = match db.get_agent_identity_full() {
+                    Some(r) => r,
+                    None => return ToolResult::error("No identity found. Use action='create' first."),
                 };
 
-                reg.services.push(ServiceEntry {
+                let mut services: Vec<ServiceEntry> =
+                    serde_json::from_str(&row.services_json).unwrap_or_default();
+                services.push(ServiceEntry {
                     name: service_name.clone(),
                     endpoint: endpoint.clone(),
                     version: version.clone(),
                 });
 
-                match write_identity(&reg).await {
+                let new_json = serde_json::to_string(&services).unwrap_or_else(|_| "[]".to_string());
+                match db.update_agent_identity_field("services_json", &new_json) {
                     Ok(_) => {
-                        log::info!("Added service '{}' to IDENTITY.json", service_name);
+                        log::info!("Added service '{}' to agent identity", service_name);
                         ToolResult::success(format!("Added service '{}' at {}", service_name, endpoint))
                             .with_metadata(json!({
                                 "action": "add_service",
@@ -316,7 +322,7 @@ impl Tool for ModifyIdentityTool {
                                 "version": version
                             }))
                     }
-                    Err(e) => ToolResult::error(e),
+                    Err(e) => ToolResult::error(format!("Failed to add service: {}", e)),
                 }
             }
 
@@ -326,22 +332,25 @@ impl Tool for ModifyIdentityTool {
                     None => return ToolResult::error("'service_name' is required for remove_service action"),
                 };
 
-                let mut reg = match read_identity().await {
-                    Ok(r) => r,
-                    Err(e) => return ToolResult::error(e),
+                let row = match db.get_agent_identity_full() {
+                    Some(r) => r,
+                    None => return ToolResult::error("No identity found. Use action='create' first."),
                 };
 
-                let before = reg.services.len();
-                reg.services.retain(|s| s.name != service_name);
-                let removed = before - reg.services.len();
+                let mut services: Vec<ServiceEntry> =
+                    serde_json::from_str(&row.services_json).unwrap_or_default();
+                let before = services.len();
+                services.retain(|s| s.name != service_name);
+                let removed = before - services.len();
 
                 if removed == 0 {
                     return ToolResult::error(format!("Service '{}' not found in identity", service_name));
                 }
 
-                match write_identity(&reg).await {
+                let new_json = serde_json::to_string(&services).unwrap_or_else(|_| "[]".to_string());
+                match db.update_agent_identity_field("services_json", &new_json) {
                     Ok(_) => {
-                        log::info!("Removed service '{}' from IDENTITY.json", service_name);
+                        log::info!("Removed service '{}' from agent identity", service_name);
                         ToolResult::success(format!("Removed service '{}'", service_name))
                             .with_metadata(json!({
                                 "action": "remove_service",
@@ -349,21 +358,21 @@ impl Tool for ModifyIdentityTool {
                                 "removed_count": removed
                             }))
                     }
-                    Err(e) => ToolResult::error(e),
+                    Err(e) => ToolResult::error(format!("Failed to remove service: {}", e)),
                 }
             }
 
             "upload" => {
-                let path = identity_path();
-                let json_content = match tokio::fs::read_to_string(&path).await {
-                    Ok(c) => c,
-                    Err(_) => return ToolResult::error("No IDENTITY.json found. Create one first with action='create'."),
+                let row = match db.get_agent_identity_full() {
+                    Some(r) => r,
+                    None => return ToolResult::error("No identity found. Create one first with action='create'."),
                 };
 
-                // Validate it parses
-                let _reg: RegistrationFile = match serde_json::from_str(&json_content) {
-                    Ok(r) => r,
-                    Err(e) => return ToolResult::error(format!("Invalid IDENTITY.json: {}", e)),
+                // Serialize from DB row to RegistrationFile JSON
+                let reg = row.to_registration_file();
+                let json_content = match serde_json::to_string_pretty(&reg) {
+                    Ok(j) => j,
+                    Err(e) => return ToolResult::error(format!("Failed to serialize identity: {}", e)),
                 };
 
                 // Use the identity client to upload
@@ -384,7 +393,10 @@ impl Tool for ModifyIdentityTool {
                     Ok(resp) => {
                         if resp.success {
                             let url = resp.url.unwrap_or_else(|| "unknown".to_string());
-                            log::info!("Uploaded IDENTITY.json to {}", url);
+                            log::info!("Uploaded identity to {}", url);
+
+                            // Store registration_uri in DB
+                            let _ = db.update_agent_identity_field("registration_uri", &url);
 
                             // Set the agent_uri register so the identity_register preset can use it
                             context.set_register("agent_uri", json!(&url), "modify_identity");

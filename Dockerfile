@@ -31,6 +31,8 @@ RUN cargo build --release -p stark-backend
 
 # Runtime stage
 FROM debian:bookworm-slim
+ARG STARKBOT_VERSION=unknown
+LABEL org.opencontainers.image.version="${STARKBOT_VERSION}"
 
 WORKDIR /app
 
