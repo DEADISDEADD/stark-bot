@@ -496,7 +496,7 @@ impl AgentSubtype {
             }
             _ => {
                 // Universal tags available to all selected subtypes
-                let mut tags = vec!["general", "all"];
+                let mut tags = vec!["general", "all", "identity", "eip8004", "registration"];
 
                 // Add subtype-specific tags
                 match self {

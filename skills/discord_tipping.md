@@ -1,6 +1,6 @@
 ---
 name: discord_tipping
-description: "Tip Discord users with tokens. Resolves Discord mentions to wallet addresses and executes ERC20 transfers."
+description: "Tip Discord users with tokens. Check if users are registered for tipping. Resolves Discord mentions to wallet addresses and executes ERC20 transfers."
 version: 2.5.0
 author: starkbot
 metadata: {"clawdbot":{"emoji":"💸"}}
@@ -14,6 +14,41 @@ requires_tools: [discord_resolve_user, token_lookup, to_raw_amount, web3_preset_
 Send tokens to Discord users by resolving their mention to a registered wallet address.
 
 **Amount shorthand:** Users can use "k" for thousands (1k = 1,000) and "m" for millions (1m = 1,000,000). For example: "tip @user 5k STARKBOT" means 5,000 tokens.
+
+---
+
+## Registration Check (non-tip queries)
+
+If the user is asking a **question** about tipping (e.g. "is @user registered?", "can I tip @user?", "check if @user has a wallet") rather than requesting an actual tip, use this simplified flow:
+
+```json
+{"tool": "define_tasks", "tasks": [
+  "TASK 1 — Resolve the Discord user and report registration status to the user."
+]}
+```
+
+### Task 1: Check and report
+
+Call `discord_resolve_user` with the user's numeric ID:
+
+```json
+{"tool": "discord_resolve_user", "user_mention": "<numeric_user_id>"}
+```
+
+Then call `say_to_user` to report the result:
+
+- If `registered: true` → tell the user: "Yes, @user is registered for tipping (wallet: 0x...)."
+- If not registered → tell the user: "No, @user is not registered. They can register with `@starkbot register 0x...`"
+
+```json
+{"tool": "say_to_user", "message": "<registration status message>", "finished_task": true}
+```
+
+---
+
+## Tip Flow
+
+Use the full 7-task flow below when the user wants to **send a tip** (e.g. "tip @user 10 STARKBOT").
 
 ## CRITICAL RULES
 

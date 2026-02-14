@@ -151,7 +151,7 @@ pub async fn update_agent_settings(
     // Validate archetype
     if ArchetypeId::from_str(&request.model_archetype).is_none() {
         return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": format!("Invalid archetype: {}. Must be kimi, llama, claude, or openai.", request.model_archetype)
+            "error": format!("Invalid archetype: {}. Must be kimi, llama, claude, openai, or minimax.", request.model_archetype)
         }));
     }
 

@@ -299,6 +299,18 @@ async fn cleanup_workspace(
         }
     }
 
+    // Remove empty directories (walk bottom-up so children are removed before parents)
+    let mut dirs: Vec<_> = WalkDir::new(workspace_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_dir() && e.path() != workspace_path)
+        .map(|e| e.into_path())
+        .collect();
+    dirs.sort_by(|a, b| b.cmp(a)); // deepest paths first
+    for dir in dirs {
+        let _ = std::fs::remove_dir(&dir); // only succeeds if empty
+    }
+
     // Refresh disk quota
     if let Some(ref dq) = data.disk_quota {
         dq.refresh();

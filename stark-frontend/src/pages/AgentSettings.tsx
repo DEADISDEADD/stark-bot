@@ -5,7 +5,7 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import { getAgentSettings, updateAgentSettings, getBotSettings, updateBotSettings, getAiEndpointPresets, AiEndpointPreset } from '@/lib/api';
 
-type ModelArchetype = 'kimi' | 'llama' | 'claude' | 'openai';
+type ModelArchetype = 'kimi' | 'llama' | 'claude' | 'openai' | 'minimax';
 
 interface Settings {
   endpoint?: string;
@@ -78,7 +78,7 @@ export default function AgentSettings() {
       setHasExistingSecretKey(data.has_secret_key ?? false);
 
       // Set model archetype
-      if (data.model_archetype && ['kimi', 'llama', 'claude', 'openai'].includes(data.model_archetype)) {
+      if (data.model_archetype && ['kimi', 'llama', 'claude', 'openai', 'minimax'].includes(data.model_archetype)) {
         setModelArchetype(data.model_archetype as ModelArchetype);
       }
 
@@ -278,6 +278,7 @@ export default function AgentSettings() {
                   <option value="llama">Llama</option>
                   <option value="claude">Claude</option>
                   <option value="openai">OpenAI</option>
+                  <option value="minimax">MiniMax</option>
                 </select>
                 <p className="text-xs text-slate-500 mt-1">
                   {isArchetypeLocked

@@ -49,7 +49,8 @@ impl SetAgentSubtypeTool {
                     • 'finance' - For crypto/DeFi: swaps, transfers, balances, token lookups\n\
                     • 'code_engineer' - For coding: edit files, git, grep/glob, run commands\n\
                     • 'secretary' - For social: MoltX, messaging, scheduling, marketing\n\n\
-                    Choose based on the user's request, then proceed with the appropriate tools.".to_string(),
+                    Choose based on the user's request, then proceed with the appropriate tools.\n\n\
+                    Note: Agent identity/registration (EIP-8004) skills are available in ALL subtypes.".to_string(),
                 input_schema: ToolInputSchema {
                     schema_type: "object".to_string(),
                     properties,
@@ -79,7 +80,7 @@ impl SetAgentSubtypeTool {
                  • transfer — Send ERC20 tokens or native ETH to an address\n\
                  • bridge_usdc — Bridge USDC cross-chain (Base, Polygon, Ethereum, Arbitrum, Optimism)\n\
                  • discord_tipping — Tip ERC20 tokens to Discord users\n\
-                 • broadcast_transactions — Broadcast queued transactions\n\n\
+                 \n\
                  DeFi & Yield:\n\
                  • aave — Lend/borrow on Aave (supply, withdraw, check APY)\n\
                  • pendle — Fixed-income yield trading on Pendle (PT/YT)\n\
