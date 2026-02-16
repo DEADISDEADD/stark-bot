@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Bot, Plus, Trash2, RotateCcw, Save, X } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Bot, Plus, Trash2, RotateCcw, Save, X, Download, Upload } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import {
@@ -8,6 +8,8 @@ import {
   updateAgentSubtype,
   deleteAgentSubtype,
   resetAgentSubtypeDefaults,
+  exportAgentSubtypes,
+  importAgentSubtypes,
   getToolGroups,
   AgentSubtypeInfo,
   ToolGroupInfo,
@@ -22,9 +24,11 @@ const EMPTY_SUBTYPE: AgentSubtypeInfo = {
   description: '',
   tool_groups: [],
   skill_tags: [],
+  additional_tools: [],
   prompt: '',
   sort_order: 0,
   enabled: true,
+  max_iterations: 90,
 };
 
 export default function AgentSubtypes() {
@@ -39,6 +43,8 @@ export default function AgentSubtypes() {
   const [isCreating, setIsCreating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadData();
@@ -184,6 +190,50 @@ export default function AgentSubtypes() {
     }
   };
 
+  const handleExport = async () => {
+    try {
+      const ron = await exportAgentSubtypes();
+      const blob = new Blob([ron], { type: 'application/ron' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'agent_subtypes.ron';
+      a.click();
+      URL.revokeObjectURL(url);
+      setSuccess('Exported successfully');
+    } catch (err) {
+      setError('Failed to export');
+    }
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const ron = await file.text();
+      const replace = confirm(
+        'Replace all existing subtypes with imported ones?\n\nOK = Replace all\nCancel = Merge (add/update only)'
+      );
+      const result = await importAgentSubtypes(ron, replace);
+      setSuccess(result.message);
+      setSelectedKey(null);
+      setEditForm(null);
+      setIsCreating(false);
+      await loadData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to import';
+      setError(msg);
+    } finally {
+      // Reset input so same file can be re-selected
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const handleToolGroupToggle = (group: string) => {
     if (!editForm) return;
     const groups = editForm.tool_groups.includes(group)
@@ -205,6 +255,15 @@ export default function AgentSubtypes() {
 
   return (
     <div className="p-4 sm:p-8">
+      {/* Hidden file input for import */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".ron,.txt"
+        className="hidden"
+        onChange={handleImportFile}
+      />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
         <div>
@@ -213,7 +272,15 @@ export default function AgentSubtypes() {
             Configure agent modes ({subtypes.length}/{MAX_SUBTYPES})
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={handleExport} className="w-auto">
+            <Download className="w-4 h-4 mr-2" />
+            Export
+          </Button>
+          <Button variant="secondary" onClick={handleImportClick} className="w-auto">
+            <Upload className="w-4 h-4 mr-2" />
+            Import
+          </Button>
           <Button
             variant="secondary"
             onClick={handleResetDefaults}
@@ -356,10 +423,16 @@ export default function AgentSubtypes() {
           <CardContent className="text-center py-12">
             <Bot className="w-12 h-12 text-slate-600 mx-auto mb-4" />
             <p className="text-slate-400 mb-4">No agent subtypes configured</p>
-            <Button variant="secondary" onClick={handleResetDefaults} isLoading={isResetting}>
-              <RotateCcw className="w-4 h-4 mr-2" />
-              Load Defaults
-            </Button>
+            <div className="flex justify-center gap-3">
+              <Button variant="secondary" onClick={handleResetDefaults} isLoading={isResetting}>
+                <RotateCcw className="w-4 h-4 mr-2" />
+                Load Defaults
+              </Button>
+              <Button variant="secondary" onClick={handleImportClick}>
+                <Upload className="w-4 h-4 mr-2" />
+                Import
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -428,6 +501,30 @@ function SubtypeForm({ form, setForm, toolGroups, onToolGroupToggle, isNew }: Su
         />
       </div>
 
+      {/* Row: Sort Order + Max Iterations */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">Sort Order</label>
+          <input
+            type="number"
+            value={form.sort_order}
+            onChange={e => setForm({ ...form, sort_order: parseInt(e.target.value) || 0 })}
+            className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-stark-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">Max Iterations</label>
+          <input
+            type="number"
+            value={form.max_iterations}
+            onChange={e => setForm({ ...form, max_iterations: parseInt(e.target.value) || 90 })}
+            min={1}
+            max={500}
+            className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-stark-500"
+          />
+        </div>
+      </div>
+
       {/* Tool Groups */}
       <div>
         <label className="block text-xs text-slate-500 mb-2">Tool Groups</label>
@@ -468,14 +565,21 @@ function SubtypeForm({ form, setForm, toolGroups, onToolGroupToggle, isNew }: Su
         />
       </div>
 
-      {/* Sort Order */}
-      <div className="w-32">
-        <label className="block text-xs text-slate-500 mb-1">Sort Order</label>
+      {/* Additional Tools */}
+      <div>
+        <label className="block text-xs text-slate-500 mb-1">
+          Additional Tools (comma-separated)
+          <span className="text-slate-600 ml-1">— extra tools added on top of the selected groups</span>
+        </label>
         <input
-          type="number"
-          value={form.sort_order}
-          onChange={e => setForm({ ...form, sort_order: parseInt(e.target.value) || 0 })}
-          className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-stark-500"
+          type="text"
+          value={(form.additional_tools || []).join(', ')}
+          onChange={e => setForm({
+            ...form,
+            additional_tools: e.target.value.split(',').map(t => t.trim()).filter(Boolean),
+          })}
+          placeholder="spawn_subagent, say_to_user, ask_user"
+          className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-stark-500"
         />
       </div>
 

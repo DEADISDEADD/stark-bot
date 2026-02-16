@@ -1756,9 +1756,11 @@ export interface AgentSubtypeInfo {
   description: string;
   tool_groups: string[];
   skill_tags: string[];
+  additional_tools: string[];
   prompt: string;
   sort_order: number;
   enabled: boolean;
+  max_iterations: number;
 }
 
 export async function getAgentSubtypes(): Promise<AgentSubtypeInfo[]> {
@@ -1792,6 +1794,28 @@ export async function deleteAgentSubtype(key: string): Promise<{ success: boolea
 export async function resetAgentSubtypeDefaults(): Promise<{ success: boolean; message: string; count: number }> {
   return apiFetch('/agent-subtypes/reset-defaults', {
     method: 'POST',
+  });
+}
+
+export async function exportAgentSubtypes(): Promise<string> {
+  const token = localStorage.getItem('stark_token');
+  const response = await fetch('/api/agent-subtypes/export', {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw new Error('Failed to export agent subtypes');
+  return response.text();
+}
+
+export async function importAgentSubtypes(ron: string, replace: boolean): Promise<{
+  success: boolean;
+  imported: number;
+  total: number;
+  message: string;
+  errors?: string[];
+}> {
+  return apiFetch('/agent-subtypes/import', {
+    method: 'POST',
+    body: JSON.stringify({ ron, replace }),
   });
 }
 

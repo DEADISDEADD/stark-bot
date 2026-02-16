@@ -1351,6 +1351,16 @@ impl MessageDispatcher {
             log::info!("[MULTI_AGENT] Selected network set to: {}", network);
         }
 
+        // Director skips TaskPlanner mode — it delegates task planning to specialized agents
+        // via set_agent_subtype or spawn_subagent, so it goes straight to Assistant mode.
+        if orchestrator.current_subtype() == AgentSubtype::Director
+            && orchestrator.current_mode() == AgentMode::TaskPlanner
+            && !orchestrator.context().planner_completed
+        {
+            log::info!("[MULTI_AGENT] Director subtype: skipping TaskPlanner, going to Assistant mode");
+            orchestrator.transition_to_assistant();
+        }
+
         // Broadcast initial mode
         let initial_mode = orchestrator.current_mode();
         self.broadcaster.broadcast(GatewayEvent::agent_mode_change(

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, RotateCcw, Copy, Check, Wallet, Bug, Square, Loader2, ChevronDown, CheckCircle, Circle } from 'lucide-react';
+import { Send, RotateCcw, Copy, Check, Wallet, Bug, Square, Loader2, ChevronDown, CheckCircle, Circle, ExternalLink, Wrench } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import ChatMessage from '@/components/chat/ChatMessage';
 import TypingIndicator from '@/components/chat/TypingIndicator';
@@ -138,6 +138,8 @@ export default function AgentChat() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Track spawn message IDs so we can update them when session_ready fires
+  const subagentSpawnMsgIds = useRef<Map<string, string>>(new Map());
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { connected, on, off } = useGateway();
@@ -859,38 +861,146 @@ export default function AgentChat() {
           depth: event.depth ?? 0,
         },
       ]);
+
+      // Add a visible chat message showing the subagent spawn
+      const taskPreview = event.task.length > 120 ? `${event.task.slice(0, 120)}...` : event.task;
+      const msgId = crypto.randomUUID();
+      subagentSpawnMsgIds.current.set(event.subagent_id, msgId);
+      const message: ChatMessageType = {
+        id: msgId,
+        role: 'system' as MessageRole,
+        content: `🚀 **Subagent spawned:** ${event.label}\n${taskPreview}`,
+        timestamp: new Date(),
+        sessionId,
+        subagentLabel: event.label,
+      };
+      setMessages((prev) => [...prev, message]);
     };
 
     const handleSubagentCompleted = (data: unknown) => {
       // Filter out events from other channels/sessions
       if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
-      const event = data as { subagent_id: string };
+      const event = data as { subagent_id: string; label?: string };
       console.log('[Subagent] Completed:', event.subagent_id);
+      const label = event.label || subagents.find(s => s.id === event.subagent_id)?.label || 'subagent';
       setSubagents((prev) => prev.map(s =>
         s.id === event.subagent_id ? { ...s, status: SubagentStatus.Completed } : s
       ));
+
+      const message: ChatMessageType = {
+        id: crypto.randomUUID(),
+        role: 'system' as MessageRole,
+        content: `✅ **Subagent completed:** ${label}`,
+        timestamp: new Date(),
+        sessionId,
+        subagentLabel: label,
+      };
+      setMessages((prev) => [...prev, message]);
     };
 
     const handleSubagentFailed = (data: unknown) => {
       // Filter out events from other channels/sessions
       if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
-      const event = data as { subagent_id: string };
+      const event = data as { subagent_id: string; label?: string; error?: string };
       console.log('[Subagent] Failed:', event.subagent_id);
+      const label = event.label || subagents.find(s => s.id === event.subagent_id)?.label || 'subagent';
       setSubagents((prev) => prev.map(s =>
         s.id === event.subagent_id ? { ...s, status: SubagentStatus.Failed } : s
       ));
+
+      const errorPreview = event.error ? `: ${event.error.slice(0, 100)}` : '';
+      const message: ChatMessageType = {
+        id: crypto.randomUUID(),
+        role: 'error' as MessageRole,
+        content: `❌ **Subagent failed:** ${label}${errorPreview}`,
+        timestamp: new Date(),
+        sessionId,
+        subagentLabel: label,
+      };
+      setMessages((prev) => [...prev, message]);
+    };
+
+    const handleSubagentSessionReady = (data: unknown) => {
+      if (!isWebChannelEvent(data)) return;
+      const event = data as { subagent_id: string; session_id: number };
+      console.log('[Subagent] Session ready:', event.subagent_id, 'session:', event.session_id);
+      setSubagents((prev) => prev.map(s =>
+        s.id === event.subagent_id ? { ...s, session_id: event.session_id } : s
+      ));
+
+      // Update the spawn message to include the session link
+      const spawnMsgId = subagentSpawnMsgIds.current.get(event.subagent_id);
+      if (spawnMsgId) {
+        setMessages((prev) => prev.map(m =>
+          m.id === spawnMsgId
+            ? { ...m, content: `${m.content}\n📋 Session #${event.session_id} — /sessions/${event.session_id}` }
+            : m
+        ));
+      }
+    };
+
+    const handleSubagentToolCall = (data: unknown) => {
+      if (!isWebChannelEvent(data)) return;
+      const event = data as { subagent_id: string; label: string; tool_name: string; params_preview?: string };
+      console.log('[Subagent] Tool call:', event.subagent_id, event.tool_name);
+      setSubagents((prev) => prev.map(s =>
+        s.id === event.subagent_id ? { ...s, current_tool: event.tool_name } : s
+      ));
+
+      // Also show as a chat message with subagent label
+      const paramsPretty = event.params_preview || '';
+      const content = `🔧 **Tool Call:** \`${event.tool_name}\`\n\`\`\`json\n${paramsPretty}\n\`\`\``;
+      const message: ChatMessageType = {
+        id: crypto.randomUUID(),
+        role: 'tool' as MessageRole,
+        content,
+        timestamp: new Date(),
+        sessionId,
+        subagentLabel: event.label,
+      };
+      setMessages((prev) => [...prev, message]);
+    };
+
+    const handleSubagentToolResult = (data: unknown) => {
+      if (!isWebChannelEvent(data)) return;
+      const event = data as { subagent_id: string; label: string; tool_name: string; success: boolean; content_preview?: string };
+      console.log('[Subagent] Tool result:', event.subagent_id, event.tool_name, event.success);
+      setSubagents((prev) => prev.map(s =>
+        s.id === event.subagent_id ? { ...s, current_tool: undefined } : s
+      ));
+
+      // Also show as a chat message with subagent label
+      const statusEmoji = event.success ? '✅' : '❌';
+      const statusText = event.success ? 'Success' : 'Failed';
+      const displayContent = event.content_preview || '';
+      const content = `${statusEmoji} **Tool Result:** \`${event.tool_name}\` - ${statusText}\n\`\`\`\n${displayContent}\n\`\`\``;
+      const message: ChatMessageType = {
+        id: crypto.randomUUID(),
+        role: event.success ? 'tool' as MessageRole : 'error' as MessageRole,
+        content,
+        timestamp: new Date(),
+        sessionId,
+        subagentLabel: event.label,
+      };
+      setMessages((prev) => [...prev, message]);
     };
 
     on('subagent.spawned', handleSubagentSpawned);
     on('subagent.completed', handleSubagentCompleted);
     on('subagent.failed', handleSubagentFailed);
+    on('subagent.session_ready', handleSubagentSessionReady);
+    on('subagent.tool_call', handleSubagentToolCall);
+    on('subagent.tool_result', handleSubagentToolResult);
 
     return () => {
       off('subagent.spawned', handleSubagentSpawned);
       off('subagent.completed', handleSubagentCompleted);
       off('subagent.failed', handleSubagentFailed);
+      off('subagent.session_ready', handleSubagentSessionReady);
+      off('subagent.tool_call', handleSubagentToolCall);
+      off('subagent.tool_result', handleSubagentToolResult);
     };
   }, [on, off, dbSessionId]);
 
@@ -1722,10 +1832,51 @@ export default function AgentChat() {
                   role={message.role}
                   content={message.content}
                   timestamp={message.timestamp}
+                  subagentLabel={message.subagentLabel}
                 />
               ))}
             {isLoading && <TypingIndicator />}
           </>
+        )}
+        {/* Live Subagent Activity Panel */}
+        {subagents.filter(s => s.status === SubagentStatus.Running || s.status === SubagentStatus.Pending).length > 0 && (
+          <div className="mx-2 my-3 space-y-2">
+            {subagents
+              .filter(s => s.status === SubagentStatus.Running || s.status === SubagentStatus.Pending)
+              .map((sub) => (
+                <div
+                  key={sub.id}
+                  className="flex items-center gap-3 px-4 py-2.5 bg-purple-500/10 border border-purple-500/30 rounded-lg"
+                >
+                  <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-purple-300">{sub.label}</span>
+                      {sub.current_tool ? (
+                        <span className="flex items-center gap-1 text-xs text-cyan-400">
+                          <Wrench className="w-3 h-3" />
+                          <span className="truncate">{sub.current_tool}</span>
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-500">waiting...</span>
+                      )}
+                    </div>
+                  </div>
+                  {sub.session_id && (
+                    <a
+                      href={`/sessions/${sub.session_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-shrink-0 p-1 text-slate-500 hover:text-purple-400 transition-colors"
+                      title="View session transcript"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                </div>
+              ))}
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>

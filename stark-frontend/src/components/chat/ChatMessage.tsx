@@ -11,6 +11,7 @@ interface ChatMessageProps {
   role: MessageRole;
   content: string;
   timestamp?: Date;
+  subagentLabel?: string;
 }
 
 function parseMarkdown(text: string): string {
@@ -67,6 +68,7 @@ function ToolMessage({
   isToolSuccess,
   isToolError,
   getToolBorderColor,
+  subagentLabel,
 }: {
   content: string;
   timestamp?: Date;
@@ -74,6 +76,7 @@ function ToolMessage({
   isToolSuccess: boolean;
   isToolError: boolean;
   getToolBorderColor: () => string;
+  subagentLabel?: string;
 }) {
   // Remove emoji from content for cleaner display since we're using icons
   const cleanContent = content.replace(/^[✅❌🔧]\s*/, '');
@@ -112,10 +115,11 @@ function ToolMessage({
   };
 
   return (
-    <div className="flex mb-4 justify-start">
+    <div className={clsx('flex mb-4 justify-start', subagentLabel && 'ml-6')}>
       <div
         className={clsx(
-          'w-full px-4 py-3 rounded-r-xl rounded-l-sm border-l-4 bg-slate-800/95 text-slate-100 border border-slate-700/60',
+          'w-full rounded-r-xl rounded-l-sm border-l-4 bg-slate-800/95 text-slate-100 border border-slate-700/60',
+          subagentLabel ? 'px-3 py-2' : 'px-4 py-3',
           getToolBorderColor()
         )}
       >
@@ -123,9 +127,14 @@ function ToolMessage({
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             {getIcon()}
-            <span className={clsx('text-sm font-semibold', getTitleColor())}>
+            <span className={clsx(subagentLabel ? 'text-xs font-semibold' : 'text-sm font-semibold', getTitleColor())}>
               {getTitle()}
             </span>
+            {subagentLabel && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-violet-900/50 text-violet-300 font-medium">
+                {subagentLabel}
+              </span>
+            )}
             {/* Show status badge for results */}
             {!isToolCall && (
               <span className={clsx(
@@ -193,7 +202,7 @@ function ToolMessage({
   );
 }
 
-export default function ChatMessage({ role, content, timestamp }: ChatMessageProps) {
+export default function ChatMessage({ role, content, timestamp, subagentLabel }: ChatMessageProps) {
   const isUser = role === 'user' || role === 'command';
   const isToolIndicator = role === 'tool-indicator';
   const isToolMessage = role === 'tool' || role === 'tool_call' || role === 'tool_result';
@@ -277,6 +286,7 @@ export default function ChatMessage({ role, content, timestamp }: ChatMessagePro
         isToolSuccess={isToolSuccess}
         isToolError={isToolError}
         getToolBorderColor={getToolBorderColor}
+        subagentLabel={subagentLabel}
       />
     );
   }

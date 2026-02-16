@@ -339,6 +339,35 @@ impl DiscordHandler {
                             format_tool_result_for_discord(tool_name, success, duration_ms, content, verbosity)
                         }
                     }
+                    "subagent.tool_call" => {
+                        let tool_name = event.data.get("tool_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let label = event.data.get("label")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("subagent");
+                        let params = event.data.get("params_preview")
+                            .cloned()
+                            .unwrap_or(serde_json::json!({}));
+                        format_tool_call_for_discord(tool_name, &params, verbosity)
+                            .map(|s| format!("[{}] {}", label, s))
+                    }
+                    "subagent.tool_result" => {
+                        let tool_name = event.data.get("tool_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let label = event.data.get("label")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("subagent");
+                        let success = event.data.get("success")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let content = event.data.get("content_preview")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        format_tool_result_for_discord(tool_name, success, 0, content, verbosity)
+                            .map(|s| format!("[{}] {}", label, s))
+                    }
                     "agent.mode_change" => {
                         // Skip mode changes in minimal/none verbosity
                         if matches!(verbosity, ToolOutputVerbosity::Minimal | ToolOutputVerbosity::None) {

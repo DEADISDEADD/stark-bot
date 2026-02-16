@@ -17,6 +17,8 @@ export interface Subagent {
   started_at: string;
   parent_subagent_id?: string;
   depth: number;
+  session_id?: number;
+  current_tool?: string;
 }
 
 // Helper to check if a subagent is active (running or pending)

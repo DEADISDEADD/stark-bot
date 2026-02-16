@@ -331,11 +331,133 @@ async fn reset_defaults(
     }))
 }
 
+/// Export all agent subtypes as RON.
+async fn export_subtypes(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&data, &req) {
+        return resp;
+    }
+
+    match data.db.list_agent_subtypes() {
+        Ok(subtypes) => {
+            let pretty = ron::ser::PrettyConfig::new()
+                .depth_limit(3)
+                .separate_tuple_members(true)
+                .enumerate_arrays(false);
+            match ron::ser::to_string_pretty(&subtypes, pretty) {
+                Ok(ron_str) => HttpResponse::Ok()
+                    .content_type("application/ron")
+                    .insert_header(("Content-Disposition", "attachment; filename=\"agent_subtypes.ron\""))
+                    .body(ron_str),
+                Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+                    "error": format!("Failed to serialize: {}", e)
+                })),
+            }
+        }
+        Err(e) => {
+            log::error!("Failed to export agent subtypes: {}", e);
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ImportRequest {
+    ron: String,
+    /// If true, delete all existing subtypes before importing
+    #[serde(default)]
+    replace: bool,
+}
+
+/// Import agent subtypes from RON.
+async fn import_subtypes(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    body: web::Json<ImportRequest>,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&data, &req) {
+        return resp;
+    }
+
+    // Parse RON
+    let configs: Vec<AgentSubtypeConfig> = match ron::from_str(&body.ron) {
+        Ok(c) => c,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Invalid RON: {}", e)
+            }));
+        }
+    };
+
+    if configs.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "No subtypes found in import data"
+        }));
+    }
+
+    // Check limit
+    if !body.replace {
+        let existing_count = data.db.count_agent_subtypes().unwrap_or(0) as usize;
+        if existing_count + configs.len() > MAX_SUBTYPES {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!(
+                    "Import would exceed maximum of {} subtypes ({} existing + {} imported)",
+                    MAX_SUBTYPES, existing_count, configs.len()
+                )
+            }));
+        }
+    }
+
+    // If replace mode, delete all existing first
+    if body.replace {
+        let existing = data.db.list_agent_subtypes().unwrap_or_default();
+        for s in &existing {
+            let _ = data.db.delete_agent_subtype(&s.key);
+        }
+    }
+
+    // Insert imported subtypes
+    let mut imported = 0;
+    let mut errors = Vec::new();
+    for config in &configs {
+        // Validate key
+        if config.key.is_empty() || !config.key.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            errors.push(format!("Invalid key: '{}'", config.key));
+            continue;
+        }
+        match data.db.upsert_agent_subtype(config) {
+            Ok(_) => imported += 1,
+            Err(e) => errors.push(format!("Failed to import '{}': {}", config.key, e)),
+        }
+    }
+
+    reload_registry(&data.db);
+
+    let mut response = serde_json::json!({
+        "success": true,
+        "imported": imported,
+        "total": configs.len(),
+        "message": format!("Imported {} of {} subtypes", imported, configs.len())
+    });
+
+    if !errors.is_empty() {
+        response["errors"] = serde_json::json!(errors);
+    }
+
+    HttpResponse::Ok().json(response)
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/agent-subtypes")
             .route("", web::get().to(list_subtypes))
             .route("/reset-defaults", web::post().to(reset_defaults))
+            .route("/export", web::get().to(export_subtypes))
+            .route("/import", web::post().to(import_subtypes))
             .route("/{key}", web::get().to(get_subtype))
             .route("", web::post().to(create_subtype))
             .route("/{key}", web::put().to(update_subtype))

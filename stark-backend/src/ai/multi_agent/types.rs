@@ -20,8 +20,8 @@ pub struct AgentSubtypeConfig {
     pub tool_groups: Vec<String>,
     /// Skill tags this subtype can access
     pub skill_tags: Vec<String>,
-    /// Explicit tool allowlist. When non-empty, ONLY these tools are available
-    /// (overrides group-based filtering). Used to lock down orchestrator-only subtypes.
+    /// Additional tools added on top of group-based tools.
+    /// These are included regardless of which tool groups are active.
     #[serde(default)]
     pub additional_tools: Vec<String>,
     /// The prompt text returned when this subtype is activated
@@ -564,25 +564,14 @@ impl AgentSubtype {
             return vec![ToolGroup::System];
         }
 
-        // If the config has an explicit additional_tools list, skip group-based access
-        // (the registry will use the allowlist directly instead)
-        if let Some(config) = get_subtype_config(self.as_str()) {
-            if !config.additional_tools.is_empty() {
-                // Return only the declared tool_groups (for metadata/UI)
-                return config.tool_groups.iter()
-                    .filter_map(|g| ToolGroup::from_str(g))
-                    .collect();
-            }
-        }
-
-        // Core groups available to all selected subtypes (when no explicit allowlist)
+        // System is the only universal base group — Web, Filesystem, etc.
+        // are configured per-subtype in config/defaultagents.ron
         let mut groups = vec![
             ToolGroup::System,
-            ToolGroup::Web,
-            ToolGroup::Filesystem,
         ];
 
-        // Try registry first
+        // Tool groups come from the DB-backed registry (seeded from RON or cloud backup).
+        // No hardcoded fallback — if the registry isn't loaded, you get System only.
         if let Some(config) = get_subtype_config(self.as_str()) {
             for g in &config.tool_groups {
                 if let Some(tg) = ToolGroup::from_str(g) {
@@ -591,28 +580,6 @@ impl AgentSubtype {
                     }
                 }
             }
-            return groups;
-        }
-
-        // Hardcoded fallback (registry not loaded yet)
-        match self {
-            AgentSubtype::Director => {
-                groups.push(ToolGroup::SubAgent);
-            }
-            AgentSubtype::Finance => {
-                groups.push(ToolGroup::Finance);
-            }
-            AgentSubtype::CodeEngineer => {
-                groups.push(ToolGroup::Development);
-                groups.push(ToolGroup::Exec);
-            }
-            AgentSubtype::Secretary => {
-                groups.push(ToolGroup::Messaging);
-                groups.push(ToolGroup::Social);
-                groups.push(ToolGroup::Memory);
-                groups.push(ToolGroup::Exec);
-            }
-            AgentSubtype::None => unreachable!(),
         }
 
         groups
@@ -625,51 +592,34 @@ impl AgentSubtype {
             return vec![];
         }
 
-        // If the config has an explicit additional_tools list AND empty skill_tags,
-        // this subtype gets no skills (pure orchestrator pattern)
+        // Use registry config directly — all skill tags live in the RON config
         if let Some(config) = get_subtype_config(self.as_str()) {
-            if !config.additional_tools.is_empty() && config.skill_tags.is_empty() {
-                return vec![];
-            }
+            return config.skill_tags;
         }
 
-        // Universal tags available to all selected subtypes
-        let mut tags: Vec<String> = vec![
-            "general", "all", "identity", "eip8004", "registration",
-        ].into_iter().map(String::from).collect();
-
-        // Try registry first
-        if let Some(config) = get_subtype_config(self.as_str()) {
-            for tag in &config.skill_tags {
-                if !tags.contains(tag) {
-                    tags.push(tag.clone());
-                }
-            }
-            return tags;
-        }
-
-        // Hardcoded fallback
-        let extra: Vec<&str> = match self {
+        // Hardcoded fallback (registry not loaded yet)
+        match self {
             AgentSubtype::Director => vec![],
             AgentSubtype::Finance => vec![
+                "general", "all", "identity", "eip8004", "registration",
                 "crypto", "defi", "transfer", "swap", "finance", "wallet", "token",
                 "bridge", "lending", "yield", "dex", "payments", "x402", "transaction",
                 "polymarket", "prediction-markets", "trading", "price", "discord", "tipping",
             ],
             AgentSubtype::CodeEngineer => vec![
+                "general", "all", "identity", "eip8004", "registration",
                 "development", "git", "testing", "debugging", "review", "code", "github",
                 "devops", "deployment", "infrastructure", "workflow", "discussions", "ci-cd",
                 "skills", "project", "scaffold",
             ],
             AgentSubtype::Secretary => vec![
+                "general", "all", "identity", "eip8004", "registration",
                 "social", "marketing", "messaging", "moltx", "scheduling", "communication",
                 "social-media", "secretary", "journal", "discord", "telegram", "twitter", "4claw",
                 "x402", "cron", "moltbook", "publishing", "content",
             ],
             AgentSubtype::None => unreachable!(),
-        };
-        tags.extend(extra.into_iter().map(String::from));
-        tags
+        }.into_iter().map(String::from).collect()
     }
 
     /// Human-readable label for UI display.

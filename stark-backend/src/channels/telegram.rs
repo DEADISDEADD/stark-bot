@@ -540,6 +540,59 @@ pub async fn start_telegram_listener(
                                         )
                                     }
                                 }
+                                "subagent.tool_call" => {
+                                    let tool_name = event
+                                        .data
+                                        .get("tool_name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown");
+                                    let label = event
+                                        .data
+                                        .get("label")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("subagent");
+                                    let params = event
+                                        .data
+                                        .get("params_preview")
+                                        .cloned()
+                                        .unwrap_or(serde_json::json!({}));
+                                    format_tool_call_for_telegram(
+                                        tool_name,
+                                        &params,
+                                        verbosity.display_verbosity(),
+                                    )
+                                    .map(|s| format!("[{}] {}", label, s))
+                                }
+                                "subagent.tool_result" => {
+                                    let tool_name = event
+                                        .data
+                                        .get("tool_name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown");
+                                    let label = event
+                                        .data
+                                        .get("label")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("subagent");
+                                    let success = event
+                                        .data
+                                        .get("success")
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false);
+                                    let content = event
+                                        .data
+                                        .get("content_preview")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+                                    format_tool_result_for_telegram(
+                                        tool_name,
+                                        success,
+                                        0,
+                                        content,
+                                        verbosity.display_verbosity(),
+                                    )
+                                    .map(|s| format!("[{}] {}", label, s))
+                                }
                                 // Skip mode changes and task events in minimal mode
                                 "agent.mode_change"
                                 | "execution.task_started"

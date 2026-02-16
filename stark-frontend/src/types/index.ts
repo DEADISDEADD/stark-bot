@@ -7,6 +7,7 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   sessionId?: string;
+  subagentLabel?: string;
 }
 
 // Gateway types

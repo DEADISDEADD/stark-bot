@@ -11,7 +11,7 @@ use crate::ai::{AiClient, Message, MessageRole, ToolHistoryEntry};
 use crate::db::Database;
 use crate::gateway::events::EventBroadcaster;
 use crate::gateway::protocol::GatewayEvent;
-use crate::models::{AgentSettings, SessionScope};
+use crate::models::{AgentSettings, MessageRole as DbMessageRole, SessionScope};
 use crate::tools::{ToolContext, ToolDefinition, ToolRegistry};
 use dashmap::DashMap;
 use serde_json::json;
@@ -283,6 +283,13 @@ impl SubAgentManager {
         context.mark_running(session.id);
         Self::save_subagent_direct(&db, &context)?;
 
+        // Broadcast session_ready so the frontend can link to the session
+        broadcaster.broadcast(GatewayEvent::subagent_session_ready(
+            context.parent_channel_id,
+            &context.id,
+            session.id,
+        ));
+
         // Get agent settings
         let settings = db
             .get_active_agent_settings()
@@ -316,6 +323,9 @@ impl SubAgentManager {
             "You are a sub-agent working on a specific task. \
              Complete the following task to the best of your ability. \
              Be thorough but concise in your response.\n\n\
+             IMPORTANT: Work efficiently. Aim to accomplish your goal in roughly 20-30 tool calls. \
+             Do not research too deeply or go down rabbit holes. Stay focused on the specific task \
+             and deliver a clear, useful result without exhaustive exploration.\n\n\
              When you have completed the task, provide a clear summary of what was accomplished."
         );
 
@@ -327,9 +337,20 @@ impl SubAgentManager {
             },
             Message {
                 role: MessageRole::User,
-                content: task_prompt,
+                content: task_prompt.clone(),
             },
         ];
+
+        // Persist the task prompt as a User message in the session
+        let _ = db.add_session_message(
+            session.id,
+            DbMessageRole::User,
+            &task_prompt,
+            None,
+            Some("subagent"),
+            None,
+            None,
+        );
 
         // SECURITY: Check if parent channel is in safe mode BEFORE building tool context
         let parent_channel_safe_mode = db
@@ -472,9 +493,70 @@ impl SubAgentManager {
                     tool_call.name
                 );
 
+                // Broadcast tool_call event
+                let params_preview = {
+                    let s = tool_call.arguments.to_string();
+                    if s.len() > 500 { format!("{}...", &s[..500]) } else { s }
+                };
+                broadcaster.broadcast(GatewayEvent::subagent_tool_call(
+                    context.parent_channel_id,
+                    &context.id,
+                    &context.label,
+                    &tool_call.name,
+                    &params_preview,
+                    session.id,
+                ));
+
+                // Persist tool_call to session
+                let tool_call_content = format!(
+                    "**Tool Call:** {}\n```json\n{}\n```",
+                    tool_call.name, params_preview
+                );
+                let _ = db.add_session_message(
+                    session.id,
+                    DbMessageRole::ToolCall,
+                    &tool_call_content,
+                    None,
+                    None,
+                    None,
+                    None,
+                );
+
                 let result = tool_registry
                     .execute(&tool_call.name, tool_call.arguments.clone(), &tool_context, Some(&tool_config))
                     .await;
+
+                // Broadcast tool_result event
+                let content_preview = if result.content.len() > 500 {
+                    format!("{}...", &result.content[..500])
+                } else {
+                    result.content.clone()
+                };
+                broadcaster.broadcast(GatewayEvent::subagent_tool_result(
+                    context.parent_channel_id,
+                    &context.id,
+                    &context.label,
+                    &tool_call.name,
+                    result.success,
+                    &content_preview,
+                    session.id,
+                ));
+
+                // Persist tool_result to session
+                let status_label = if result.success { "Result" } else { "Error" };
+                let tool_result_content = format!(
+                    "**{}:** {}\n{}",
+                    status_label, tool_call.name, content_preview
+                );
+                let _ = db.add_session_message(
+                    session.id,
+                    DbMessageRole::ToolResult,
+                    &tool_result_content,
+                    None,
+                    None,
+                    None,
+                    None,
+                );
 
                 // Check if task_fully_completed was called - stop the loop
                 if let Some(ref metadata) = result.metadata {
@@ -516,6 +598,17 @@ impl SubAgentManager {
         if final_response.is_empty() {
             final_response = "Task completed (no explicit response generated)".to_string();
         }
+
+        // Persist the final response as an Assistant message
+        let _ = db.add_session_message(
+            session.id,
+            DbMessageRole::Assistant,
+            &final_response,
+            None,
+            Some("subagent"),
+            None,
+            None,
+        );
 
         Ok(final_response)
     }
@@ -847,6 +940,71 @@ impl GatewayEvent {
                 "error": error,
                 "parent_subagent_id": parent_subagent_id,
                 "depth": depth,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        )
+    }
+
+    /// Sub-agent session is ready (session_id now available)
+    pub fn subagent_session_ready(
+        channel_id: i64,
+        subagent_id: &str,
+        session_id: i64,
+    ) -> Self {
+        Self::new(
+            "subagent.session_ready",
+            json!({
+                "channel_id": channel_id,
+                "subagent_id": subagent_id,
+                "session_id": session_id,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        )
+    }
+
+    /// Sub-agent is calling a tool
+    pub fn subagent_tool_call(
+        channel_id: i64,
+        subagent_id: &str,
+        label: &str,
+        tool_name: &str,
+        params_preview: &str,
+        session_id: i64,
+    ) -> Self {
+        Self::new(
+            "subagent.tool_call",
+            json!({
+                "channel_id": channel_id,
+                "subagent_id": subagent_id,
+                "label": label,
+                "tool_name": tool_name,
+                "params_preview": params_preview,
+                "session_id": session_id,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        )
+    }
+
+    /// Sub-agent tool call completed
+    pub fn subagent_tool_result(
+        channel_id: i64,
+        subagent_id: &str,
+        label: &str,
+        tool_name: &str,
+        success: bool,
+        content_preview: &str,
+        session_id: i64,
+    ) -> Self {
+        Self::new(
+            "subagent.tool_result",
+            json!({
+                "channel_id": channel_id,
+                "subagent_id": subagent_id,
+                "label": label,
+                "tool_name": tool_name,
+                "success": success,
+                "content_preview": content_preview,
+                "session_id": session_id,
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }),
         )

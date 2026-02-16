@@ -119,10 +119,6 @@ impl ToolRegistry {
     /// Tools come from two sources (additive):
     /// 1. `tool_groups` — tools whose group is in the subtype's allowed groups
     /// 2. `additional_tools` — explicitly named tools added on top (regardless of group)
-    ///
-    /// When `additional_tools` is set, the automatic System/Web/Filesystem injection
-    /// is skipped (the subtype must declare everything it needs explicitly).
-    /// When `additional_tools` is empty, System tools are auto-included for convenience.
     pub fn get_allowed_tools_for_subtype(
         &self,
         config: &ToolConfig,
@@ -131,7 +127,6 @@ impl ToolRegistry {
         let additional: Vec<String> = get_subtype_config(subtype.as_str())
             .map(|c| c.additional_tools)
             .unwrap_or_default();
-        let has_additional = !additional.is_empty();
 
         let allowed_groups = subtype.allowed_tool_groups();
         self.tools
@@ -158,8 +153,8 @@ impl ToolRegistry {
                     return true;
                 }
 
-                // Auto-include System tools only when there's no explicit additional_tools
-                if !has_additional && group == ToolGroup::System {
+                // Auto-include System tools for all subtypes
+                if group == ToolGroup::System {
                     return true;
                 }
 

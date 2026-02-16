@@ -79,6 +79,8 @@ pub struct SubagentInfo {
     pub task: String,
     pub status: String,
     pub started_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<i64>,
 }
 
 /// Response listing subagents
@@ -399,6 +401,7 @@ async fn list_subagents(
                     },
                     status: format!("{:?}", ctx.status),
                     started_at: ctx.started_at.to_rfc3339(),
+                    session_id: ctx.session_id,
                 })
                 .collect(),
             Err(_) => vec![],
