@@ -22,6 +22,13 @@ mod set_agent_subtype;
 mod subagent;
 mod task_complete;
 
+// Meta tools (self-management)
+mod cloud_backup;
+mod manage_gateway_channels;
+mod read_operating_mode;
+mod read_recent_transactions;
+mod set_theme_accent;
+
 pub use add_task::AddTaskTool;
 pub use define_tasks::DefineTasksTool;
 pub use agent_send::AgentSendTool;
@@ -41,3 +48,10 @@ pub use say_to_user::SayToUserTool;
 pub use set_agent_subtype::SetAgentSubtypeTool;
 pub use subagent::{SubagentStatusTool, SubagentTool};
 pub use task_complete::TaskFullyCompletedTool;
+
+// Meta tools (self-management)
+pub use cloud_backup::CloudBackupTool;
+pub use manage_gateway_channels::ManageGatewayChannelsTool;
+pub use read_operating_mode::ReadOperatingModeTool;
+pub use read_recent_transactions::ReadRecentTransactionsTool;
+pub use set_theme_accent::SetThemeAccentTool;

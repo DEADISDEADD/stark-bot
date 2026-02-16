@@ -4018,9 +4018,13 @@ impl MessageDispatcher {
         prompt.push_str("## Memory\nUse `memory_search` to find relevant memories. Use `memory_read` to read specific memory files.\n\n");
 
         // Add context
+        let channel_info = match (&message.chat_name, message.channel_type.as_str()) {
+            (Some(name), _) => format!("{} (#{}, id:{})", message.channel_type, name, message.chat_id),
+            _ => message.channel_type.clone(),
+        };
         prompt.push_str(&format!(
             "## Current Request\nUser: {} | Channel: {}\n",
-            message.user_name, message.channel_type
+            message.user_name, channel_info
         ));
 
         prompt

@@ -7,6 +7,10 @@ homepage: https://bankr.bot
 metadata: {"requires_auth": true, "clawdbot":{"emoji":"🏦"}}
 tags: [crypto, defi, bankr, bnkr, base, wallet, yield, token, agent]
 requires_tools: [api_keys_check, exec]
+requires_api_keys:
+  BANKR_API_KEY:
+    description: "Bankr API Key"
+    secret: true
 ---
 
 # Bankr Integration

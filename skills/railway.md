@@ -7,6 +7,10 @@ homepage: https://railway.com
 metadata: {"requires_auth": true, "clawdbot":{"emoji":"🚂"}}
 requires_tools: [exec, api_keys_check, define_tasks]
 tags: [development, devops, railway, infrastructure, deployment, hosting]
+requires_api_keys:
+  RAILWAY_TOKEN:
+    description: "Railway API Token"
+    secret: true
 ---
 
 # Railway Integration

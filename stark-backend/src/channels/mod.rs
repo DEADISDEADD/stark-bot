@@ -113,7 +113,7 @@ impl ChannelManager {
                 "discord" => "discord_bot_token",
                 "telegram" => "telegram_bot_token",
                 "slack" => "slack_bot_token",
-                _ => "", // Twitter doesn't use bot_token
+                _ => "", // Twitter and ExternalChannel don't use bot_token
             };
             if !setting_key.is_empty() {
                 if let Ok(Some(token)) = self.db.get_channel_setting(channel_id, setting_key) {
@@ -267,6 +267,11 @@ impl ChannelManager {
                     // Remove from running channels
                     running_channels.remove(&channel_id);
                 });
+            }
+            types::ChannelType::ExternalChannel => {
+                // No listener needed — HTTP request/response model.
+                // Channel being in running_channels is sufficient.
+                log::info!("External channel '{}' started (no listener)", channel_name);
             }
         }
 

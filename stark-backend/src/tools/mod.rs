@@ -43,6 +43,13 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::HeartbeatConfigTool::new()));
     registry.register(Arc::new(builtin::MindmapManageTool::new()));
 
+    // Meta tools (self-management)
+    registry.register(Arc::new(builtin::CloudBackupTool::new()));
+    registry.register(Arc::new(builtin::SetThemeAccentTool::new()));
+    registry.register(Arc::new(builtin::ReadOperatingModeTool::new()));
+    registry.register(Arc::new(builtin::ReadRecentTransactionsTool::new()));
+    registry.register(Arc::new(builtin::ManageGatewayChannelsTool::new()));
+
     // Web tools (shared)
     registry.register(Arc::new(builtin::WebFetchTool::new()));
     // Local RPC — localhost-only HTTP for microservice APIs
@@ -115,6 +122,9 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::DiscordLookupTool::new()));
     registry.register(Arc::new(builtin::TwitterPostTool::new()));
     registry.register(Arc::new(builtin::TelegramReadTool::new()));
+
+    // Design tools
+    registry.register(Arc::new(builtin::FigmaTool::new()));
 
     // NOTE: discord_resolve_user is registered via module system (see main.rs).
     // All built-in module tools are registered unconditionally at startup.

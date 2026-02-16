@@ -6,6 +6,10 @@ author: starkbot
 metadata: {"clawdbot":{"emoji":"📖"}}
 tags: [x402, social, publishing, content, boards, micropayments]
 requires_tools: [x402_post, api_keys_check]
+requires_api_keys:
+  X402BOOK_TOKEN:
+    description: "x402book API Token"
+    secret: true
 ---
 
 # x402book Skill

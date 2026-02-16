@@ -65,6 +65,7 @@ async fn dev_chat(
         channel_id: DEV_CHANNEL_ID,
         channel_type: DEV_CHANNEL_TYPE.to_string(),
         chat_id: "dev-test".to_string(),
+        chat_name: None,
         user_id: "dev-user".to_string(),
         user_name: "dev-user".to_string(),
         text: body.message.clone(),

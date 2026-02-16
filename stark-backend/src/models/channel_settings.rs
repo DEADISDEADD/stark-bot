@@ -80,6 +80,10 @@ pub enum ChannelSettingKey {
     TelegramAdminUserId,
     /// Slack: Comma-separated list of Slack user IDs with admin access
     SlackAdminUserIds,
+    /// External Gateway: API token for authenticating external clients
+    ExternalChannelApiToken,
+    /// External Gateway: Enable safe mode (restricts tool access for untrusted input)
+    ExternalChannelSafeMode,
 }
 
 impl ChannelSettingKey {
@@ -100,6 +104,8 @@ impl ChannelSettingKey {
             Self::TwitterAdminXAccount => "Admin X User ID (Optional)",
             Self::TelegramAdminUserId => "Admin User ID (Optional)",
             Self::SlackAdminUserIds => "Admin User IDs (Optional)",
+            Self::ExternalChannelApiToken => "API Token",
+            Self::ExternalChannelSafeMode => "Safe Mode",
         }
     }
 
@@ -171,6 +177,16 @@ impl ChannelSettingKey {
                  If any IDs are set, ONLY those users have admin access; all others use safe mode. \
                  Find user IDs in Slack profile settings or via the Slack API."
             }
+            Self::ExternalChannelApiToken => {
+                "Secret token used by external clients to authenticate. \
+                 Click the dice icon to generate a secure random token. \
+                 Treat this like a password — anyone with the token can chat with your agent."
+            }
+            Self::ExternalChannelSafeMode => {
+                "When enabled, external gateway requests are treated as untrusted input — \
+                 tool access is restricted to a safe subset. Disable for full agent access \
+                 (only if you trust the clients connecting to this channel)."
+            }
         }
     }
 
@@ -191,6 +207,8 @@ impl ChannelSettingKey {
             Self::TwitterAdminXAccount => SettingInputType::Text,
             Self::TelegramAdminUserId => SettingInputType::Text,
             Self::SlackAdminUserIds => SettingInputType::Text,
+            Self::ExternalChannelApiToken => SettingInputType::Text,
+            Self::ExternalChannelSafeMode => SettingInputType::Toggle,
         }
     }
 
@@ -211,6 +229,8 @@ impl ChannelSettingKey {
             Self::TwitterAdminXAccount => "1234567890123456789",
             Self::TelegramAdminUserId => "123456789",
             Self::SlackAdminUserIds => "U12345678,U87654321",
+            Self::ExternalChannelApiToken => "Click dice to generate a secure token",
+            Self::ExternalChannelSafeMode => "",
         }
     }
 
@@ -246,6 +266,8 @@ impl ChannelSettingKey {
             Self::TwitterAdminXAccount => "",
             Self::TelegramAdminUserId => "",
             Self::SlackAdminUserIds => "",
+            Self::ExternalChannelApiToken => "",
+            Self::ExternalChannelSafeMode => "false",
         }
     }
 
@@ -380,6 +402,10 @@ pub fn get_settings_for_channel_type(channel_type: ChannelType) -> Vec<ChannelSe
             ChannelSettingKey::TwitterReplyChance.into(),
             ChannelSettingKey::TwitterMaxMentionsPerHour.into(),
             ChannelSettingKey::TwitterAdminXAccount.into(),
+        ],
+        ChannelType::ExternalChannel => vec![
+            ChannelSettingKey::ExternalChannelApiToken.into(),
+            ChannelSettingKey::ExternalChannelSafeMode.into(),
         ],
     };
 

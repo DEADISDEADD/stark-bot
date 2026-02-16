@@ -8,6 +8,7 @@ pub enum ChannelType {
     Slack,
     Discord,
     Twitter,
+    ExternalChannel,
 }
 
 impl ChannelType {
@@ -17,6 +18,7 @@ impl ChannelType {
             ChannelType::Slack => "slack",
             ChannelType::Discord => "discord",
             ChannelType::Twitter => "twitter",
+            ChannelType::ExternalChannel => "external_channel",
         }
     }
 
@@ -26,6 +28,7 @@ impl ChannelType {
             "slack" => Some(ChannelType::Slack),
             "discord" => Some(ChannelType::Discord),
             "twitter" => Some(ChannelType::Twitter),
+            "external_channel" => Some(ChannelType::ExternalChannel),
             _ => None,
         }
     }

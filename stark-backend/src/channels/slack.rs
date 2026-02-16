@@ -493,6 +493,7 @@ async fn process_slack_message(
         channel_id,
         channel_type: ChannelType::Slack.to_string(),
         chat_id: slack_channel.to_string(),
+        chat_name: None,
         user_id: user_id.clone(),
         user_name: user_name.clone(),
         text: message_text,

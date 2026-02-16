@@ -1375,6 +1375,7 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::well_known::config)
             .configure(controllers::x402_limits::config)
             .configure(controllers::telemetry::config)
+            .configure(controllers::external_channel::config)
             // WebSocket Gateway route (same port as HTTP, required for single-port platforms)
             .route("/ws", web::get().to(gateway::actix_ws::ws_handler));
 

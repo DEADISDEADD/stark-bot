@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MessageSquare, Hash, Plus, Play, Square, Trash2, Save, Pencil, Twitter, AlertTriangle } from 'lucide-react';
+import { MessageSquare, Hash, Plus, Play, Square, Trash2, Save, Pencil, Twitter, AlertTriangle, Terminal, Dices, Copy, Check } from 'lucide-react';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
@@ -25,6 +25,7 @@ const CHANNEL_TYPES = [
   { value: 'slack', label: 'Slack', icon: Hash, color: 'purple' },
   { value: 'discord', label: 'Discord', icon: MessageSquare, color: 'indigo' },
   { value: 'twitter', label: 'Twitter / X', icon: Twitter, color: 'sky' },
+  { value: 'external_channel', label: 'External Channel', icon: Terminal, color: 'emerald' },
 ];
 
 function getChannelHints(channelType: string): string[] {
@@ -44,9 +45,176 @@ function getChannelHints(channelType: string): string[] {
       return [
         'To use in a group, set an <strong>Admin User ID</strong> in channel settings. Only the admin gets full agent access; all other users are restricted to safe mode. Without an admin configured, all users have full unrestricted access.',
       ];
+    case 'external_channel':
+      return [
+        'External Channel lets programs, scripts, and CLIs chat with your agent via HTTP API.',
+        'Generate a secure API Token in settings after creation. The token authenticates external clients.',
+        'Safe mode is off by default — enable it in settings to restrict tool access for untrusted input.',
+      ];
     default:
       return [];
   }
+}
+
+function generateSecureToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function TokenInput({
+  value,
+  onChange,
+  placeholder,
+  label,
+  description,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  label: string;
+  description: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (value) {
+      navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-slate-300 mb-1">{label}</label>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white font-mono text-sm focus:ring-2 focus:ring-stark-500 focus:border-transparent"
+        />
+        <button
+          type="button"
+          onClick={() => onChange(generateSecureToken())}
+          className="px-3 py-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg text-slate-300 hover:text-white transition-colors"
+          title="Generate secure token"
+        >
+          <Dices className="w-4 h-4" />
+        </button>
+        {value && (
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="px-3 py-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg text-slate-300 hover:text-white transition-colors"
+            title="Copy to clipboard"
+          >
+            {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+          </button>
+        )}
+      </div>
+      <p className="mt-1 text-xs text-slate-500">{description}</p>
+    </div>
+  );
+}
+
+function ConnectionInfo({ token }: { token: string }) {
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const apiUrl = `${window.location.protocol}//${window.location.host}`;
+
+  const copyText = (text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const CopyButton = ({ text, field }: { text: string; field: string }) => (
+    <button
+      type="button"
+      onClick={() => copyText(text, field)}
+      className="ml-2 px-1.5 py-0.5 text-xs bg-slate-600 hover:bg-slate-500 rounded text-slate-300 hover:text-white transition-colors inline-flex items-center gap-1"
+    >
+      {copiedField === field ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+    </button>
+  );
+
+  if (!token) {
+    return (
+      <div className="border-t border-slate-700 pt-4 mt-4">
+        <h4 className="text-sm font-medium text-slate-300 mb-2">Connection Setup</h4>
+        <p className="text-xs text-slate-500">Generate an API token above, then save to see connection instructions.</p>
+      </div>
+    );
+  }
+
+  const cliCmd = `stark-cli --url ${apiUrl} --token ${token}`;
+  const curlCmd = `curl -X POST ${apiUrl}/api/gateway/chat \\
+  -H "Authorization: Bearer ${token}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"message": "hello"}'`;
+  const envBlock = `export STARK_URL="${apiUrl}"
+export STARK_TOKEN="${token}"`;
+
+  return (
+    <div className="border-t border-slate-700 pt-4 mt-4 space-y-3">
+      <h4 className="text-sm font-medium text-slate-300">Connection Setup</h4>
+      <p className="text-xs text-slate-500">Use these values to connect external clients to this channel. Save your settings first if you just generated a new token.</p>
+
+      <div className="space-y-2">
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">API URL</label>
+          <div className="flex items-center">
+            <code className="flex-1 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded text-xs text-emerald-400 font-mono">{apiUrl}</code>
+            <CopyButton text={apiUrl} field="url" />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">Environment Variables</label>
+          <div className="relative">
+            <pre className="px-3 py-2 bg-slate-800 border border-slate-700 rounded text-xs text-slate-300 font-mono overflow-x-auto">{envBlock}</pre>
+            <button
+              type="button"
+              onClick={() => copyText(envBlock, 'env')}
+              className="absolute top-1.5 right-1.5 px-1.5 py-0.5 text-xs bg-slate-600 hover:bg-slate-500 rounded text-slate-300 hover:text-white transition-colors inline-flex items-center gap-1"
+            >
+              {copiedField === 'env' ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">stark-cli</label>
+          <div className="relative">
+            <pre className="px-3 py-2 bg-slate-800 border border-slate-700 rounded text-xs text-slate-300 font-mono overflow-x-auto">{cliCmd}</pre>
+            <button
+              type="button"
+              onClick={() => copyText(cliCmd, 'cli')}
+              className="absolute top-1.5 right-1.5 px-1.5 py-0.5 text-xs bg-slate-600 hover:bg-slate-500 rounded text-slate-300 hover:text-white transition-colors inline-flex items-center gap-1"
+            >
+              {copiedField === 'cli' ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">curl (test)</label>
+          <div className="relative">
+            <pre className="px-3 py-2 bg-slate-800 border border-slate-700 rounded text-xs text-slate-300 font-mono overflow-x-auto whitespace-pre-wrap">{curlCmd}</pre>
+            <button
+              type="button"
+              onClick={() => copyText(curlCmd, 'curl')}
+              className="absolute top-1.5 right-1.5 px-1.5 py-0.5 text-xs bg-slate-600 hover:bg-slate-500 rounded text-slate-300 hover:text-white transition-colors inline-flex items-center gap-1"
+            >
+              {copiedField === 'curl' ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 interface ChannelFormData {
@@ -404,6 +572,22 @@ export default function Channels() {
                           </select>
                           <p className="mt-1 text-xs text-slate-500">{setting.description}</p>
                         </>
+                      ) : setting.key === 'external_channel_api_token' ? (
+                        <TokenInput
+                          value={newChannel.settings[setting.key] || ''}
+                          onChange={(value) =>
+                            setNewChannel({
+                              ...newChannel,
+                              settings: {
+                                ...newChannel.settings,
+                                [setting.key]: value,
+                              },
+                            })
+                          }
+                          placeholder={setting.placeholder}
+                          label={setting.label}
+                          description={setting.description}
+                        />
                       ) : (
                         <>
                           <Input
@@ -427,6 +611,9 @@ export default function Channels() {
                     </div>
                   ))}
                 </>
+              )}
+              {newChannel.channel_type === 'external_channel' && (
+                <ConnectionInfo token={newChannel.settings['external_channel_api_token'] || ''} />
               )}
               <div className="flex gap-2 justify-end">
                 <Button variant="secondary" onClick={() => { setShowAddForm(false); setNewChannelSchema([]); }}>
@@ -585,6 +772,22 @@ export default function Channels() {
                                       </select>
                                       <p className="mt-1 text-xs text-slate-500">{setting.description}</p>
                                     </>
+                                  ) : setting.key === 'external_channel_api_token' ? (
+                                    <TokenInput
+                                      value={editForm.settings[setting.key] || ''}
+                                      onChange={(value) =>
+                                        setEditForm({
+                                          ...editForm,
+                                          settings: {
+                                            ...editForm.settings,
+                                            [setting.key]: value,
+                                          },
+                                        })
+                                      }
+                                      placeholder={setting.placeholder}
+                                      label={setting.label}
+                                      description={setting.description}
+                                    />
                                   ) : (
                                     <>
                                       <Input
@@ -608,6 +811,9 @@ export default function Channels() {
                                 </div>
                               ))}
                             </>
+                          )}
+                          {channel.channel_type === 'external_channel' && (
+                            <ConnectionInfo token={editForm.settings['external_channel_api_token'] || ''} />
                           )}
                           <div className="flex gap-2 justify-end pt-2">
                             <Button

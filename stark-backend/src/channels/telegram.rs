@@ -451,6 +451,7 @@ pub async fn start_telegram_listener(
                         channel_id,
                         channel_type: ChannelType::Telegram.to_string(),
                         chat_id: msg.chat.id.to_string(),
+                        chat_name: msg.chat.title().map(|t| t.to_string()),
                         user_id,
                         user_name: user_name.clone(),
                         text: message_text,

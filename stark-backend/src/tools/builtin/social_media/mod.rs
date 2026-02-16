@@ -5,6 +5,7 @@
 mod discord_lookup;
 mod discord_read;
 mod discord_write;
+mod figma;
 mod github_user;
 pub mod social_monitor;
 mod telegram_read;
@@ -12,6 +13,7 @@ mod twitter_post;
 pub mod twitter_oauth;
 
 pub use discord_lookup::DiscordLookupTool;
+pub use figma::FigmaTool;
 pub use discord_read::DiscordReadTool;
 pub use discord_write::DiscordWriteTool;
 pub use github_user::GithubUserTool;

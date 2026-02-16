@@ -8,6 +8,7 @@ pub enum ChannelType {
     Slack,
     Discord,
     Twitter,
+    ExternalChannel,
 }
 
 impl ChannelType {
@@ -18,6 +19,7 @@ impl ChannelType {
             Self::Slack => "slack",
             Self::Discord => "discord",
             Self::Twitter => "twitter",
+            Self::ExternalChannel => "external_channel",
         }
     }
 
@@ -28,13 +30,14 @@ impl ChannelType {
             "slack" => Some(Self::Slack),
             "discord" => Some(Self::Discord),
             "twitter" => Some(Self::Twitter),
+            "external_channel" => Some(Self::ExternalChannel),
             _ => None,
         }
     }
 
     /// All supported channel types
     pub fn all() -> &'static [ChannelType] {
-        &[Self::Telegram, Self::Slack, Self::Discord, Self::Twitter]
+        &[Self::Telegram, Self::Slack, Self::Discord, Self::Twitter, Self::ExternalChannel]
     }
 
     /// Display name for UI
@@ -44,6 +47,7 @@ impl ChannelType {
             Self::Slack => "Slack",
             Self::Discord => "Discord",
             Self::Twitter => "Twitter",
+            Self::ExternalChannel => "External Channel",
         }
     }
 }
@@ -63,6 +67,9 @@ pub struct NormalizedMessage {
     pub channel_type: String,  // Keep as String for now for compatibility
     /// Platform-specific chat/conversation ID
     pub chat_id: String,
+    /// Human-readable name for the chat/channel (e.g., Discord channel name)
+    #[serde(default)]
+    pub chat_name: Option<String>,
     /// Platform-specific user ID
     pub user_id: String,
     /// Display name of the user

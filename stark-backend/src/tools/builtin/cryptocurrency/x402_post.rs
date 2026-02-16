@@ -5,7 +5,6 @@
 //!
 //! For x402book.com endpoints, automatically injects the X402BOOK_TOKEN as Bearer auth.
 
-use crate::controllers::api_keys::ApiKeyId;
 use crate::tools::registry::Tool;
 use crate::tools::types::{
     PropertySchema, ToolContext, ToolDefinition, ToolGroup, ToolInputSchema, ToolResult,
@@ -108,8 +107,8 @@ impl X402PostTool {
         X402Signer::from_private_key(&private_key)
     }
 
-    fn get_credential(&self, key_id: ApiKeyId, context: &ToolContext) -> Option<String> {
-        context.get_api_key_by_id(key_id).filter(|k| !k.is_empty())
+    fn get_credential(&self, key_name: &str, context: &ToolContext) -> Option<String> {
+        context.get_api_key(key_name).filter(|k| !k.is_empty())
     }
 
     /// Check if URL is an x402book endpoint
@@ -257,7 +256,7 @@ impl Tool for X402PostTool {
 
         // Check if this is an x402book URL and get the token if available
         let x402book_token = if Self::is_x402book_url(&params.url) {
-            self.get_credential(ApiKeyId::X402bookToken, context)
+            self.get_credential("X402BOOK_TOKEN", context)
         } else {
             None
         };

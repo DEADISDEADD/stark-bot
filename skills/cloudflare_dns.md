@@ -7,6 +7,10 @@ homepage: https://cloudflare.com
 metadata: {"requires_auth": true, "clawdbot":{"emoji":"🌐"}}
 requires_tools: [web_fetch, api_keys_check]
 tags: [development, devops, cloudflare, infrastructure, dns, domains, nameservers]
+requires_api_keys:
+  CLOUDFLARE_API_TOKEN:
+    description: "Cloudflare API Token"
+    secret: true
 ---
 
 # Cloudflare DNS Management

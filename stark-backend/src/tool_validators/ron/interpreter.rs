@@ -60,11 +60,12 @@ impl Condition {
 
             // Credential checks
             Condition::CredentialExists(key) => {
-                ApiKeyId::from_str(key)
+                // Try typed enum first, fall back to string-based lookup for skill-driven keys
+                let value = ApiKeyId::from_str(key)
                     .ok()
                     .and_then(|k| ctx.tool_context.get_api_key_by_id(k))
-                    .map(|v| !v.is_empty())
-                    .unwrap_or(false)
+                    .or_else(|| ctx.tool_context.get_api_key(key));
+                value.map(|v| !v.is_empty()).unwrap_or(false)
             }
 
             Condition::CredentialMissing(key) => {

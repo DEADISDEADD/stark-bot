@@ -200,6 +200,7 @@ async fn chat(
         channel_id: WEB_CHANNEL_ID,
         channel_type: WEB_CHANNEL_TYPE.to_string(),
         chat_id: user_id.clone(),  // For web, chat_id == user_id (always DM-like)
+        chat_name: None,
         user_id: user_id.clone(),
         user_name: format!("web-user-{}", &user_id[..8.min(user_id.len())]),
         text: user_message,

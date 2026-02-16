@@ -183,7 +183,7 @@ async fn create_channel(
         return HttpResponse::BadRequest().json(ChannelOperationResponse {
             success: false,
             channel: None,
-            error: Some("Invalid channel type. Valid options: telegram, slack, discord".to_string()),
+            error: Some("Invalid channel type. Valid options: telegram, slack, discord, twitter, external_channel".to_string()),
         });
     }
 
@@ -198,11 +198,15 @@ async fn create_channel(
 
     let bot_token = body.bot_token.as_deref().unwrap_or("");
 
-    match state.db.create_channel(
+    // Safe mode is controlled per-channel via channel settings (default: off for external channels)
+    let safe_mode = false;
+
+    match state.db.create_channel_with_safe_mode(
         &body.channel_type,
         &body.name,
         bot_token,
         body.app_token.as_deref(),
+        safe_mode,
     ) {
         Ok(channel) => HttpResponse::Created().json(ChannelOperationResponse {
             success: true,

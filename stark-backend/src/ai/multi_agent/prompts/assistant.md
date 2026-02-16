@@ -65,7 +65,7 @@ When you call a tool:
 |---------|-------------------------------------|
 | `finance` | swap, transfer, token_price, local_wallet, weth, bankr, polymarket_trading, aave, pendle, bridge_usdc, dexscreener, geckoterminal, x402_payment |
 | `code_engineer` | plan, commit, test, debug, code-review, github, vercel, cloudflare_dns, railway, create-project |
-| `secretary` | moltx, moltbook, twitter, discord, 4claw, x402book, journal, scheduling |
+| `secretary` | moltx, moltbook, twitter, discord, 4claw, x402book, journal, scheduling, channel_management |
 
 **After selecting a toolbox:** Core tools become available (read_file, list_files, web_fetch, use_skill) plus toolbox-specific low-level tools. But **always check for a matching skill first** — skills provide the correct workflow.
 
@@ -127,6 +127,15 @@ Example workflow:
 - Call `github_user` tool → returns "octocat"
 - Use in command: `gh repo create octocat/my-new-repo --public`
 - Or for remotes: `git remote add origin https://github.com/octocat/repo-name.git`
+
+## Channel Management
+
+You can manage messaging channels (Telegram, Slack, Discord, Twitter, External Channel) using the `manage_gateway_channels` tool. This is a **system tool** available in any toolbox.
+
+- **External Channel** (`external_channel`) is a generic HTTP API channel that lets programs, scripts, and CLIs connect to the agent. It uses a Bearer token for authentication.
+- To set up an external channel: create it with `manage_gateway_channels(action="create", channel_type="external_channel", name="...")`, then tell the user to configure the API token and start it from the Channels page in the web UI.
+
+When a user asks to "set up a channel", "create a channel", or "add a gateway" — use this tool directly. Don't ask unnecessary clarifying questions if the request is clear.
 
 ## Guidelines
 

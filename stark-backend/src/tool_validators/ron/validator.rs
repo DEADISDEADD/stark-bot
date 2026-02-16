@@ -136,7 +136,6 @@ pub fn load_validators_from_dir(dir: &Path, registry: &mut ValidatorRegistry) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controllers::api_keys::ApiKeyId;
     use crate::tools::types::ToolContext;
     use serde_json::json;
 
@@ -274,7 +273,7 @@ ValidatorDef(
     async fn test_x402_blocks_with_token() {
         let validator = RonValidator::from_str(X402_DUPLICATE_REGISTER_RON).unwrap();
         let tool_context = ToolContext::new()
-            .with_api_key_id(ApiKeyId::X402bookToken, "ak_existing_key".into());
+            .with_api_key("X402BOOK_TOKEN", "ak_existing_key".into());
 
         let ctx = ValidationContext::new(
             "x402_post".into(),
@@ -293,7 +292,7 @@ ValidatorDef(
     async fn test_x402_allows_non_register_with_token() {
         let validator = RonValidator::from_str(X402_DUPLICATE_REGISTER_RON).unwrap();
         let tool_context = ToolContext::new()
-            .with_api_key_id(ApiKeyId::X402bookToken, "ak_existing_key".into());
+            .with_api_key("X402BOOK_TOKEN", "ak_existing_key".into());
 
         let ctx = ValidationContext::new(
             "x402_post".into(),

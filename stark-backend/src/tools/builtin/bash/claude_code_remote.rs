@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use tokio::process::Command;
 use tokio::time::timeout;
 
-use crate::controllers::api_keys::ApiKeyId;
 use crate::tools::{
     PropertySchema, Tool, ToolContext, ToolDefinition, ToolGroup, ToolInputSchema, ToolResult,
     ToolSafetyLevel,
@@ -140,22 +139,22 @@ impl ClaudeCodeRemoteTool {
 
     fn get_ssh_config(&self, context: &ToolContext) -> Result<SshConfig, String> {
         let host = context
-            .get_api_key_by_id(ApiKeyId::ClaudeCodeSshHost)
+            .get_api_key("CLAUDE_CODE_SSH_HOST")
             .filter(|k| !k.is_empty())
             .ok_or("CLAUDE_CODE_SSH_HOST not configured. Set it in Settings > API Keys > Claude Code.")?;
 
         let user = context
-            .get_api_key_by_id(ApiKeyId::ClaudeCodeSshUser)
+            .get_api_key("CLAUDE_CODE_SSH_USER")
             .filter(|k| !k.is_empty())
             .ok_or("CLAUDE_CODE_SSH_USER not configured. Set it in Settings > API Keys > Claude Code.")?;
 
         let key_value = context
-            .get_api_key_by_id(ApiKeyId::ClaudeCodeSshKey)
+            .get_api_key("CLAUDE_CODE_SSH_KEY")
             .filter(|k| !k.is_empty())
             .ok_or("CLAUDE_CODE_SSH_KEY not configured. Set it in Settings > API Keys > Claude Code.")?;
 
         let port = context
-            .get_api_key_by_id(ApiKeyId::ClaudeCodeSshPort)
+            .get_api_key("CLAUDE_CODE_SSH_PORT")
             .filter(|k| !k.is_empty())
             .unwrap_or_else(|| DEFAULT_SSH_PORT.to_string());
 

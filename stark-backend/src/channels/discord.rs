@@ -221,10 +221,16 @@ impl EventHandler for DiscordHandler {
                         )
                     };
 
+                    // Get channel name for context
+                    let channel_name = msg.channel_id.to_channel(&ctx.http).await.ok().and_then(|ch| {
+                        ch.guild().map(|gc| gc.name().to_string())
+                    });
+
                     let normalized = NormalizedMessage {
                         channel_id: self.channel_id,
                         channel_type: ChannelType::Discord.to_string(),
                         chat_id: msg.channel_id.to_string(),
+                        chat_name: channel_name,
                         user_id,
                         user_name: user_name.clone(),
                         text: text_with_hint,

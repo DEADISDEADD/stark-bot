@@ -6,6 +6,19 @@ author: starkbot
 metadata: {"clawdbot":{"emoji":"🖥️"}}
 tags: [development, code, workflow]
 requires_tools: [claude_code_remote]
+requires_api_keys:
+  CLAUDE_CODE_SSH_HOST:
+    description: "SSH Host"
+    secret: false
+  CLAUDE_CODE_SSH_USER:
+    description: "SSH User"
+    secret: false
+  CLAUDE_CODE_SSH_KEY:
+    description: "SSH Private Key"
+    secret: true
+  CLAUDE_CODE_SSH_PORT:
+    description: "SSH Port"
+    secret: false
 arguments:
   prompt:
     description: "The task or prompt to send to Claude Code"

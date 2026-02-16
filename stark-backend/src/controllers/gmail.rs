@@ -225,6 +225,7 @@ async fn dispatch_email(
         channel_id: config.response_channel_id.unwrap_or(0),
         channel_type: "gmail".to_string(),
         chat_id: email.thread_id.clone(),
+        chat_name: None,
         user_id: email.from.clone(),
         user_name: extract_name_from_email(&email.from),
         text: message_content,

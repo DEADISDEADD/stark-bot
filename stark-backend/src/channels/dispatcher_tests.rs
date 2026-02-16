@@ -185,6 +185,7 @@ impl TestHarness {
             channel_id: self.channel_id,
             channel_type: "web".to_string(), // default; overridden via channel row
             chat_id: "test-chat".to_string(),
+            chat_name: None,
             user_id: "test-user".to_string(),
             user_name: "TestUser".to_string(),
             text: text.to_string(),
@@ -876,6 +877,7 @@ async fn swap_flow_realistic() {
         channel_id,
         channel_type: "web".to_string(),
         chat_id: "test-chat".to_string(),
+        chat_name: None,
         user_id: "test-user".to_string(),
         user_name: "TestUser".to_string(),
         text: "swap 1 usdc to starkbot".to_string(),

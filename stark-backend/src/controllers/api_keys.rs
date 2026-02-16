@@ -3,13 +3,8 @@ use ethers::signers::{LocalWallet, Signer};
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
 
-use crate::backup::{
-    AgentIdentityEntry, AgentSettingsEntry, ApiKeyEntry, BackupData, BotSettingsEntry,
-    ChannelEntry, ChannelSettingEntry, CronJobEntry, DiscordRegistrationEntry,
-    HeartbeatConfigEntry, MindConnectionEntry, MindNodeEntry, SkillEntry, SkillScriptEntry,
-    X402PaymentLimitEntry,
-};
-use crate::db::tables::mind_nodes::{CreateMindNodeRequest, UpdateMindNodeRequest};
+use crate::backup::{ApiKeyEntry, BackupData};
+use crate::db::tables::mind_nodes::CreateMindNodeRequest;
 use crate::keystore_client::KEYSTORE_CLIENT;
 use crate::models::ApiKeyResponse;
 use crate::AppState;
@@ -20,21 +15,26 @@ fn get_wallet_address(private_key: &str) -> Option<String> {
     Some(format!("{:?}", wallet.address()))
 }
 
+/// Capitalize the first letter of each word (e.g. "bankr" -> "Bankr", "my_skill" -> "My Skill")
+fn titleize(s: &str) -> String {
+    s.split(|c: char| c == '_' || c == '-' || c == ' ')
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut chars = w.chars();
+            match chars.next() {
+                Some(c) => format!("{}{}", c.to_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Enum of all valid API key identifiers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, AsRefStr)]
 pub enum ApiKeyId {
     #[strum(serialize = "GITHUB_TOKEN")]
     GithubToken,
-    #[strum(serialize = "BANKR_API_KEY")]
-    BankrApiKey,
-    #[strum(serialize = "MOLTX_API_KEY")]
-    MoltxApiKey,
-    #[strum(serialize = "MOLTBOOK_TOKEN")]
-    MoltbookToken,
-    #[strum(serialize = "FOURCLAW_TOKEN")]
-    FourclawToken,
-    #[strum(serialize = "X402BOOK_TOKEN")]
-    X402bookToken,
     #[strum(serialize = "TWITTER_CONSUMER_KEY")]
     TwitterConsumerKey,
     #[strum(serialize = "TWITTER_CONSUMER_SECRET")]
@@ -43,24 +43,12 @@ pub enum ApiKeyId {
     TwitterAccessToken,
     #[strum(serialize = "TWITTER_ACCESS_TOKEN_SECRET")]
     TwitterAccessTokenSecret,
-    #[strum(serialize = "RAILWAY_TOKEN")]
-    RailwayToken,
     #[strum(serialize = "SUPABASE_ACCESS_TOKEN")]
     SupabaseAccessToken,
-    #[strum(serialize = "CLOUDFLARE_API_TOKEN")]
-    CloudflareApiToken,
     #[strum(serialize = "ALCHEMY_API_KEY")]
     AlchemyApiKey,
     #[strum(serialize = "XAI_API_KEY")]
     XaiApiKey,
-    #[strum(serialize = "CLAUDE_CODE_SSH_HOST")]
-    ClaudeCodeSshHost,
-    #[strum(serialize = "CLAUDE_CODE_SSH_USER")]
-    ClaudeCodeSshUser,
-    #[strum(serialize = "CLAUDE_CODE_SSH_KEY")]
-    ClaudeCodeSshKey,
-    #[strum(serialize = "CLAUDE_CODE_SSH_PORT")]
-    ClaudeCodeSshPort,
 }
 
 impl ApiKeyId {
@@ -69,24 +57,13 @@ impl ApiKeyId {
         // AsRefStr from strum provides static string references
         match self {
             Self::GithubToken => "GITHUB_TOKEN",
-            Self::BankrApiKey => "BANKR_API_KEY",
-            Self::MoltxApiKey => "MOLTX_API_KEY",
-            Self::MoltbookToken => "MOLTBOOK_TOKEN",
-            Self::FourclawToken => "FOURCLAW_TOKEN",
-            Self::X402bookToken => "X402BOOK_TOKEN",
             Self::TwitterConsumerKey => "TWITTER_CONSUMER_KEY",
             Self::TwitterConsumerSecret => "TWITTER_CONSUMER_SECRET",
             Self::TwitterAccessToken => "TWITTER_ACCESS_TOKEN",
             Self::TwitterAccessTokenSecret => "TWITTER_ACCESS_TOKEN_SECRET",
-            Self::RailwayToken => "RAILWAY_TOKEN",
             Self::SupabaseAccessToken => "SUPABASE_ACCESS_TOKEN",
-            Self::CloudflareApiToken => "CLOUDFLARE_API_TOKEN",
             Self::AlchemyApiKey => "ALCHEMY_API_KEY",
             Self::XaiApiKey => "XAI_API_KEY",
-            Self::ClaudeCodeSshHost => "CLAUDE_CODE_SSH_HOST",
-            Self::ClaudeCodeSshUser => "CLAUDE_CODE_SSH_USER",
-            Self::ClaudeCodeSshKey => "CLAUDE_CODE_SSH_KEY",
-            Self::ClaudeCodeSshPort => "CLAUDE_CODE_SSH_PORT",
         }
     }
 
@@ -94,31 +71,19 @@ impl ApiKeyId {
     pub fn env_vars(&self) -> Option<&'static [&'static str]> {
         match self {
             Self::GithubToken => Some(&["GH_TOKEN", "GITHUB_TOKEN"]),
-            Self::BankrApiKey => Some(&["BANKR_API_KEY"]),
-            Self::MoltxApiKey => Some(&["MOLTX_API_KEY"]),
-            Self::MoltbookToken => Some(&["MOLTBOOK_TOKEN"]),
-            Self::FourclawToken => Some(&["FOURCLAW_TOKEN"]),
-            Self::X402bookToken => Some(&["X402BOOK_TOKEN"]),
             Self::TwitterConsumerKey => Some(&["TWITTER_CONSUMER_KEY", "TWITTER_API_KEY"]),
             Self::TwitterConsumerSecret => Some(&["TWITTER_CONSUMER_SECRET", "TWITTER_API_SECRET"]),
             Self::TwitterAccessToken => Some(&["TWITTER_ACCESS_TOKEN"]),
             Self::TwitterAccessTokenSecret => Some(&["TWITTER_ACCESS_TOKEN_SECRET"]),
-            Self::RailwayToken => Some(&["RAILWAY_API_TOKEN"]),
             Self::SupabaseAccessToken => Some(&["SUPABASE_ACCESS_TOKEN"]),
-            Self::CloudflareApiToken => Some(&["CLOUDFLARE_API_TOKEN"]),
             Self::AlchemyApiKey => Some(&["ALCHEMY_API_KEY"]),
             Self::XaiApiKey => Some(&["XAI_API_KEY"]),
-            Self::ClaudeCodeSshHost => None,
-            Self::ClaudeCodeSshUser => None,
-            Self::ClaudeCodeSshKey => None,
-            Self::ClaudeCodeSshPort => None,
         }
     }
 
     /// Legacy/old names for keys that were renamed. Used for backward-compatible DB lookups.
     pub fn legacy_name(&self) -> Option<&'static str> {
         match self {
-            Self::RailwayToken => Some("RAILWAY_API_TOKEN"),
             _ => None,
         }
     }
@@ -188,72 +153,6 @@ pub fn get_service_configs() -> Vec<ServiceConfig> {
             }],
         },
         ServiceConfig {
-            group: "moltx".into(),
-            label: "MoltX".into(),
-            description: "X for agents. Get an API key from moltx.io after registering your agent.".into(),
-            url: "https://moltx.io".into(),
-            keys: vec![KeyConfig {
-                name: "MOLTX_API_KEY".into(),
-                label: "API Key".into(),
-                secret: true,
-            }],
-        },
-        ServiceConfig {
-            group: "bankr".into(),
-            label: "Bankr".into(),
-            description: "Generate an API key with Agent API access enabled".into(),
-            url: "https://bankr.bot/api".into(),
-            keys: vec![KeyConfig {
-                name: "BANKR_API_KEY".into(),
-                label: "API Key".into(),
-                secret: true,
-            }],
-        },
-        ServiceConfig {
-            group: "moltbook".into(),
-            label: "Moltbook".into(),
-            description: "Social network for AI agents. Register via API or get token from moltbook.com".into(),
-            url: "https://www.moltbook.com".into(),
-            keys: vec![KeyConfig {
-                name: "MOLTBOOK_TOKEN".into(),
-                label: "API Token".into(),
-                secret: true,
-            }],
-        },
-        ServiceConfig {
-            group: "4claw".into(),
-            label: "4claw".into(),
-            description: "4claw network for AI agents. Get your API token from 4claw.org".into(),
-            url: "https://4claw.org".into(),
-            keys: vec![KeyConfig {
-                name: "FOURCLAW_TOKEN".into(),
-                label: "API Token".into(),
-                secret: true,
-            }],
-        },
-        ServiceConfig {
-            group: "x402book".into(),
-            label: "x402book".into(),
-            description: "x402book network for AI agents. Get your API token from x402book.com".into(),
-            url: "https://api.x402book.com".into(),
-            keys: vec![KeyConfig {
-                name: "X402BOOK_TOKEN".into(),
-                label: "API Token".into(),
-                secret: true,
-            }],
-        },
-        ServiceConfig {
-            group: "railway".into(),
-            label: "Railway".into(),
-            description: "Deploy and manage infrastructure via Railway. Create an API token from your Railway account.".into(),
-            url: "https://railway.com/account/tokens".into(),
-            keys: vec![KeyConfig {
-                name: "RAILWAY_TOKEN".into(),
-                label: "API Token".into(),
-                secret: true,
-            }],
-        },
-        ServiceConfig {
             group: "supabase".into(),
             label: "Supabase".into(),
             description: "Manage Supabase projects. Create a Personal Access Token from your dashboard.".into(),
@@ -261,17 +160,6 @@ pub fn get_service_configs() -> Vec<ServiceConfig> {
             keys: vec![KeyConfig {
                 name: "SUPABASE_ACCESS_TOKEN".into(),
                 label: "Personal Access Token".into(),
-                secret: true,
-            }],
-        },
-        ServiceConfig {
-            group: "cloudflare".into(),
-            label: "Cloudflare".into(),
-            description: "Manage Cloudflare Workers, Pages, and DNS. Create an API token from your dashboard.".into(),
-            url: "https://dash.cloudflare.com/profile/api-tokens".into(),
-            keys: vec![KeyConfig {
-                name: "CLOUDFLARE_API_TOKEN".into(),
-                label: "API Token".into(),
                 secret: true,
             }],
         },
@@ -313,34 +201,6 @@ pub fn get_service_configs() -> Vec<ServiceConfig> {
                 label: "API Key".into(),
                 secret: true,
             }],
-        },
-        ServiceConfig {
-            group: "claude_code".into(),
-            label: "Claude Code".into(),
-            description: "SSH connection to a remote machine running Claude Code CLI. Configure host, user, key path, and port.".into(),
-            url: "https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview".into(),
-            keys: vec![
-                KeyConfig {
-                    name: "CLAUDE_CODE_SSH_HOST".into(),
-                    label: "SSH Host".into(),
-                    secret: false,
-                },
-                KeyConfig {
-                    name: "CLAUDE_CODE_SSH_USER".into(),
-                    label: "SSH User".into(),
-                    secret: false,
-                },
-                KeyConfig {
-                    name: "CLAUDE_CODE_SSH_KEY".into(),
-                    label: "SSH Private Key".into(),
-                    secret: true,
-                },
-                KeyConfig {
-                    name: "CLAUDE_CODE_SSH_PORT".into(),
-                    label: "SSH Port".into(),
-                    secret: false,
-                },
-            ],
         },
     ]
 }
@@ -594,7 +454,7 @@ async fn get_configs(state: web::Data<AppState>, req: HttpRequest) -> impl Respo
             if !keys.is_empty() {
                 configs.push(ServiceConfig {
                     group: format!("skill_{}", skill.name),
-                    label: format!("Skill: {}", skill.name),
+                    label: format!("{} [skill]", titleize(&skill.name)),
                     description: skill.description.clone(),
                     url: skill.homepage.unwrap_or_default(),
                     keys,
@@ -867,342 +727,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
     };
 
     // Build BackupData with all user data
-    let mut backup = BackupData::new(wallet_address);
-
-    // Get all API keys with values
-    let keys = match state.db.list_api_keys_with_values() {
-        Ok(k) => k,
-        Err(e) => {
-            log::error!("Failed to list API keys: {}", e);
-            return HttpResponse::InternalServerError().json(BackupResponse {
-                success: false,
-                key_count: None,
-                node_count: None,
-                connection_count: None,
-                cron_job_count: None,
-                channel_count: None,
-                channel_setting_count: None,
-                discord_registration_count: None,
-                skill_count: None,
-                agent_settings_count: None,
-                has_settings: None,
-                has_heartbeat: None,
-                has_soul: None,
-                has_identity: None,
-                message: None,
-                error: Some("Failed to export API keys".to_string()),
-            });
-        }
-    };
-
-    backup.api_keys = keys
-        .iter()
-        .map(|(name, value)| ApiKeyEntry {
-            key_name: name.clone(),
-            key_value: value.clone(),
-        })
-        .collect();
-
-    // Get mind map nodes
-    match state.db.list_mind_nodes() {
-        Ok(nodes) => {
-            backup.mind_map_nodes = nodes
-                .iter()
-                .map(|n| MindNodeEntry {
-                    id: n.id,
-                    body: n.body.clone(),
-                    position_x: n.position_x,
-                    position_y: n.position_y,
-                    is_trunk: n.is_trunk,
-                    created_at: n.created_at.to_rfc3339(),
-                    updated_at: n.updated_at.to_rfc3339(),
-                })
-                .collect();
-        }
-        Err(e) => {
-            log::warn!("Failed to list mind nodes for backup: {}", e);
-        }
-    }
-
-    // Get mind map connections
-    match state.db.list_mind_node_connections() {
-        Ok(connections) => {
-            backup.mind_map_connections = connections
-                .iter()
-                .map(|c| MindConnectionEntry {
-                    parent_id: c.parent_id,
-                    child_id: c.child_id,
-                })
-                .collect();
-        }
-        Err(e) => {
-            log::warn!("Failed to list mind connections for backup: {}", e);
-        }
-    }
-
-    // Get bot settings
-    match state.db.get_bot_settings() {
-        Ok(settings) => {
-            // Serialize custom_rpc_endpoints as JSON string for backup
-            let custom_rpc_json = settings
-                .custom_rpc_endpoints
-                .as_ref()
-                .and_then(|h| serde_json::to_string(h).ok());
-
-            backup.bot_settings = Some(BotSettingsEntry {
-                bot_name: settings.bot_name.clone(),
-                bot_email: settings.bot_email.clone(),
-                web3_tx_requires_confirmation: settings.web3_tx_requires_confirmation,
-                rpc_provider: Some(settings.rpc_provider.clone()),
-                custom_rpc_endpoints: custom_rpc_json,
-                max_tool_iterations: Some(settings.max_tool_iterations),
-                rogue_mode_enabled: settings.rogue_mode_enabled,
-                safe_mode_max_queries_per_10min: Some(settings.safe_mode_max_queries_per_10min),
-                guest_dashboard_enabled: settings.guest_dashboard_enabled,
-                theme_accent: settings.theme_accent.clone(),
-            });
-        }
-        Err(e) => {
-            log::warn!("Failed to get bot settings for backup: {}", e);
-        }
-    }
-
-    // Get cron jobs
-    match state.db.list_cron_jobs() {
-        Ok(jobs) => {
-            backup.cron_jobs = jobs
-                .iter()
-                .map(|j| CronJobEntry {
-                    name: j.name.clone(),
-                    description: j.description.clone(),
-                    schedule_type: j.schedule_type.clone(),
-                    schedule_value: j.schedule_value.clone(),
-                    timezone: j.timezone.clone(),
-                    session_mode: j.session_mode.clone(),
-                    message: j.message.clone(),
-                    system_event: j.system_event.clone(),
-                    channel_id: j.channel_id,
-                    deliver_to: j.deliver_to.clone(),
-                    deliver: j.deliver,
-                    model_override: j.model_override.clone(),
-                    thinking_level: j.thinking_level.clone(),
-                    timeout_seconds: j.timeout_seconds,
-                    delete_after_run: j.delete_after_run,
-                    status: j.status.clone(),
-                })
-                .collect();
-        }
-        Err(e) => {
-            log::warn!("Failed to list cron jobs for backup: {}", e);
-        }
-    }
-
-    // Get heartbeat config (we only backup the first/primary one if it exists)
-    match state.db.list_heartbeat_configs() {
-        Ok(configs) => {
-            if let Some(config) = configs.into_iter().next() {
-                backup.heartbeat_config = Some(HeartbeatConfigEntry {
-                    channel_id: config.channel_id,
-                    interval_minutes: config.interval_minutes,
-                    target: config.target.clone(),
-                    active_hours_start: config.active_hours_start.clone(),
-                    active_hours_end: config.active_hours_end.clone(),
-                    active_days: config.active_days.clone(),
-                    enabled: config.enabled,
-                });
-            } else {
-                log::debug!("No heartbeat config to backup");
-            }
-        }
-        Err(e) => {
-            log::warn!("Failed to get heartbeat config for backup: {}", e);
-        }
-    }
-
-    // Get channel settings
-    match state.db.get_all_channel_settings() {
-        Ok(settings) => {
-            backup.channel_settings = settings
-                .iter()
-                .map(|s| ChannelSettingEntry {
-                    channel_id: s.channel_id,
-                    setting_key: s.setting_key.clone(),
-                    setting_value: s.setting_value.clone(),
-                })
-                .collect();
-        }
-        Err(e) => {
-            log::warn!("Failed to get channel settings for backup: {}", e);
-        }
-    }
-
-    // Get channels (non-safe-mode only)
-    match state.db.list_channels_for_backup() {
-        Ok(channels) => {
-            backup.channels = channels
-                .iter()
-                .map(|c| ChannelEntry {
-                    id: c.id,
-                    channel_type: c.channel_type.clone(),
-                    name: c.name.clone(),
-                    enabled: c.enabled,
-                    bot_token: c.bot_token.clone(),
-                    app_token: c.app_token.clone(),
-                })
-                .collect();
-        }
-        Err(e) => {
-            log::warn!("Failed to get channels for backup: {}", e);
-        }
-    }
-
-    // Get soul document content
-    let soul_path = crate::config::soul_document_path();
-    match std::fs::read_to_string(&soul_path) {
-        Ok(content) => {
-            backup.soul_document = Some(content);
-            log::info!("Including soul document in backup");
-        }
-        Err(e) => {
-            log::debug!("Soul document not found for backup: {}", e);
-        }
-    }
-
-    // Get agent identity from DB (single source of truth — no more IDENTITY.json)
-    if let Some(row) = state.db.get_agent_identity_full() {
-        log::info!(
-            "Including agent identity (agent_id={}) in backup",
-            row.agent_id
-        );
-        backup.agent_identity = Some(AgentIdentityEntry {
-            agent_id: row.agent_id,
-            agent_registry: row.agent_registry,
-            chain_id: row.chain_id,
-            name: row.name,
-            description: row.description,
-            image: row.image,
-            x402_support: row.x402_support,
-            active: row.active,
-            services_json: row.services_json,
-            supported_trust_json: row.supported_trust_json,
-            registration_uri: row.registration_uri,
-        });
-    }
-
-    // Collect backup data from installed modules (generic module backup)
-    {
-        let module_registry = crate::modules::ModuleRegistry::new();
-        let installed = state.db.list_installed_modules().unwrap_or_default();
-        for entry in &installed {
-            if let Some(module) = module_registry.get(&entry.module_name) {
-                if let Some(data) = module.backup_data(&state.db).await {
-                    log::info!("Including module '{}' data in backup", entry.module_name);
-                    backup.module_data.insert(entry.module_name.clone(), data);
-                }
-            }
-        }
-    }
-
-    // Get skills for backup
-    match state.db.list_skills() {
-        Ok(skills) => {
-            for skill in skills {
-                let skill_id = skill.id.unwrap_or(0);
-                let scripts = state.db.get_skill_scripts(skill_id)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|s| SkillScriptEntry {
-                        name: s.name,
-                        code: s.code,
-                        language: s.language,
-                    })
-                    .collect();
-
-                backup.skills.push(SkillEntry {
-                    name: skill.name,
-                    description: skill.description,
-                    body: skill.body,
-                    version: skill.version,
-                    author: skill.author,
-                    homepage: skill.homepage,
-                    metadata: skill.metadata,
-                    enabled: skill.enabled,
-                    requires_tools: skill.requires_tools.clone(),
-                    requires_binaries: skill.requires_binaries.clone(),
-                    arguments: serde_json::to_string(&skill.arguments).unwrap_or_default(),
-                    tags: skill.tags,
-                    subagent_type: skill.subagent_type,
-                    requires_api_keys: serde_json::to_string(&skill.requires_api_keys).unwrap_or_default(),
-                    scripts,
-                });
-            }
-        }
-        Err(e) => {
-            log::warn!("Failed to list skills for backup: {}", e);
-        }
-    }
-
-    // Get agent settings (AI model configurations)
-    match state.db.list_agent_settings() {
-        Ok(settings) => {
-            backup.agent_settings = settings
-                .iter()
-                .map(|s| AgentSettingsEntry {
-                    endpoint: s.endpoint.clone(),
-                    model_archetype: s.model_archetype.clone(),
-                    max_response_tokens: s.max_response_tokens,
-                    max_context_tokens: s.max_context_tokens,
-                    enabled: s.enabled,
-                    secret_key: s.secret_key.clone(),
-                })
-                .collect();
-        }
-        Err(e) => {
-            log::warn!("Failed to list agent settings for backup: {}", e);
-        }
-    }
-
-    // Get x402 payment limits
-    match state.db.get_all_x402_payment_limits() {
-        Ok(limits) => {
-            backup.x402_payment_limits = limits
-                .iter()
-                .map(|l| X402PaymentLimitEntry {
-                    asset: l.asset.clone(),
-                    max_amount: l.max_amount.clone(),
-                    decimals: l.decimals,
-                    display_name: l.display_name.clone(),
-                    address: l.address.clone(),
-                })
-                .collect();
-        }
-        Err(e) => {
-            log::warn!("Failed to get x402 payment limits for backup: {}", e);
-        }
-    }
-
-    // Get kanban board items
-    match state.db.list_kanban_items() {
-        Ok(items) => {
-            backup.kanban_items = items
-                .iter()
-                .map(|i| crate::backup::KanbanItemEntry {
-                    id: i.id,
-                    title: i.title.clone(),
-                    description: i.description.clone(),
-                    status: i.status.clone(),
-                    priority: i.priority,
-                    session_id: i.session_id,
-                    result: i.result.clone(),
-                    created_at: i.created_at.to_rfc3339(),
-                    updated_at: i.updated_at.to_rfc3339(),
-                })
-                .collect();
-        }
-        Err(e) => {
-            log::warn!("Failed to list kanban items for backup: {}", e);
-        }
-    }
+    let backup = crate::backup::collect_backup_data(&state.db, wallet_address).await;
 
     // Check if there's anything to backup
     if backup.is_empty() {
@@ -1267,7 +792,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
     };
 
     // Encrypt with ECIES using the burner wallet's public key
-    let encrypted_data = match encrypt_with_private_key(&private_key, &backup_json) {
+    let encrypted_data = match crate::backup::encrypt_with_private_key(&private_key, &backup_json) {
         Ok(data) => data,
         Err(e) => {
             log::error!("Failed to encrypt backup: {}", e);
@@ -1518,7 +1043,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
     };
 
     // Decrypt with ECIES using the burner wallet's private key
-    let decrypted_json = match decrypt_with_private_key(&private_key, &encrypted_data) {
+    let decrypted_json = match crate::backup::decrypt_with_private_key(&private_key, &encrypted_data) {
         Ok(data) => data,
         Err(e) => {
             log::error!("Failed to decrypt backup: {}", e);
@@ -2198,48 +1723,6 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
     })
 }
 
-/// Encrypt data using ECIES with the public key derived from private key
-fn encrypt_with_private_key(private_key: &str, data: &str) -> Result<String, String> {
-    use ecies::{encrypt, PublicKey, SecretKey};
-
-    // Parse private key (remove 0x prefix if present)
-    let pk_hex = private_key.trim_start_matches("0x");
-    let pk_bytes = hex::decode(pk_hex).map_err(|e| format!("Invalid private key hex: {}", e))?;
-
-    // Create secret key and derive public key
-    let secret_key = SecretKey::parse_slice(&pk_bytes)
-        .map_err(|e| format!("Invalid private key: {:?}", e))?;
-    let public_key = PublicKey::from_secret_key(&secret_key);
-
-    // Encrypt the data
-    let encrypted = encrypt(&public_key.serialize(), data.as_bytes())
-        .map_err(|e| format!("Encryption failed: {:?}", e))?;
-
-    Ok(hex::encode(encrypted))
-}
-
-/// Decrypt data using ECIES with the private key
-fn decrypt_with_private_key(private_key: &str, encrypted_hex: &str) -> Result<String, String> {
-    use ecies::{decrypt, SecretKey};
-
-    // Parse private key (remove 0x prefix if present)
-    let pk_hex = private_key.trim_start_matches("0x");
-    let pk_bytes = hex::decode(pk_hex).map_err(|e| format!("Invalid private key hex: {}", e))?;
-
-    // Parse encrypted data
-    let encrypted = hex::decode(encrypted_hex).map_err(|e| format!("Invalid encrypted data: {}", e))?;
-
-    // Create secret key
-    let secret_key = SecretKey::parse_slice(&pk_bytes)
-        .map_err(|e| format!("Invalid private key: {:?}", e))?;
-
-    // Decrypt the data
-    let decrypted = decrypt(&secret_key.serialize(), &encrypted)
-        .map_err(|e| format!("Decryption failed: {:?}", e))?;
-
-    String::from_utf8(decrypted).map_err(|e| format!("Invalid UTF-8 in decrypted data: {}", e))
-}
-
 /// Create a preview string from an API key value (e.g., "sk-abc...xyz")
 fn create_key_preview(value: &str) -> String {
     if value.len() <= 8 {
@@ -2389,7 +1872,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
     };
 
     // Decrypt with ECIES using the burner wallet's private key
-    let decrypted_json = match decrypt_with_private_key(&private_key, &encrypted_data) {
+    let decrypted_json = match crate::backup::decrypt_with_private_key(&private_key, &encrypted_data) {
         Ok(data) => data,
         Err(e) => {
             log::error!("Failed to decrypt backup: {}", e);

@@ -1017,6 +1017,7 @@ async fn process_mention(
         // Each mention gets its own session (tweet ID, not conversation ID).
         // This prevents non-admin mentions from poisoning an admin session's safe mode flag.
         chat_id: tweet.id.clone(),
+        chat_name: None,
         user_id: tweet.author_id.clone(),
         user_name: author_username.to_string(),
         text: text_with_hint,
