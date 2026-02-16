@@ -1395,6 +1395,18 @@ impl Database {
             [],
         );
 
+        // Migration: add skip_task_planner column (skip TaskPlanner mode for this subtype)
+        let _ = conn.execute(
+            "ALTER TABLE agent_subtypes ADD COLUMN skip_task_planner INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+
+        // Migration: add aliases_json column (alternative names that resolve to this subtype key)
+        let _ = conn.execute(
+            "ALTER TABLE agent_subtypes ADD COLUMN aliases_json TEXT NOT NULL DEFAULT '[]'",
+            [],
+        );
+
         // Keystore state - track backup/retrieval status per wallet
         conn.execute(
             "CREATE TABLE IF NOT EXISTS keystore_state (

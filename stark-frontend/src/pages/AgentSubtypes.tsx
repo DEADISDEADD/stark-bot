@@ -29,6 +29,7 @@ const EMPTY_SUBTYPE: AgentSubtypeInfo = {
   sort_order: 0,
   enabled: true,
   max_iterations: 90,
+  skip_task_planner: false,
 };
 
 export default function AgentSubtypes() {
@@ -506,8 +507,8 @@ function SubtypeForm({ form, setForm, toolGroups, onToolGroupToggle, isNew }: Su
         />
       </div>
 
-      {/* Row: Sort Order + Max Iterations */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      {/* Row: Sort Order + Max Iterations + Skip Task Planner */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 items-end">
         <div>
           <label className="block text-xs text-slate-500 mb-1">Sort Order</label>
           <input
@@ -527,6 +528,20 @@ function SubtypeForm({ form, setForm, toolGroups, onToolGroupToggle, isNew }: Su
             max={500}
             className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-stark-500"
           />
+        </div>
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">Skip Task Planner</label>
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, skip_task_planner: !form.skip_task_planner })}
+            className={`px-3 py-2 text-sm rounded-lg transition-colors w-full ${
+              form.skip_task_planner
+                ? 'bg-stark-500/20 text-stark-400 border border-stark-500/50'
+                : 'bg-slate-900/50 text-slate-400 border border-slate-700 hover:border-slate-600'
+            }`}
+          >
+            {form.skip_task_planner ? 'Yes (skip planning)' : 'No (plan first)'}
+          </button>
         </div>
       </div>
 

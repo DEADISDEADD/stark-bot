@@ -108,6 +108,10 @@ struct CreateSubtypeRequest {
     enabled: bool,
     #[serde(default)]
     max_iterations: Option<u32>,
+    #[serde(default)]
+    skip_task_planner: bool,
+    #[serde(default)]
+    aliases: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -159,6 +163,8 @@ async fn create_subtype(
         sort_order: body.sort_order,
         enabled: body.enabled,
         max_iterations: body.max_iterations.unwrap_or(90),
+        skip_task_planner: body.skip_task_planner,
+        aliases: body.aliases.clone(),
     };
 
     match data.db.upsert_agent_subtype(&config) {
@@ -197,6 +203,10 @@ struct UpdateSubtypeRequest {
     max_iterations: Option<u32>,
     #[serde(default)]
     enabled: Option<bool>,
+    #[serde(default)]
+    skip_task_planner: Option<bool>,
+    #[serde(default)]
+    aliases: Option<Vec<String>>,
 }
 
 /// Update an existing agent subtype.
@@ -240,6 +250,8 @@ async fn update_subtype(
         sort_order: body.sort_order.unwrap_or(existing.sort_order),
         enabled: body.enabled.unwrap_or(existing.enabled),
         max_iterations: body.max_iterations.unwrap_or(existing.max_iterations),
+        skip_task_planner: body.skip_task_planner.unwrap_or(existing.skip_task_planner),
+        aliases: body.aliases.clone().unwrap_or(existing.aliases),
     };
 
     match data.db.upsert_agent_subtype(&updated) {

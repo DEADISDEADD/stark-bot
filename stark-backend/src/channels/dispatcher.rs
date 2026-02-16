@@ -1,5 +1,5 @@
 use crate::ai::{
-    multi_agent::{types::{AgentSubtype, AgentMode}, Orchestrator, ProcessResult as OrchestratorResult, SubAgentManager},
+    multi_agent::{types::{self as agent_types, AgentMode}, Orchestrator, ProcessResult as OrchestratorResult, SubAgentManager},
     AiClient, ArchetypeId, ArchetypeRegistry, AiResponse, Message, MessageRole, ModelArchetype,
     ThinkingLevel, ToolHistoryEntry, ToolResponse,
 };
@@ -1351,14 +1351,19 @@ impl MessageDispatcher {
             log::info!("[MULTI_AGENT] Selected network set to: {}", network);
         }
 
-        // Director skips TaskPlanner mode — it delegates task planning to specialized agents
-        // via set_agent_subtype or spawn_subagent, so it goes straight to Assistant mode.
-        if orchestrator.current_subtype() == AgentSubtype::Director
-            && orchestrator.current_mode() == AgentMode::TaskPlanner
+        // Config-driven TaskPlanner skip: subtypes with skip_task_planner=true go straight
+        // to Assistant mode (e.g. Director delegates planning to specialized agents).
+        if orchestrator.current_mode() == AgentMode::TaskPlanner
             && !orchestrator.context().planner_completed
         {
-            log::info!("[MULTI_AGENT] Director subtype: skipping TaskPlanner, going to Assistant mode");
-            orchestrator.transition_to_assistant();
+            let subtype_key = orchestrator.current_subtype_key();
+            let should_skip = agent_types::get_subtype_config(subtype_key)
+                .map(|c| c.skip_task_planner)
+                .unwrap_or(false);
+            if should_skip {
+                log::info!("[MULTI_AGENT] Subtype '{}' has skip_task_planner=true, going to Assistant mode", subtype_key);
+                orchestrator.transition_to_assistant();
+            }
         }
 
         // Broadcast initial mode
@@ -1374,25 +1379,25 @@ impl MessageDispatcher {
         // Broadcast initial task state
         self.broadcast_tasks_update(original_message.channel_id, session_id, &orchestrator);
 
-        // Get the current subtype
-        let subtype = orchestrator.current_subtype();
+        // Get the current subtype key
+        let subtype_key = orchestrator.current_subtype_key().to_string();
 
         log::info!(
             "[MULTI_AGENT] Started in {} mode ({} subtype) for request: {}",
             initial_mode,
-            subtype.label(),
+            agent_types::subtype_label(&subtype_key),
             original_message.text.chars().take(50).collect::<String>()
         );
 
         // Broadcast initial subtype
         self.broadcaster.broadcast(GatewayEvent::agent_subtype_change(
             original_message.channel_id,
-            subtype.as_str(),
-            &subtype.label(),
+            &subtype_key,
+            &agent_types::subtype_label(&subtype_key),
         ));
 
         // Build tool list: subtype-filtered + skill requires_tools + use_skill + mode tools
-        let mut tools = self.build_tool_list(tool_config, subtype, &orchestrator);
+        let mut tools = self.build_tool_list(tool_config, &subtype_key, &orchestrator);
 
         // Debug: Log available tools
         log::info!(
@@ -1405,7 +1410,7 @@ impl MessageDispatcher {
         self.broadcast_toolset_update(
             original_message.channel_id,
             &orchestrator.current_mode().to_string(),
-            orchestrator.current_subtype().as_str(),
+            orchestrator.current_subtype_key(),
             &tools,
         );
 
@@ -1505,43 +1510,38 @@ impl MessageDispatcher {
     }
 
     /// Auto-set the orchestrator's subtype if the skill specifies one.
-    /// Returns the new subtype if it changed, so the caller can use it for tool refresh.
+    /// Returns the new subtype key if it changed, so the caller can use it for tool refresh.
     fn apply_skill_subtype(
         &self,
         skill: &crate::skills::types::DbSkill,
         orchestrator: &mut Orchestrator,
         channel_id: i64,
-    ) -> Option<AgentSubtype> {
+    ) -> Option<String> {
         if let Some(ref subtype_str) = skill.subagent_type {
-            if let Some(new_subtype) = AgentSubtype::from_str(subtype_str) {
-                orchestrator.set_subtype(new_subtype);
+            if let Some(resolved_key) = agent_types::resolve_subtype_key(subtype_str) {
+                orchestrator.set_subtype(Some(resolved_key.clone()));
                 log::info!(
                     "[SKILL] Auto-set subtype to {} for skill '{}'",
-                    new_subtype.label(),
+                    agent_types::subtype_label(&resolved_key),
                     skill.name
                 );
                 self.broadcaster.broadcast(GatewayEvent::agent_subtype_change(
                     channel_id,
-                    new_subtype.as_str(),
-                    &new_subtype.label(),
+                    &resolved_key,
+                    &agent_types::subtype_label(&resolved_key),
                 ));
-                return Some(new_subtype);
+                return Some(resolved_key);
             }
         }
         None
     }
 
-    /// Create a "use_skill" tool definition if skills are enabled
-    fn create_skill_tool_definition(&self) -> Option<ToolDefinition> {
-        // Default to Finance subtype for backwards compatibility
-        self.create_skill_tool_definition_for_subtype(AgentSubtype::Finance)
-    }
-
-    /// Create a "use_skill" tool definition showing ALL enabled skills
-    /// (no subtype filtering - AI can see all skills and switch subtypes if needed)
+    /// Create a "use_skill" tool definition showing ALL enabled skills.
+    /// The subtype_key param is accepted for call-site consistency but not used
+    /// for filtering — the AI can see all skills and switch subtypes if needed.
     fn create_skill_tool_definition_for_subtype(
         &self,
-        _subtype: AgentSubtype,
+        _subtype_key: &str,
     ) -> Option<ToolDefinition> {
         use crate::tools::{PropertySchema, ToolGroup, ToolInputSchema};
 
@@ -1610,7 +1610,7 @@ impl MessageDispatcher {
     /// This centralizes tool list construction that was previously duplicated
     /// across 7+ sites. The tool list is built in layers:
     ///
-    /// 1. **Subtype group filtering** — each `AgentSubtype` allows specific `ToolGroup`s.
+    /// 1. **Subtype group filtering** — each subtype key allows specific `ToolGroup`s.
     ///    Tools outside those groups are excluded.
     /// 2. **Skill `requires_tools` force-inclusion** — if the active skill specifies
     ///    `requires_tools`, those tools are force-included even if their group isn't
@@ -1624,7 +1624,7 @@ impl MessageDispatcher {
     fn build_tool_list(
         &self,
         tool_config: &ToolConfig,
-        subtype: AgentSubtype,
+        subtype_key: &str,
         orchestrator: &Orchestrator,
     ) -> Vec<ToolDefinition> {
         let requires_tools = orchestrator.context().active_skill
@@ -1636,17 +1636,17 @@ impl MessageDispatcher {
             self.tool_registry
                 .get_tool_definitions_for_subtype_with_required(
                     tool_config,
-                    subtype,
+                    subtype_key,
                     &requires_tools,
                 )
         } else {
             self.tool_registry
-                .get_tool_definitions_for_subtype(tool_config, subtype)
+                .get_tool_definitions_for_subtype(tool_config, subtype_key)
         };
 
         // Only inject use_skill if the subtype has skill access (non-empty skill_tags)
-        if !subtype.allowed_skill_tags().is_empty() {
-            if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(subtype) {
+        if !agent_types::allowed_skill_tags_for_key(subtype_key).is_empty() {
+            if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(subtype_key) {
                 tools.push(skill_tool);
             }
         }
@@ -1655,7 +1655,7 @@ impl MessageDispatcher {
 
         // Strip define_tasks unless a skill requires it or the subtype explicitly includes it
         let skill_requires_define_tasks = requires_tools.iter().any(|t| t == "define_tasks");
-        let subtype_has_define_tasks = crate::ai::multi_agent::types::get_subtype_config(subtype.as_str())
+        let subtype_has_define_tasks = agent_types::get_subtype_config(subtype_key)
             .map(|c| c.additional_tools.iter().any(|t| t == "define_tasks"))
             .unwrap_or(false);
         if !skill_requires_define_tasks && !subtype_has_define_tasks {
@@ -1664,14 +1664,14 @@ impl MessageDispatcher {
 
         // When a subtype is already active, patch set_agent_subtype description
         // so the LLM doesn't re-call it every turn
-        if subtype.is_selected() {
+        if orchestrator.current_subtype().is_some() {
             if let Some(tool) = tools.iter_mut().find(|t| t.name == "set_agent_subtype") {
                 tool.description = format!(
                     "Switch toolbox (currently: {} {}). Only call this if the user's request \
                      requires a DIFFERENT toolbox than what's already active. \
                      Do NOT call this if you're already in the right mode.",
-                    subtype.emoji(),
-                    subtype.label(),
+                    agent_types::subtype_emoji(subtype_key),
+                    agent_types::subtype_label(subtype_key),
                 );
             }
         }
@@ -1958,14 +1958,14 @@ impl MessageDispatcher {
                 );
 
                 // Ensure subtype is set even if skill was pre-activated without it
-                if !orchestrator.current_subtype().is_selected() {
+                if orchestrator.current_subtype().is_none() {
                     if let Ok(Some(skill)) = self.db.get_enabled_skill_by_name(requested_skill) {
-                        if let Some(new_subtype) = self.apply_skill_subtype(&skill, orchestrator, original_message.channel_id) {
+                        if let Some(new_key) = self.apply_skill_subtype(&skill, orchestrator, original_message.channel_id) {
                             // Refresh tools for the newly-set subtype
-                            *tools = self.build_tool_list(tool_config, new_subtype, orchestrator);
+                            *tools = self.build_tool_list(tool_config, &new_key, orchestrator);
                             log::info!(
                                 "[SKILL] Late subtype fix: refreshed toolset to {} with {} tools",
-                                new_subtype.label(),
+                                agent_types::subtype_label(&new_key),
                                 tools.len()
                             );
                         }
@@ -2007,8 +2007,8 @@ impl MessageDispatcher {
                             });
 
                             // Refresh tools to include skill-required tools
-                            let subtype = orchestrator.current_subtype();
-                            *tools = self.build_tool_list(tool_config, subtype, orchestrator);
+                            let sk = orchestrator.current_subtype_key().to_string();
+                            *tools = self.build_tool_list(tool_config, &sk, orchestrator);
                             log::info!(
                                 "[SKILL] Refreshed toolset with {} tools (skill requires {:?})",
                                 tools.len(),
@@ -2022,11 +2022,10 @@ impl MessageDispatcher {
         } else {
             // Check if subtype is None - allow System tools and skill-required tools,
             // but block everything else until a subtype is selected
-            let current_subtype = orchestrator.current_subtype();
             let is_system_tool = current_tools.iter().any(|t| t.name == tool_name && t.group == crate::tools::types::ToolGroup::System);
             let is_skill_required_tool = orchestrator.context().active_skill.as_ref()
                 .map_or(false, |s| s.requires_tools.iter().any(|t| t == tool_name));
-            if !current_subtype.is_selected() && !is_system_tool && !is_skill_required_tool {
+            if orchestrator.current_subtype().is_none() && !is_system_tool && !is_skill_required_tool {
                 log::warn!(
                     "[SUBTYPE] Blocked tool '{}' - no subtype selected. Must call set_agent_subtype first.",
                     tool_name
@@ -2118,21 +2117,39 @@ impl MessageDispatcher {
         // Handle subtype change: update orchestrator and refresh tools
         if tool_name == "set_agent_subtype" && result.success {
             if let Some(subtype_str) = tool_arguments.get("subtype").and_then(|v| v.as_str()) {
-                if let Some(new_subtype) = AgentSubtype::from_str(subtype_str) {
-                    orchestrator.set_subtype(new_subtype);
+                if let Some(new_key) = agent_types::resolve_subtype_key(subtype_str) {
+                    orchestrator.set_subtype(Some(new_key.clone()));
                     log::info!(
                         "[SUBTYPE] Changed to {} mode",
-                        new_subtype.label()
+                        agent_types::subtype_label(&new_key)
                     );
 
+                    // Check if new subtype should skip or enter TaskPlanner
+                    let should_skip = agent_types::get_subtype_config(&new_key)
+                        .map(|c| c.skip_task_planner)
+                        .unwrap_or(false);
+                    if should_skip {
+                        // Skip planning for this subtype
+                        if !orchestrator.context().planner_completed {
+                            log::info!("[SUBTYPE] '{}' has skip_task_planner=true, staying in Assistant mode", new_key);
+                            orchestrator.transition_to_assistant();
+                        }
+                    } else {
+                        // Re-enter TaskPlanner so this subtype plans its work
+                        log::info!("[SUBTYPE] '{}' entering TaskPlanner mode for task planning", new_key);
+                        let ctx = orchestrator.context_mut();
+                        ctx.planner_completed = false;
+                        ctx.mode = AgentMode::TaskPlanner;
+                    }
+
                     // Refresh tools for new subtype
-                    *tools = self.build_tool_list(tool_config, new_subtype, orchestrator);
+                    *tools = self.build_tool_list(tool_config, &new_key, orchestrator);
 
                     // Broadcast toolset update
                     self.broadcast_toolset_update(
                         original_message.channel_id,
                         &orchestrator.current_mode().to_string(),
-                        new_subtype.as_str(),
+                        &new_key,
                         tools,
                     );
                 }
@@ -2881,14 +2898,14 @@ impl MessageDispatcher {
                     ));
 
                     // Update tools for assistant mode
-                    let subtype = orchestrator.current_subtype();
-                    tools = self.build_tool_list(tool_config, subtype, &orchestrator);
+                    let sk = orchestrator.current_subtype_key().to_string();
+                    tools = self.build_tool_list(tool_config, &sk, &orchestrator);
 
                     // Broadcast toolset update
                     self.broadcast_toolset_update(
                         original_message.channel_id,
                         "assistant",
-                        subtype.as_str(),
+                        &sk,
                         &tools,
                     );
 
@@ -2935,8 +2952,8 @@ impl MessageDispatcher {
                 ));
 
                 // Update tools for new mode
-                let subtype = orchestrator.current_subtype();
-                tools = self.build_tool_list(tool_config, subtype, &orchestrator);
+                let sk = orchestrator.current_subtype_key().to_string();
+                tools = self.build_tool_list(tool_config, &sk, &orchestrator);
 
                 // Emit task for toolset update
                 if let Some(ref exec_id) = self.execution_tracker.get_execution_id(original_message.channel_id) {
@@ -2945,7 +2962,7 @@ impl MessageDispatcher {
                         exec_id,
                         Some(exec_id),
                         crate::models::TaskType::Loading,
-                        format!("Loading {} tools for {} mode", tools.len(), subtype.label()),
+                        format!("Loading {} tools for {} mode", tools.len(), agent_types::subtype_label(&sk)),
                         Some("Configuring available tools..."),
                     );
                     self.execution_tracker.complete_task(&toolset_task);
@@ -2955,7 +2972,7 @@ impl MessageDispatcher {
                 self.broadcast_toolset_update(
                     original_message.channel_id,
                     &transition.to.to_string(),
-                    subtype.as_str(),
+                    &sk,
                     &tools,
                 );
 
@@ -3456,14 +3473,14 @@ impl MessageDispatcher {
                 ));
 
                 // Update tools for new mode
-                let subtype = orchestrator.current_subtype();
-                tools = self.build_tool_list(tool_config, subtype, orchestrator);
+                let sk = orchestrator.current_subtype_key().to_string();
+                tools = self.build_tool_list(tool_config, &sk, orchestrator);
 
                 // Broadcast toolset update
                 self.broadcast_toolset_update(
                     original_message.channel_id,
                     &transition.to.to_string(),
-                    subtype.as_str(),
+                    &sk,
                     &tools,
                 );
 
@@ -3790,6 +3807,39 @@ impl MessageDispatcher {
 
         match skill {
             Some(skill) => {
+                // Pre-flight: check required binaries are installed
+                let missing_bins: Vec<&String> = skill.requires_binaries.iter()
+                    .filter(|bin| which::which(bin).is_err())
+                    .collect();
+                if !missing_bins.is_empty() {
+                    let names: Vec<&str> = missing_bins.iter().map(|s| s.as_str()).collect();
+                    return crate::tools::ToolResult::error(format!(
+                        "Skill '{}' requires binaries not installed on this system: {}\n\n\
+                        Install them and try again.",
+                        skill.name, names.join(", ")
+                    ));
+                }
+
+                // Pre-flight: check required API keys are configured
+                if !skill.requires_api_keys.is_empty() {
+                    let configured_keys: Vec<String> = self.db.list_api_keys()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|k| k.service_name)
+                        .collect();
+                    let missing_keys: Vec<&String> = skill.requires_api_keys.keys()
+                        .filter(|key| !configured_keys.contains(key))
+                        .collect();
+                    if !missing_keys.is_empty() {
+                        let names: Vec<&str> = missing_keys.iter().map(|s| s.as_str()).collect();
+                        return crate::tools::ToolResult::error(format!(
+                            "Skill '{}' requires API keys that are not configured: {}\n\n\
+                            Please go to Settings > API Keys and add these keys first.",
+                            skill.name, names.join(", ")
+                        ));
+                    }
+                }
+
                 // Determine the skills directory path
                 let skills_dir = crate::config::skills_dir();
                 let skill_base_dir = format!("{}/{}", skills_dir, skill.name);

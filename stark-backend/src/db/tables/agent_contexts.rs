@@ -3,7 +3,7 @@
 //! Stores AgentContext between messages so the agent can continue
 //! across a multi-turn conversation.
 
-use crate::ai::multi_agent::types::{ActiveSkill, AgentContext, AgentMode, AgentSubtype, TaskQueue};
+use crate::ai::multi_agent::types::{ActiveSkill, AgentContext, AgentMode, TaskQueue};
 use crate::db::Database;
 use chrono::Utc;
 use rusqlite::{params, Result as SqliteResult};
@@ -33,10 +33,9 @@ impl Database {
             // Parse mode (defaults to Assistant)
             let mode = AgentMode::from_str(&mode_str).unwrap_or_default();
 
-            // Parse subtype
+            // Parse subtype — empty string and "none" are treated as no subtype
             let subtype = subtype_str
-                .and_then(|s| AgentSubtype::from_str(&s))
-                .unwrap_or_default();
+                .filter(|s| !s.is_empty() && s != "none");
 
             // Parse JSON fields
             let exploration_notes: Vec<String> =
@@ -108,7 +107,7 @@ impl Database {
                 context.total_iterations,
                 notes_json,
                 context.scratchpad,
-                context.subtype.as_str(),
+                context.subtype.as_deref().unwrap_or(""),
                 active_skill_json,
                 now,
             ],

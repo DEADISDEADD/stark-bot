@@ -839,7 +839,7 @@ pub struct ToolConfig {
 
 impl Default for ToolConfig {
     fn default() -> Self {
-        // Default to Full profile since AgentSubtype already controls which tools
+        // Default to Full profile since the agent subtype system already controls which tools
         // are visible to the agent. The ToolConfig should not block tools that
         // the subtype system expects to be available.
         ToolConfig {

@@ -15,7 +15,7 @@ import SubagentBadge from '@/components/chat/SubagentBadge';
 import { Subagent, SubagentStatus } from '@/lib/subagent-types';
 import { useGateway } from '@/hooks/useGateway';
 import { useWallet, SUPPORTED_NETWORKS, type SupportedNetwork } from '@/hooks/useWallet';
-import { sendChatMessage, getAgentSettings, getSkills, getTools, confirmTransaction, cancelTransaction, stopExecution, listSubagents, getActiveWebSession, getSessionTranscript, getExecutionStatus, createNewWebSession, getPlannerTasks } from '@/lib/api';
+import { sendChatMessage, getAgentSettings, getSkills, getTools, confirmTransaction, cancelTransaction, stopExecution, listSubagents, getActiveWebSession, getSessionTranscript, getExecutionStatus, createNewWebSession, getPlannerTasks, getAgentSubtypes, AgentSubtypeInfo } from '@/lib/api';
 import { Command, COMMAND_DEFINITIONS, getAllCommands } from '@/lib/commands';
 import type { ChatMessage as ChatMessageType, MessageRole, SlashCommand, TrackedTransaction, TxPendingEvent, TxConfirmedEvent, PendingConfirmation, ConfirmationRequiredEvent, PlannerTask, TaskQueueUpdateEvent, TaskStatusChangeEvent } from '@/types';
 
@@ -62,12 +62,15 @@ function isCurrentSessionEvent(data: unknown, currentDbSessionId: number | null)
   return event.session_id === currentDbSessionId;
 }
 
-// Available agent subtypes with their styling
-const AGENT_SUBTYPES = [
-  { subtype: 'finance', label: 'Finance', emoji: '💰', bgClass: 'bg-purple-500/20', textClass: 'text-purple-400', borderClass: 'border-purple-500/50', hoverClass: 'hover:bg-purple-500/30' },
-  { subtype: 'code_engineer', label: 'CodeEngineer', emoji: '🛠️', bgClass: 'bg-cyan-500/20', textClass: 'text-cyan-400', borderClass: 'border-cyan-500/50', hoverClass: 'hover:bg-cyan-500/30' },
-  { subtype: 'secretary', label: 'Secretary', emoji: '📱', bgClass: 'bg-pink-500/20', textClass: 'text-pink-400', borderClass: 'border-pink-500/50', hoverClass: 'hover:bg-pink-500/30' },
-] as const;
+// Color palette for agent subtypes (cycles through these for dynamic subtypes)
+const SUBTYPE_COLORS = [
+  { bgClass: 'bg-amber-500/20', textClass: 'text-amber-400', borderClass: 'border-amber-500/50', hoverClass: 'hover:bg-amber-500/30' },
+  { bgClass: 'bg-purple-500/20', textClass: 'text-purple-400', borderClass: 'border-purple-500/50', hoverClass: 'hover:bg-purple-500/30' },
+  { bgClass: 'bg-cyan-500/20', textClass: 'text-cyan-400', borderClass: 'border-cyan-500/50', hoverClass: 'hover:bg-cyan-500/30' },
+  { bgClass: 'bg-pink-500/20', textClass: 'text-pink-400', borderClass: 'border-pink-500/50', hoverClass: 'hover:bg-pink-500/30' },
+  { bgClass: 'bg-green-500/20', textClass: 'text-green-400', borderClass: 'border-green-500/50', hoverClass: 'hover:bg-green-500/30' },
+  { bgClass: 'bg-orange-500/20', textClass: 'text-orange-400', borderClass: 'border-orange-500/50', hoverClass: 'hover:bg-orange-500/30' },
+];
 
 // Generate a new session ID
 function generateSessionId(): string {
@@ -122,6 +125,7 @@ export default function AgentChat() {
   const [agentSubtype, setAgentSubtype] = useState<{ subtype: string; label: string } | null>(() =>
     loadFromStorage<{ subtype: string; label: string } | null>(STORAGE_KEY_SUBTYPE, null)
   );
+  const [availableSubtypes, setAvailableSubtypes] = useState<AgentSubtypeInfo[]>([]);
   const [subtypeDropdownOpen, setSubtypeDropdownOpen] = useState(false);
   const subtypeDropdownRef = useRef<HTMLDivElement>(null);
   const [networkDropdownOpen, setNetworkDropdownOpen] = useState(false);
@@ -163,6 +167,13 @@ export default function AgentChat() {
       localStorage.setItem(STORAGE_KEY_SUBTYPE, JSON.stringify(agentSubtype));
     }
   }, [agentSubtype]);
+
+  // Load available subtypes from API
+  useEffect(() => {
+    getAgentSubtypes()
+      .then(subtypes => setAvailableSubtypes(subtypes.filter(s => s.enabled).sort((a, b) => a.sort_order - b.sort_order)))
+      .catch(err => console.error('[AgentChat] Failed to load subtypes:', err));
+  }, []);
 
   // Pre-fill input from ?message= query param
   useEffect(() => {
@@ -1670,48 +1681,51 @@ export default function AgentChat() {
         <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto sm:ml-auto flex-wrap">
           {/* Agent Subtype Dropdown */}
           <div className="relative" ref={subtypeDropdownRef}>
-            <button
-              onClick={() => setSubtypeDropdownOpen(!subtypeDropdownOpen)}
-              className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium cursor-pointer transition-colors ${
-                agentSubtype
-                  ? agentSubtype.subtype === 'finance'
-                    ? 'bg-purple-500/20 text-purple-400 border border-purple-500/50 hover:bg-purple-500/30'
-                    : agentSubtype.subtype === 'code_engineer'
-                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50 hover:bg-cyan-500/30'
-                    : 'bg-pink-500/20 text-pink-400 border border-pink-500/50 hover:bg-pink-500/30'
-                  : 'bg-slate-500/20 text-slate-400 border border-slate-500/50 hover:bg-slate-500/30'
-              }`}
-            >
-              <span>{
-                agentSubtype
-                  ? agentSubtype.subtype === 'finance' ? '💰' :
-                    agentSubtype.subtype === 'code_engineer' ? '🛠️' : '📱'
-                  : '🔧'
-              }</span>
-              <span>{agentSubtype?.label || 'Select Toolbox'}</span>
-              <ChevronDown className={`w-3 h-3 transition-transform ${subtypeDropdownOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {subtypeDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-50 min-w-[160px] max-w-[calc(100vw-1.5rem)] py-1">
-                {AGENT_SUBTYPES.map((st) => (
+            {(() => {
+              const currentIdx = availableSubtypes.findIndex(s => s.key === agentSubtype?.subtype);
+              const colors = currentIdx >= 0 ? SUBTYPE_COLORS[currentIdx % SUBTYPE_COLORS.length] : null;
+              const currentEmoji = currentIdx >= 0 ? availableSubtypes[currentIdx].emoji : null;
+              return (
+                <>
                   <button
-                    key={st.subtype}
-                    onClick={() => {
-                      setAgentSubtype({ subtype: st.subtype, label: st.label });
-                      setSubtypeDropdownOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
-                      agentSubtype?.subtype === st.subtype
-                        ? `${st.bgClass} ${st.textClass}`
-                        : 'text-slate-300 hover:bg-slate-700'
+                    onClick={() => setSubtypeDropdownOpen(!subtypeDropdownOpen)}
+                    className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium cursor-pointer transition-colors ${
+                      colors
+                        ? `${colors.bgClass} ${colors.textClass} border ${colors.borderClass} ${colors.hoverClass}`
+                        : 'bg-slate-500/20 text-slate-400 border border-slate-500/50 hover:bg-slate-500/30'
                     }`}
                   >
-                    <span>{st.emoji}</span>
-                    <span>{st.label}</span>
+                    <span>{currentEmoji || '🔧'}</span>
+                    <span>{agentSubtype?.label || 'Select Toolbox'}</span>
+                    <ChevronDown className={`w-3 h-3 transition-transform ${subtypeDropdownOpen ? 'rotate-180' : ''}`} />
                   </button>
-                ))}
-              </div>
-            )}
+                  {subtypeDropdownOpen && (
+                    <div className="absolute top-full left-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-50 min-w-[160px] max-w-[calc(100vw-1.5rem)] py-1">
+                      {availableSubtypes.map((st, idx) => {
+                        const stColors = SUBTYPE_COLORS[idx % SUBTYPE_COLORS.length];
+                        return (
+                          <button
+                            key={st.key}
+                            onClick={() => {
+                              setAgentSubtype({ subtype: st.key, label: st.label });
+                              setSubtypeDropdownOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
+                              agentSubtype?.subtype === st.key
+                                ? `${stColors.bgClass} ${stColors.textClass}`
+                                : 'text-slate-300 hover:bg-slate-700'
+                            }`}
+                          >
+                            <span>{st.emoji}</span>
+                            <span>{st.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
           {/* Debug Toggle */}

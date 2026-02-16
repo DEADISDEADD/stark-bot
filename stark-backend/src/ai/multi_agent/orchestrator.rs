@@ -1,7 +1,7 @@
 //! Simplified orchestrator - manages agent context without mode transitions
 
 use super::tools;
-use super::types::{AgentContext, AgentMode, AgentSubtype};
+use super::types::{self, AgentContext, AgentMode};
 use crate::tools::ToolDefinition;
 use serde_json::Value;
 
@@ -14,13 +14,15 @@ pub struct Orchestrator {
 }
 
 impl Orchestrator {
-    /// Create a new orchestrator for a request
+    /// Create a new orchestrator for a request.
+    /// Defaults to the lowest-sort-order enabled subtype from the registry.
     pub fn new(original_request: String) -> Self {
         Self {
             context: AgentContext {
                 original_request,
                 mode: AgentMode::TaskPlanner,
                 planner_completed: false,
+                subtype: Some(types::default_subtype_key()),
                 ..Default::default()
             },
         }
@@ -123,13 +125,22 @@ impl Orchestrator {
         None
     }
 
-    /// Get the current agent subtype
-    pub fn current_subtype(&self) -> super::types::AgentSubtype {
-        self.context.subtype
+    /// Get the current agent subtype key.
+    /// Falls back to the first enabled subtype from the registry (usually "director").
+    pub fn current_subtype_key(&self) -> &str {
+        self.context.subtype.as_deref().unwrap_or_else(|| {
+            // No subtype selected — return empty string so callers know
+            ""
+        })
+    }
+
+    /// Get the current agent subtype as Option<&String>
+    pub fn current_subtype(&self) -> &Option<String> {
+        &self.context.subtype
     }
 
     /// Set the agent subtype
-    pub fn set_subtype(&mut self, subtype: super::types::AgentSubtype) {
+    pub fn set_subtype(&mut self, subtype: Option<String>) {
         self.context.subtype = subtype;
     }
 
@@ -278,18 +289,12 @@ impl Orchestrator {
         }
 
         // Only include toolbox selection instructions when no subtype is active yet
-        if !self.context.subtype.is_selected() {
+        if self.context.subtype.is_none() {
             prompt.push_str(&Self::toolbox_select_prompt());
             prompt.push_str("\n\n");
         }
 
         prompt.push_str(base_prompt);
-
-        // CodeEngineer-specific guidelines — injected when subtype is active
-        if self.context.subtype.as_str() == "code_engineer" {
-            prompt.push_str("\n\n");
-            prompt.push_str(&Self::code_engineer_guidelines());
-        }
 
         prompt.push_str("\n\n---\n\n");
         prompt.push_str(&self.format_context_summary());
@@ -349,50 +354,6 @@ impl Orchestrator {
         prompt
     }
 
-    /// Guidelines injected when the agent is in CodeEngineer mode.
-    /// These transform a generic LLM into a disciplined software engineer.
-    fn code_engineer_guidelines() -> String {
-        r#"## Software Engineering Guidelines (CodeEngineer Mode)
-
-### Before Writing Code
-- **ALWAYS read existing code** with `read_file` or `read_symbol` before modifying it.
-- Use `index_project` to understand unfamiliar codebases before diving in.
-- Use `grep` and `glob` to find related code, callers, and existing patterns.
-- Match the existing code style (indentation, naming conventions, import patterns).
-
-### While Writing Code
-- For multi-file changes, plan dependency order: types first, then implementations, then callers.
-- When using `edit_file`, provide enough context in `old_text` to be unique (3+ lines preferred).
-- Prefer `edit_file` for targeted changes. Use `write_file` only for new files or full rewrites.
-- Use `apply_patch` for complex multi-file edits in one operation.
-- Use `read_symbol` to inspect specific functions without loading entire files.
-
-### After Writing Code
-- **ALWAYS verify changes compile** by running `verify_changes` with `checks: "build"`.
-- If writing tests, run `verify_changes` with `checks: "test"` to confirm they pass.
-- If `verify_changes` fails, read the error output carefully, fix the issue, then re-verify.
-- Do NOT declare a coding task complete without at least a successful build check.
-
-### Debugging Workflow
-- When a build/test fails, read the FULL error output before attempting a fix.
-- Use error locations from `verify_changes` output to navigate directly to problems.
-- Fix one error at a time — cascading errors often resolve when the root cause is fixed.
-- Use `read_symbol` to inspect the specific function that's failing.
-
-### Code Quality
-- Never leave TODO/FIXME comments without explaining what's needed.
-- Don't introduce debug logging (println!, console.log) unless explicitly asked.
-- Keep changes minimal and focused — only modify what's necessary for the task.
-
-### Task Tracking
-- Check the kanban board with `workstream(action: "list")` to see if there are queued tasks.
-- Use `workstream(action: "pick_task")` to grab the next highest-priority ready task.
-- When you finish a task, use `workstream(action: "add_note")` to record what was done, then `workstream(action: "update_status", status: "complete")`.
-- For complex work, break it into subtasks with `workstream(action: "create")` so progress is visible.
-- Use `workstream(action: "schedule", ...)` to create one-time or recurring scheduled jobs."#
-            .to_string()
-    }
-
     /// Format a summary of the current context for the prompt
     fn format_context_summary(&self) -> String {
         const MAX_NOTES: usize = 10;
@@ -402,11 +363,11 @@ impl Orchestrator {
 
         summary.push_str("## Current Context\n\n");
         summary.push_str(&format!("**Request**: {}\n\n", self.context.original_request));
-        if self.context.subtype.is_selected() {
+        if let Some(ref key) = self.context.subtype {
             summary.push_str(&format!(
                 "**Subtype**: {} {} (active — do NOT call `set_agent_subtype`, just proceed with tools)\n\n",
-                self.context.subtype.emoji(),
-                self.context.subtype.label()
+                types::subtype_emoji(key),
+                types::subtype_label(key)
             ));
         } else {
             summary.push_str("**Subtype**: None — call `set_agent_subtype` first based on the user's request\n\n");

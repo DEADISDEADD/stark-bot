@@ -75,6 +75,9 @@ pub struct BackupData {
     pub kanban_items: Vec<KanbanItemEntry>,
     /// Agent subtypes (configurable toolboxes)
     pub agent_subtypes: Vec<AgentSubtypeEntry>,
+    /// Tool config directories (e.g. gog CLI auth tokens)
+    /// Maps a logical name (e.g. "gogcli") to a list of files with base64-encoded contents.
+    pub tool_configs: HashMap<String, Vec<ToolConfigFileEntry>>,
 }
 
 /// Manual Default because DateTime<Utc> doesn't derive Default
@@ -103,6 +106,7 @@ impl Default for BackupData {
             x402_payment_limits: Vec::new(),
             kanban_items: Vec::new(),
             agent_subtypes: Vec::new(),
+            tool_configs: HashMap::new(),
         }
     }
 }
@@ -380,6 +384,18 @@ pub struct AgentSubtypeEntry {
     pub sort_order: i32,
     pub enabled: bool,
     pub max_iterations: Option<u32>,
+    pub skip_task_planner: Option<bool>,
+    pub aliases_json: String,
+}
+
+/// A file from a tool's config directory, stored as base64
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ToolConfigFileEntry {
+    /// Relative path within the config directory (e.g. "keyring/token:default:user@gmail.com.json")
+    pub relative_path: String,
+    /// Base64-encoded file contents
+    pub content_b64: String,
 }
 
 /// Options for what to include in a backup
@@ -684,11 +700,80 @@ pub async fn collect_backup_data(
                 sort_order: s.sort_order,
                 enabled: s.enabled,
                 max_iterations: Some(s.max_iterations),
+                skip_task_planner: Some(s.skip_task_planner),
+                aliases_json: serde_json::to_string(&s.aliases).unwrap_or_else(|_| "[]".to_string()),
             })
             .collect();
     }
 
+    // Tool config directories (gog CLI tokens, etc.)
+    collect_tool_configs(&mut backup);
+
     backup
+}
+
+/// Collect config files from tool directories that need to persist across restarts.
+///
+/// Currently supports:
+/// - `gogcli`: ~/.config/gogcli/ (Google Workspace CLI auth tokens)
+fn collect_tool_configs(backup: &mut BackupData) {
+    use base64::Engine;
+    let engine = base64::engine::general_purpose::STANDARD;
+
+    let home = match std::env::var("HOME") {
+        Ok(h) => std::path::PathBuf::from(h),
+        Err(_) => return,
+    };
+
+    // gogcli: ~/.config/gogcli/
+    let gogcli_dir = home.join(".config").join("gogcli");
+    if gogcli_dir.exists() {
+        let mut files = Vec::new();
+        if let Ok(entries) = collect_dir_files_recursive(&gogcli_dir, &gogcli_dir) {
+            for (rel_path, content) in entries {
+                files.push(ToolConfigFileEntry {
+                    relative_path: rel_path,
+                    content_b64: engine.encode(&content),
+                });
+            }
+        }
+        if !files.is_empty() {
+            log::info!("[Backup] Collected {} gogcli config files", files.len());
+            backup.tool_configs.insert("gogcli".to_string(), files);
+        }
+    }
+}
+
+/// Recursively collect all files in a directory, returning (relative_path, contents) pairs.
+fn collect_dir_files_recursive(
+    base: &std::path::Path,
+    dir: &std::path::Path,
+) -> Result<Vec<(String, Vec<u8>)>, std::io::Error> {
+    let mut results = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            results.extend(collect_dir_files_recursive(base, &path)?);
+        } else if path.is_file() {
+            // Skip files larger than 1MB (safety limit for backup payload)
+            if let Ok(metadata) = path.metadata() {
+                if metadata.len() > 1_048_576 {
+                    log::warn!("[Backup] Skipping large tool config file: {} ({} bytes)", path.display(), metadata.len());
+                    continue;
+                }
+            }
+            if let Ok(content) = std::fs::read(&path) {
+                let rel = path.strip_prefix(base)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                if !rel.is_empty() {
+                    results.push((rel, content));
+                }
+            }
+        }
+    }
+    Ok(results)
 }
 
 /// Encrypt data using ECIES with the public key derived from private key.

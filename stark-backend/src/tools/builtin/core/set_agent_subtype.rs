@@ -1,4 +1,4 @@
-use crate::ai::multi_agent::types::{self, AgentSubtype};
+use crate::ai::multi_agent::types;
 use crate::gateway::protocol::GatewayEvent;
 use crate::tools::registry::Tool;
 use crate::tools::types::{
@@ -112,41 +112,34 @@ impl Tool for SetAgentSubtypeTool {
 
         let key = params.subtype.to_lowercase();
 
-        // Validate against registry
-        let config = match types::get_subtype_config(&key) {
+        // Resolve via exact key match or alias
+        let resolved_key = match types::resolve_subtype_key(&key) {
+            Some(k) => k,
+            None => {
+                let valid: Vec<String> = types::all_subtype_configs()
+                    .iter()
+                    .map(|c| format!("'{}'", c.key))
+                    .collect();
+                return ToolResult::error(format!(
+                    "Invalid subtype '{}'. Valid options: {}",
+                    params.subtype,
+                    valid.join(", ")
+                ));
+            }
+        };
+
+        let config = match types::get_subtype_config(&resolved_key) {
             Some(c) => c,
             None => {
-                // Try AgentSubtype::from_str for alias resolution
-                match AgentSubtype::from_str(&key) {
-                    Some(s) => {
-                        // Resolved via alias — get config for the canonical key
-                        match types::get_subtype_config(s.as_str()) {
-                            Some(c) => c,
-                            None => {
-                                let valid: Vec<String> = types::all_subtype_configs()
-                                    .iter()
-                                    .map(|c| format!("'{}'", c.key))
-                                    .collect();
-                                return ToolResult::error(format!(
-                                    "Invalid subtype '{}'. Valid options: {}",
-                                    params.subtype,
-                                    valid.join(", ")
-                                ));
-                            }
-                        }
-                    }
-                    None => {
-                        let valid: Vec<String> = types::all_subtype_configs()
-                            .iter()
-                            .map(|c| format!("'{}'", c.key))
-                            .collect();
-                        return ToolResult::error(format!(
-                            "Invalid subtype '{}'. Valid options: {}",
-                            params.subtype,
-                            valid.join(", ")
-                        ));
-                    }
-                }
+                let valid: Vec<String> = types::all_subtype_configs()
+                    .iter()
+                    .map(|c| format!("'{}'", c.key))
+                    .collect();
+                return ToolResult::error(format!(
+                    "Invalid subtype '{}'. Valid options: {}",
+                    params.subtype,
+                    valid.join(", ")
+                ));
             }
         };
 

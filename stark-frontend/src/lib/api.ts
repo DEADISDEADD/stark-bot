@@ -1761,6 +1761,8 @@ export interface AgentSubtypeInfo {
   sort_order: number;
   enabled: boolean;
   max_iterations: number;
+  skip_task_planner: boolean;
+  aliases?: string[];
 }
 
 export async function getAgentSubtypes(): Promise<AgentSubtypeInfo[]> {

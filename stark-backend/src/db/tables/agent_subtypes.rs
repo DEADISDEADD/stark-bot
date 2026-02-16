@@ -11,7 +11,7 @@ impl Database {
     pub fn list_agent_subtypes(&self) -> SqliteResult<Vec<AgentSubtypeConfig>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT key, label, emoji, description, tool_groups_json, skill_tags_json, prompt, sort_order, enabled, max_iterations, additional_tools_json
+            "SELECT key, label, emoji, description, tool_groups_json, skill_tags_json, prompt, sort_order, enabled, max_iterations, additional_tools_json, skip_task_planner, aliases_json
              FROM agent_subtypes ORDER BY sort_order, key"
         )?;
 
@@ -20,6 +20,7 @@ impl Database {
                 let tool_groups_str: String = row.get(4)?;
                 let skill_tags_str: String = row.get(5)?;
                 let additional_tools_str: String = row.get::<_, String>(10).unwrap_or_else(|_| "[]".to_string());
+                let aliases_str: String = row.get::<_, String>(12).unwrap_or_else(|_| "[]".to_string());
                 Ok(AgentSubtypeConfig {
                     key: row.get(0)?,
                     label: row.get(1)?,
@@ -32,6 +33,8 @@ impl Database {
                     sort_order: row.get(7)?,
                     enabled: row.get::<_, i32>(8)? != 0,
                     max_iterations: row.get::<_, i64>(9).unwrap_or(90) as u32,
+                    skip_task_planner: row.get::<_, i32>(11).unwrap_or(0) != 0,
+                    aliases: serde_json::from_str(&aliases_str).unwrap_or_default(),
                 })
             })?
             .filter_map(|r| r.ok())
@@ -44,13 +47,14 @@ impl Database {
     pub fn get_agent_subtype(&self, key: &str) -> SqliteResult<Option<AgentSubtypeConfig>> {
         let conn = self.conn();
         let result = conn.query_row(
-            "SELECT key, label, emoji, description, tool_groups_json, skill_tags_json, prompt, sort_order, enabled, max_iterations, additional_tools_json
+            "SELECT key, label, emoji, description, tool_groups_json, skill_tags_json, prompt, sort_order, enabled, max_iterations, additional_tools_json, skip_task_planner, aliases_json
              FROM agent_subtypes WHERE key = ?1",
             [key],
             |row| {
                 let tool_groups_str: String = row.get(4)?;
                 let skill_tags_str: String = row.get(5)?;
                 let additional_tools_str: String = row.get::<_, String>(10).unwrap_or_else(|_| "[]".to_string());
+                let aliases_str: String = row.get::<_, String>(12).unwrap_or_else(|_| "[]".to_string());
                 Ok(AgentSubtypeConfig {
                     key: row.get(0)?,
                     label: row.get(1)?,
@@ -63,6 +67,8 @@ impl Database {
                     sort_order: row.get(7)?,
                     enabled: row.get::<_, i32>(8)? != 0,
                     max_iterations: row.get::<_, i64>(9).unwrap_or(90) as u32,
+                    skip_task_planner: row.get::<_, i32>(11).unwrap_or(0) != 0,
+                    aliases: serde_json::from_str(&aliases_str).unwrap_or_default(),
                 })
             },
         );
@@ -80,10 +86,11 @@ impl Database {
         let tool_groups_json = serde_json::to_string(&config.tool_groups).unwrap_or_else(|_| "[]".to_string());
         let skill_tags_json = serde_json::to_string(&config.skill_tags).unwrap_or_else(|_| "[]".to_string());
         let additional_tools_json = serde_json::to_string(&config.additional_tools).unwrap_or_else(|_| "[]".to_string());
+        let aliases_json = serde_json::to_string(&config.aliases).unwrap_or_else(|_| "[]".to_string());
 
         conn.execute(
-            "INSERT INTO agent_subtypes (key, label, emoji, description, tool_groups_json, skill_tags_json, additional_tools_json, prompt, sort_order, enabled, max_iterations, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)
+            "INSERT INTO agent_subtypes (key, label, emoji, description, tool_groups_json, skill_tags_json, additional_tools_json, prompt, sort_order, enabled, max_iterations, skip_task_planner, aliases_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)
              ON CONFLICT(key) DO UPDATE SET
                 label = excluded.label,
                 emoji = excluded.emoji,
@@ -95,6 +102,8 @@ impl Database {
                 sort_order = excluded.sort_order,
                 enabled = excluded.enabled,
                 max_iterations = excluded.max_iterations,
+                skip_task_planner = excluded.skip_task_planner,
+                aliases_json = excluded.aliases_json,
                 updated_at = excluded.updated_at",
             rusqlite::params![
                 config.key,
@@ -108,6 +117,8 @@ impl Database {
                 config.sort_order,
                 config.enabled as i32,
                 config.max_iterations as i64,
+                config.skip_task_planner as i32,
+                aliases_json,
                 now,
             ],
         )?;

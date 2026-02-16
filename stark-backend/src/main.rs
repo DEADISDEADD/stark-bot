@@ -736,6 +736,7 @@ async fn restore_backup_data(
         let tool_groups: Vec<String> = serde_json::from_str(&entry.tool_groups_json).unwrap_or_default();
         let skill_tags: Vec<String> = serde_json::from_str(&entry.skill_tags_json).unwrap_or_default();
         let additional_tools: Vec<String> = serde_json::from_str(&entry.additional_tools_json).unwrap_or_default();
+        let aliases: Vec<String> = serde_json::from_str(&entry.aliases_json).unwrap_or_default();
         let config = ai::multi_agent::types::AgentSubtypeConfig {
             key: entry.key.clone(),
             label: entry.label.clone(),
@@ -748,6 +749,8 @@ async fn restore_backup_data(
             sort_order: entry.sort_order,
             enabled: entry.enabled,
             max_iterations: entry.max_iterations.unwrap_or(90) as u32,
+            skip_task_planner: entry.skip_task_planner.unwrap_or(false),
+            aliases,
         };
         match db.upsert_agent_subtype(&config) {
             Ok(_) => restored_subtypes += 1,
@@ -762,8 +765,68 @@ async fn restore_backup_data(
         }
     }
 
+    // Restore tool config directories (gog CLI tokens, etc.)
+    restore_tool_configs(&backup_data);
+
     log::info!("[Keystore] Restore complete");
     Ok((restored_keys, restored_nodes))
+}
+
+/// Restore tool config directories from backup (e.g. gogcli auth tokens).
+fn restore_tool_configs(backup_data: &backup::BackupData) {
+    use base64::Engine;
+    let engine = base64::engine::general_purpose::STANDARD;
+
+    let home = match std::env::var("HOME") {
+        Ok(h) => std::path::PathBuf::from(h),
+        Err(_) => {
+            log::warn!("[Keystore] HOME not set, skipping tool config restore");
+            return;
+        }
+    };
+
+    for (tool_name, files) in &backup_data.tool_configs {
+        let base_dir = match tool_name.as_str() {
+            "gogcli" => home.join(".config").join("gogcli"),
+            other => {
+                log::warn!("[Keystore] Unknown tool config '{}', skipping", other);
+                continue;
+            }
+        };
+
+        let mut restored = 0;
+        for file_entry in files {
+            // Sanitize: reject paths with ".." to prevent directory traversal
+            if file_entry.relative_path.contains("..") {
+                log::warn!("[Keystore] Skipping suspicious path in tool config: {}", file_entry.relative_path);
+                continue;
+            }
+
+            let target = base_dir.join(&file_entry.relative_path);
+
+            // Ensure parent directory exists
+            if let Some(parent) = target.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    log::warn!("[Keystore] Failed to create dir for tool config {}: {}", file_entry.relative_path, e);
+                    continue;
+                }
+            }
+
+            match engine.decode(&file_entry.content_b64) {
+                Ok(content) => {
+                    match std::fs::write(&target, &content) {
+                        Ok(_) => restored += 1,
+                        Err(e) => log::warn!("[Keystore] Failed to write tool config {}: {}", file_entry.relative_path, e),
+                    }
+                }
+                Err(e) => log::warn!("[Keystore] Failed to decode tool config {}: {}", file_entry.relative_path, e),
+            }
+        }
+
+        if restored > 0 {
+            log::info!("[Keystore] Restored {} config files for tool '{}'", restored, tool_name);
+        }
+    }
 }
 
 /// SPA fallback handler - serves index.html for client-side routing

@@ -14,7 +14,7 @@ pub enum EventType {
     AgentResponse,
     AgentToolCall,     // Real-time tool call notification for chat display
     AgentModeChange,   // Multi-agent mode transition (Explore/Plan/Perform)
-    AgentSubtypeChange, // Agent subtype change (Finance/CodeEngineer)
+    AgentSubtypeChange, // Agent subtype change
     AgentThinking,     // Progress update during long AI calls
     AgentError,        // Error notification (timeout, etc.)
     AgentWarning,      // Warning when agent tries to skip tool calls

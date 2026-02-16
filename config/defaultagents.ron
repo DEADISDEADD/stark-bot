@@ -1,6 +1,7 @@
 [
     (
         key: "director",
+        aliases: ["orchestrator", "research"],
         label: "Director",
         emoji: "🎬",
         description: "Orchestrate tasks by spawning and coordinating sub-agents",
@@ -18,9 +19,11 @@
         sort_order: -1,
         enabled: true,
         max_iterations: 90,
+        skip_task_planner: true,
     ),
     (
         key: "finance",
+        aliases: ["defi", "crypto", "swap", "transfer"],
         label: "Finance",
         emoji: "💰",
         description: "Crypto swaps, transfers, DeFi operations, token lookups",
@@ -35,9 +38,11 @@
         sort_order: 0,
         enabled: true,
         max_iterations: 90,
+        skip_task_planner: false,
     ),
     (
         key: "code_engineer",
+        aliases: ["codeengineer", "code", "dev", "developer", "git"],
         label: "CodeEngineer",
         emoji: "🛠️",
         description: "Code editing, git operations, testing, debugging",
@@ -52,9 +57,11 @@
         sort_order: 1,
         enabled: true,
         max_iterations: 90,
+        skip_task_planner: false,
     ),
     (
         key: "secretary",
+        aliases: ["social", "marketing", "messaging", "moltx"],
         label: "Secretary",
         emoji: "📱",
         description: "Social media, messaging, scheduling, marketing",
@@ -69,5 +76,6 @@
         sort_order: 2,
         enabled: true,
         max_iterations: 90,
+        skip_task_planner: false,
     ),
 ]

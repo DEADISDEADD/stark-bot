@@ -1587,7 +1587,6 @@ fn build_tool_list_harness() -> MessageDispatcher {
 
 #[test]
 fn test_build_tool_list_subtype_filters_groups() {
-    use crate::ai::multi_agent::types::AgentSubtype;
     use crate::tools::ToolConfig;
 
     let dispatcher = build_tool_list_harness();
@@ -1597,7 +1596,7 @@ fn test_build_tool_list_subtype_filters_groups() {
     // Finance subtype should include Finance group tools but NOT Development/Exec/Messaging
     let finance_tools = dispatcher.build_tool_list(
         &config,
-        AgentSubtype::Finance,
+        "finance",
         &orchestrator,
     );
     let tool_names: Vec<&str> = finance_tools.iter().map(|t| t.name.as_str()).collect();
@@ -1611,7 +1610,7 @@ fn test_build_tool_list_subtype_filters_groups() {
     // CodeEngineer subtype should include Development/Exec but NOT Finance/Messaging
     let code_tools = dispatcher.build_tool_list(
         &config,
-        AgentSubtype::CodeEngineer,
+        "code_engineer",
         &orchestrator,
     );
     let tool_names: Vec<&str> = code_tools.iter().map(|t| t.name.as_str()).collect();
@@ -1622,7 +1621,7 @@ fn test_build_tool_list_subtype_filters_groups() {
 
 #[test]
 fn test_build_tool_list_skill_requires_tools_force_includes() {
-    use crate::ai::multi_agent::types::{ActiveSkill, AgentSubtype};
+    use crate::ai::multi_agent::types::ActiveSkill;
     use crate::tools::ToolConfig;
 
     let dispatcher = build_tool_list_harness();
@@ -1640,7 +1639,7 @@ fn test_build_tool_list_skill_requires_tools_force_includes() {
 
     let tools = dispatcher.build_tool_list(
         &config,
-        AgentSubtype::Finance,
+        "finance",
         &orchestrator,
     );
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
@@ -1655,7 +1654,7 @@ fn test_build_tool_list_skill_requires_tools_force_includes() {
 
 #[test]
 fn test_build_tool_list_safe_mode_blocks_skill_required_tools() {
-    use crate::ai::multi_agent::types::{ActiveSkill, AgentSubtype};
+    use crate::ai::multi_agent::types::ActiveSkill;
     use crate::tools::ToolConfig;
 
     let dispatcher = build_tool_list_harness();
@@ -1673,7 +1672,7 @@ fn test_build_tool_list_safe_mode_blocks_skill_required_tools() {
 
     let tools = dispatcher.build_tool_list(
         &config,
-        AgentSubtype::Finance,
+        "finance",
         &orchestrator,
     );
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
@@ -1688,7 +1687,6 @@ fn test_build_tool_list_safe_mode_blocks_skill_required_tools() {
 
 #[test]
 fn test_build_tool_list_no_skill_no_force_include() {
-    use crate::ai::multi_agent::types::AgentSubtype;
     use crate::tools::ToolConfig;
 
     let dispatcher = build_tool_list_harness();
@@ -1698,7 +1696,7 @@ fn test_build_tool_list_no_skill_no_force_include() {
     // No active skill — cross-group tools should NOT be included
     let tools = dispatcher.build_tool_list(
         &config,
-        AgentSubtype::Finance,
+        "finance",
         &orchestrator,
     );
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
@@ -1715,7 +1713,7 @@ fn test_build_tool_list_no_skill_no_force_include() {
 
 #[test]
 fn test_build_tool_list_define_tasks_stripped_unless_skill_requires() {
-    use crate::ai::multi_agent::types::{ActiveSkill, AgentSubtype};
+    use crate::ai::multi_agent::types::ActiveSkill;
     use crate::tools::ToolConfig;
 
     let dispatcher = build_tool_list_harness();
@@ -1725,7 +1723,7 @@ fn test_build_tool_list_define_tasks_stripped_unless_skill_requires() {
     let orchestrator = crate::ai::multi_agent::Orchestrator::new("test".into());
     let tools = dispatcher.build_tool_list(
         &config,
-        AgentSubtype::Finance,
+        "finance",
         &orchestrator,
     );
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
@@ -1745,7 +1743,7 @@ fn test_build_tool_list_define_tasks_stripped_unless_skill_requires() {
     });
     let tools2 = dispatcher.build_tool_list(
         &config,
-        AgentSubtype::Finance,
+        "finance",
         &orchestrator2,
     );
     let tool_names2: Vec<&str> = tools2.iter().map(|t| t.name.as_str()).collect();
@@ -1758,7 +1756,6 @@ fn test_build_tool_list_define_tasks_stripped_unless_skill_requires() {
 
 #[test]
 fn test_build_tool_list_includes_mode_tools() {
-    use crate::ai::multi_agent::types::AgentSubtype;
     use crate::tools::ToolConfig;
 
     let dispatcher = build_tool_list_harness();
@@ -1781,7 +1778,7 @@ fn test_build_tool_list_includes_mode_tools() {
     });
     let tools = dispatcher.build_tool_list(
         &config,
-        AgentSubtype::Finance,
+        "finance",
         &orchestrator2,
     );
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
@@ -1793,7 +1790,7 @@ fn test_build_tool_list_includes_mode_tools() {
 
 #[test]
 fn test_build_tool_list_consistent_across_subtypes() {
-    use crate::ai::multi_agent::types::{ActiveSkill, AgentSubtype};
+    use crate::ai::multi_agent::types::ActiveSkill;
     use crate::tools::ToolConfig;
 
     let dispatcher = build_tool_list_harness();
@@ -1809,8 +1806,8 @@ fn test_build_tool_list_consistent_across_subtypes() {
         requires_tools: vec!["agent_send".into()],
     });
 
-    let tools1 = dispatcher.build_tool_list(&config, AgentSubtype::Finance, &orchestrator);
-    let tools2 = dispatcher.build_tool_list(&config, AgentSubtype::Finance, &orchestrator);
+    let tools1 = dispatcher.build_tool_list(&config, "finance", &orchestrator);
+    let tools2 = dispatcher.build_tool_list(&config, "finance", &orchestrator);
 
     let names1: Vec<&str> = tools1.iter().map(|t| t.name.as_str()).collect();
     let names2: Vec<&str> = tools2.iter().map(|t| t.name.as_str()).collect();

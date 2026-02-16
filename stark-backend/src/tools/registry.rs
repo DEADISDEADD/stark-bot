@@ -1,4 +1,4 @@
-use crate::ai::multi_agent::types::{AgentSubtype, get_subtype_config};
+use crate::ai::multi_agent::types;
 use crate::tools::types::{ToolConfig, ToolContext, ToolDefinition, ToolGroup, ToolProfile, ToolResult, ToolSafetyLevel};
 use async_trait::async_trait;
 use parking_lot::RwLock;
@@ -115,20 +115,20 @@ impl ToolRegistry {
             .collect()
     }
 
-    /// Get tools that are allowed for a specific agent subtype.
+    /// Get tools that are allowed for a specific agent subtype key.
     /// Tools come from two sources (additive):
     /// 1. `tool_groups` — tools whose group is in the subtype's allowed groups
     /// 2. `additional_tools` — explicitly named tools added on top (regardless of group)
     pub fn get_allowed_tools_for_subtype(
         &self,
         config: &ToolConfig,
-        subtype: AgentSubtype,
+        subtype_key: &str,
     ) -> Vec<Arc<dyn Tool>> {
-        let additional: Vec<String> = get_subtype_config(subtype.as_str())
+        let additional: Vec<String> = types::get_subtype_config(subtype_key)
             .map(|c| c.additional_tools)
             .unwrap_or_default();
 
-        let allowed_groups = subtype.allowed_tool_groups();
+        let allowed_groups = types::allowed_tool_groups_for_key(subtype_key);
         self.tools
             .read()
             .values()
@@ -164,29 +164,29 @@ impl ToolRegistry {
             .collect()
     }
 
-    /// Get tool definitions for a specific agent subtype
+    /// Get tool definitions for a specific agent subtype key
     pub fn get_tool_definitions_for_subtype(
         &self,
         config: &ToolConfig,
-        subtype: AgentSubtype,
+        subtype_key: &str,
     ) -> Vec<ToolDefinition> {
-        self.get_allowed_tools_for_subtype(config, subtype)
+        self.get_allowed_tools_for_subtype(config, subtype_key)
             .iter()
             .map(|tool| tool.definition())
             .collect()
     }
 
-    /// Get tool definitions for a specific agent subtype, with additional required tools
+    /// Get tool definitions for a specific agent subtype key, with additional required tools
     /// that are force-included regardless of config/profile restrictions.
     /// Used when a skill is activated that requires specific tools.
     pub fn get_tool_definitions_for_subtype_with_required(
         &self,
         config: &ToolConfig,
-        subtype: AgentSubtype,
+        subtype_key: &str,
         required_tools: &[String],
     ) -> Vec<ToolDefinition> {
         // Start with the normal subtype-allowed tools
-        let mut tools = self.get_allowed_tools_for_subtype(config, subtype);
+        let mut tools = self.get_allowed_tools_for_subtype(config, subtype_key);
         let mut tool_names: std::collections::HashSet<String> =
             tools.iter().map(|t| t.definition().name.clone()).collect();
 
@@ -510,7 +510,7 @@ mod tests {
 
         let tools = registry.get_tool_definitions_for_subtype_with_required(
             &config,
-            AgentSubtype::Secretary, // Secretary normally has Messaging access
+            "secretary",
             &["twitter_post".to_string(), "agent_send".to_string(), "exec".to_string()],
         );
         let tool_names: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
@@ -678,7 +678,7 @@ mod tests {
         // Without skill requires_tools — discord_resolve_user excluded by subtype
         let tools_no_skill = registry.get_tool_definitions_for_subtype(
             &config,
-            AgentSubtype::Finance,
+            "finance",
         );
         let names_no_skill: Vec<String> = tools_no_skill.iter().map(|t| t.name.clone()).collect();
         assert!(
@@ -690,7 +690,7 @@ mod tests {
         // With skill requires_tools — discord_resolve_user force-included
         let tools_with_skill = registry.get_tool_definitions_for_subtype_with_required(
             &config,
-            AgentSubtype::Finance,
+            "finance",
             &["discord_resolve_user".to_string()],
         );
         let names_with_skill: Vec<String> = tools_with_skill.iter().map(|t| t.name.clone()).collect();
@@ -716,7 +716,7 @@ mod tests {
         };
         let tools = registry.get_tool_definitions_for_subtype_with_required(
             &finance_config,
-            AgentSubtype::Finance,
+            "finance",
             &["discord_resolve_user".to_string(), "exec".to_string()],
         );
         let names: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
@@ -747,7 +747,7 @@ mod tests {
 
         let tools = registry.get_tool_definitions_for_subtype_with_required(
             &config,
-            AgentSubtype::Finance,
+            "finance",
             &[
                 "discord_resolve_user".to_string(),
                 "web3_preset".to_string(),
@@ -802,7 +802,7 @@ mod tests {
 
         let tools = registry.get_tool_definitions_for_subtype_with_required(
             &config,
-            AgentSubtype::Finance,
+            "finance",
             &["discord_resolve_user".to_string(), "dangerous_tool".to_string()],
         );
         let names: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
