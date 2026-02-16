@@ -69,6 +69,11 @@ RUN curl -fsSL "https://github.com/supabase/cli/releases/download/v2.75.0/supaba
     | tar xz -C /usr/local/bin/ supabase \
     && chmod +x /usr/local/bin/supabase
 
+# Install gog CLI (Google Workspace — Gmail, Calendar, Drive, Sheets, Docs)
+RUN curl -fsSL "https://github.com/steipete/gogcli/releases/latest/download/gog_Linux_x86_64.tar.gz" \
+    | tar xz -C /usr/local/bin/ \
+    && chmod +x /usr/local/bin/gog
+
 # Copy the binaries
 COPY --from=backend-builder /app/target/release/stark-backend /app/stark-backend-bin
 COPY --from=backend-builder /app/target/release/discord-tipping-service /app/discord-tipping-service

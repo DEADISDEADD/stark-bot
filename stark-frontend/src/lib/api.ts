@@ -1806,6 +1806,15 @@ export async function exportAgentSubtypes(): Promise<string> {
   return response.text();
 }
 
+export async function exportAgentSubtype(key: string): Promise<string> {
+  const token = localStorage.getItem('stark_token');
+  const response = await fetch(`/api/agent-subtypes/${encodeURIComponent(key)}/export`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw new Error('Failed to export agent subtype');
+  return response.text();
+}
+
 export async function importAgentSubtypes(ron: string, replace: boolean): Promise<{
   success: boolean;
   imported: number;

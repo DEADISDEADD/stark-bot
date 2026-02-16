@@ -8,7 +8,7 @@ import {
   updateAgentSubtype,
   deleteAgentSubtype,
   resetAgentSubtypeDefaults,
-  exportAgentSubtypes,
+  exportAgentSubtype,
   importAgentSubtypes,
   getToolGroups,
   AgentSubtypeInfo,
@@ -191,16 +191,17 @@ export default function AgentSubtypes() {
   };
 
   const handleExport = async () => {
+    if (!editForm || isCreating) return;
     try {
-      const ron = await exportAgentSubtypes();
+      const ron = await exportAgentSubtype(editForm.key);
       const blob = new Blob([ron], { type: 'application/ron' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'agent_subtypes.ron';
+      a.download = `${editForm.key}.ron`;
       a.click();
       URL.revokeObjectURL(url);
-      setSuccess('Exported successfully');
+      setSuccess(`Exported "${editForm.label}"`);
     } catch (err) {
       setError('Failed to export');
     }
@@ -273,10 +274,6 @@ export default function AgentSubtypes() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={handleExport} className="w-auto">
-            <Download className="w-4 h-4 mr-2" />
-            Export
-          </Button>
           <Button variant="secondary" onClick={handleImportClick} className="w-auto">
             <Upload className="w-4 h-4 mr-2" />
             Import
@@ -383,6 +380,14 @@ export default function AgentSubtypes() {
                         >
                           {editForm.enabled ? 'Enabled' : 'Disabled'}
                         </button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleExport}
+                        >
+                          <Download className="w-4 h-4 mr-1" />
+                          Export
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"

@@ -498,6 +498,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("/reset-defaults", web::post().to(reset_defaults))
             .route("/export", web::get().to(export_subtypes))
             .route("/import", web::post().to(import_subtypes))
+            .route("/{key}/export", web::get().to(export_single_subtype))
             .route("/{key}", web::get().to(get_subtype))
             .route("", web::post().to(create_subtype))
             .route("/{key}", web::put().to(update_subtype))
