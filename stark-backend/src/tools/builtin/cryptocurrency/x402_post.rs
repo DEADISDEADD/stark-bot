@@ -247,10 +247,25 @@ impl Tool for X402PostTool {
     }
 
     async fn execute(&self, params: Value, context: &ToolContext) -> ToolResult {
-        let params: X402PostParams = match serde_json::from_value(params) {
+        let mut params: X402PostParams = match serde_json::from_value(params) {
             Ok(p) => p,
             Err(e) => return ToolResult::error(format!("Invalid parameters: {}", e)),
         };
+
+        // LLMs sometimes send body as a JSON string instead of an object.
+        // e.g. body: "{\"prompt\": \"...\"}" instead of body: {"prompt": "..."}
+        // Parse the string into an object so the server receives valid JSON.
+        if let Value::String(ref s) = params.body {
+            if let Ok(parsed) = serde_json::from_str::<Value>(s) {
+                log::info!("[x402_post] Coerced body from JSON string to object");
+                params.body = parsed;
+            }
+        }
+        // Also handle null/empty body — send empty object instead of `null`
+        // so servers that check body.is_empty() get an actual empty body.
+        if params.body.is_null() {
+            params.body = json!({});
+        }
 
         log::info!("[x402_post] POST to {} with body: {:?}", params.url, params.body);
 
