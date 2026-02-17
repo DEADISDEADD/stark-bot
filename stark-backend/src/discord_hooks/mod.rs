@@ -136,16 +136,10 @@ pub async fn process(
     ctx: &Context,
     db: &std::sync::Arc<crate::db::Database>,
     channel_id: i64,
+    bot_id: UserId,
 ) -> Result<ProcessResult, String> {
     // Reload config from database to pick up any changes
     let config = DiscordHooksConfig::from_channel_settings(db, channel_id);
-    // Get bot's user ID by fetching current user info
-    let current_user = ctx
-        .http
-        .get_current_user()
-        .await
-        .map_err(|e| format!("Failed to get current user: {}", e))?;
-    let bot_id = current_user.id;
 
     // Check if this is a reply to one of the bot's messages
     let is_reply_to_bot = msg.message_reference.is_some()

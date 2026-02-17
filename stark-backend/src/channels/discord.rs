@@ -9,7 +9,7 @@ use crate::gateway::protocol::GatewayEvent;
 use crate::models::{Channel, ToolOutputVerbosity};
 use serenity::all::{
     Client, Context, EditMessage, EventHandler, GatewayIntents, GetMessages, Message, MessageId,
-    Ready,
+    Ready, UserId,
 };
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -91,6 +91,9 @@ struct DiscordHandler {
     broadcaster: Arc<EventBroadcaster>,
     db: Arc<Database>,
     safe_mode_rate_limiter: SafeModeChannelRateLimiter,
+    /// Cached bot user ID, set once from the Ready event to avoid
+    /// calling get_current_user() (a Discord API call) on every message.
+    bot_user_id: Arc<tokio::sync::OnceCell<UserId>>,
 }
 
 #[serenity::async_trait]
@@ -121,8 +124,28 @@ impl EventHandler for DiscordHandler {
         }
 
         // ===== Discord Hooks Integration =====
+        // Get the cached bot user ID (set from Ready event).
+        // Fall back to API call only if Ready hasn't fired yet (should be rare).
+        let bot_user_id = match self.bot_user_id.get() {
+            Some(&id) => id,
+            None => {
+                log::warn!("Discord: bot_user_id not cached yet (Ready event not received?), falling back to API call");
+                match ctx.http.get_current_user().await {
+                    Ok(user) => {
+                        let id = user.id;
+                        let _ = self.bot_user_id.set(id);
+                        id
+                    }
+                    Err(e) => {
+                        log::error!("Discord: Failed to get bot user ID: {}", e);
+                        return;
+                    }
+                }
+            }
+        };
+
         // Process through discord_hooks module first (config reloaded from DB each time)
-        match discord_hooks::process(&msg, &ctx, &self.db, self.channel_id).await {
+        match discord_hooks::process(&msg, &ctx, &self.db, self.channel_id, bot_user_id).await {
             Ok(result) => {
                 // If module handled it with a direct response, send it and return
                 if let Some(response) = result.response {
@@ -268,7 +291,8 @@ impl EventHandler for DiscordHandler {
     }
 
     async fn ready(&self, _ctx: Context, ready: Ready) {
-        log::info!("Discord: Bot connected as {}", ready.user.name);
+        log::info!("Discord: Bot connected as {} (id={})", ready.user.name, ready.user.id);
+        let _ = self.bot_user_id.set(ready.user.id);
     }
 }
 
@@ -549,6 +573,7 @@ pub async fn start_discord_listener(
         broadcaster: broadcaster.clone(),
         db,
         safe_mode_rate_limiter,
+        bot_user_id: Arc::new(tokio::sync::OnceCell::new()),
     };
 
     // Create client

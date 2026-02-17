@@ -2198,7 +2198,10 @@ impl MessageDispatcher {
 
         // Pre-checks for use_skill: guard against disallowed skills and redundant reloads
         let skill_pre_check_result = if tool_name == "use_skill" {
-            let requested_skill = tool_arguments.get("skill_name").and_then(|v| v.as_str()).unwrap_or("");
+            let requested_skill = tool_arguments.get("skill_name")
+                .or_else(|| tool_arguments.get("name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
 
             // Guard: use_skill must be in the current tool list for this context
             let use_skill_def = current_tools.iter().find(|t| t.name == "use_skill");
@@ -2241,7 +2244,7 @@ impl MessageDispatcher {
                         .unwrap_or(false);
 
                     if already_active {
-                        let input = tool_arguments.get("input").and_then(|v| v.as_str()).unwrap_or("");
+                        let input = tool_arguments.get("input").or_else(|| tool_arguments.get("inputs")).and_then(|v| v.as_str()).unwrap_or("");
                         log::info!(
                             "[SKILL] Skill '{}' already active, skipping redundant reload",
                             requested_skill
@@ -2417,7 +2420,7 @@ impl MessageDispatcher {
         // Handle skill activation: update orchestrator and refresh tools
         // (mirrors the set_agent_subtype post-execution pattern above)
         if tool_name == "use_skill" && result.success {
-            if let Some(skill_name_val) = tool_arguments.get("skill_name").and_then(|v| v.as_str()) {
+            if let Some(skill_name_val) = tool_arguments.get("skill_name").or_else(|| tool_arguments.get("name")).and_then(|v| v.as_str()) {
                 if let Ok(Some(skill)) = self.db.get_enabled_skill_by_name(skill_name_val) {
                     let skills_dir = crate::config::skills_dir();
                     let skill_base_dir = format!("{}/{}", skills_dir, skill.name);

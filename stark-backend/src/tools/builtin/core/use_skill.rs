@@ -34,8 +34,9 @@ impl Default for UseSkillTool {
 
 #[derive(Debug, Deserialize)]
 struct UseSkillParams {
+    #[serde(alias = "name")]
     skill_name: String,
-    #[serde(default)]
+    #[serde(default, alias = "inputs")]
     input: String,
 }
 
