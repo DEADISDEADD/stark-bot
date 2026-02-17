@@ -1,7 +1,7 @@
 ---
 name: x402_payment
 description: "Pay for x402-enabled AI agent endpoints using USDC on Base"
-version: 1.1.0
+version: 1.1.2
 author: starkbot
 homepage: https://x402.org
 metadata: {"clawdbot":{"emoji":"💳"}}

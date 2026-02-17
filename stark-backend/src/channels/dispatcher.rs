@@ -1750,6 +1750,69 @@ impl MessageDispatcher {
         })
     }
 
+    /// Build a `use_skill` definition showing ALL enabled skills (no subtype filtering).
+    /// Used when no subtype is set yet so the AI can select a skill alongside set_agent_subtype.
+    fn create_skill_tool_definition_all_skills(
+        &self,
+        _tool_config: &ToolConfig,
+    ) -> Option<ToolDefinition> {
+        use crate::tools::{PropertySchema, ToolGroup, ToolInputSchema};
+
+        let skills = match self.db.list_enabled_skills() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        if skills.is_empty() {
+            return None;
+        }
+
+        let skill_names: Vec<String> = skills.iter().map(|s| s.name.clone()).collect();
+
+        let mut properties = std::collections::HashMap::new();
+        properties.insert(
+            "skill_name".to_string(),
+            PropertySchema {
+                schema_type: "string".to_string(),
+                description: format!("The skill to execute. Options: {}", skill_names.join(", ")),
+                default: None,
+                items: None,
+                enum_values: Some(skill_names),
+            },
+        );
+        properties.insert(
+            "input".to_string(),
+            PropertySchema {
+                schema_type: "string".to_string(),
+                description: "Input or query for the skill".to_string(),
+                default: None,
+                items: None,
+                enum_values: None,
+            },
+        );
+
+        let formatted_skills = skills
+            .iter()
+            .map(|s| format!("  - {}: {}", s.name, s.description))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        Some(ToolDefinition {
+            name: "use_skill".to_string(),
+            description: format!(
+                "Execute a specialized skill. YOU MUST use this tool when a user asks for something that matches a skill.\n\nAvailable skills:\n{}",
+                formatted_skills
+            ),
+            input_schema: ToolInputSchema {
+                schema_type: "object".to_string(),
+                properties,
+                required: vec!["skill_name".to_string(), "input".to_string()],
+            },
+            group: ToolGroup::System,
+            hidden: false,
+        })
+    }
+
     /// Build the complete tool list for the current agent state.
     ///
     /// This centralizes tool list construction that was previously duplicated
@@ -1792,10 +1855,21 @@ impl MessageDispatcher {
         // Patch use_skill: replace the static registered definition with a
         // context-aware one (dynamic enum_values + description), or remove it
         // entirely if no skills are available for this context.
+        //
+        // When no subtype is set yet (key=""), we still show use_skill with ALL
+        // enabled skills so the AI can call set_agent_subtype + use_skill in the
+        // same turn. Once a subtype is active, skills are filtered by tags.
         let has_skill_tags = !agent_types::allowed_skill_tags_for_key(subtype_key).is_empty();
         let use_skill_allowed = tool_config.allow_list.iter().any(|t| t == "use_skill");
-        if has_skill_tags || use_skill_allowed {
-            if let Some(patched_def) = self.create_skill_tool_definition_for_subtype(subtype_key, tool_config) {
+        let no_subtype_yet = subtype_key.is_empty();
+        if has_skill_tags || use_skill_allowed || no_subtype_yet {
+            if let Some(patched_def) = if no_subtype_yet {
+                // No subtype → show all enabled skills (unfiltered)
+                self.create_skill_tool_definition_all_skills(tool_config)
+            } else {
+                // Subtype active → filter by tags + safe mode
+                self.create_skill_tool_definition_for_subtype(subtype_key, tool_config)
+            } {
                 // Replace the static definition with the context-aware one
                 if let Some(existing) = tools.iter_mut().find(|t| t.name == "use_skill") {
                     *existing = patched_def;
@@ -2645,9 +2719,14 @@ impl MessageDispatcher {
                             orchestrator,
                         ) {
                             TaskAdvanceResult::AllTasksComplete => {
-                                log::info!("[AUTO_COMPLETE] All tasks done, terminating loop");
-                                processed.orchestrator_complete = true;
-                                processed.final_summary = Some(result.content.clone());
+                                // DON'T terminate the loop here. The raw tool result (e.g. JSON)
+                                // isn't a user-friendly response. Let the AI continue for one more
+                                // iteration so it can call say_to_user with a properly formatted
+                                // message (e.g. presenting an image URL, summarizing results).
+                                // The loop will terminate naturally when the AI calls say_to_user
+                                // (with finished_task=true and no pending tasks) or returns
+                                // content-only (no tool calls with all tasks complete).
+                                log::info!("[AUTO_COMPLETE] All tasks done — letting AI present result via say_to_user");
                             }
                             TaskAdvanceResult::NextTaskStarted => {
                                 log::info!("[AUTO_COMPLETE] Advanced to next task, continuing loop");
