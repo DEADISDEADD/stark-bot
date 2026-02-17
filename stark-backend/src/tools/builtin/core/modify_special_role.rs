@@ -119,6 +119,17 @@ impl ModifySpecialRoleTool {
             },
         );
 
+        properties.insert(
+            "label".to_string(),
+            PropertySchema {
+                schema_type: "string".to_string(),
+                description: "Optional human-readable label for the assignment (e.g. username or display name)".to_string(),
+                default: None,
+                items: None,
+                enum_values: None,
+            },
+        );
+
         ModifySpecialRoleTool {
             definition: ToolDefinition {
                 name: "modify_special_role".to_string(),
@@ -150,6 +161,7 @@ struct Params {
     description: Option<String>,
     channel_type: Option<String>,
     user_id: Option<String>,
+    label: Option<String>,
 }
 
 #[async_trait]
@@ -256,9 +268,12 @@ impl Tool for ModifySpecialRoleTool {
                         let lines: Vec<String> = assignments
                             .iter()
                             .map(|a| {
+                                let label_part = a.label.as_deref()
+                                    .map(|l| format!(" ({})", l))
+                                    .unwrap_or_default();
                                 format!(
-                                    "- #{}: {} / {} -> role '{}'",
-                                    a.id, a.channel_type, a.user_id, a.special_role_name
+                                    "- #{}: {} / {}{} -> role '{}'",
+                                    a.id, a.channel_type, a.user_id, label_part, a.special_role_name
                                 )
                             })
                             .collect();
@@ -310,7 +325,7 @@ impl Tool for ModifySpecialRoleTool {
                     Ok(Some(_)) => {}
                 }
 
-                match db.create_special_role_assignment(channel_type, user_id, role_name) {
+                match db.create_special_role_assignment(channel_type, user_id, role_name, params.label.as_deref()) {
                     Ok(a) => ToolResult::success(format!(
                         "Assigned role '{}' to user {} on {} (assignment #{})",
                         a.special_role_name, a.user_id, a.channel_type, a.id

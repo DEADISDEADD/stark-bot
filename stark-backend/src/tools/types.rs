@@ -866,6 +866,7 @@ impl Default for ToolConfig {
 /// SECURITY: Adding tools here grants them to ALL untrusted users. Be extremely careful.
 pub const SAFE_MODE_ALLOW_LIST: &[&str] = &[
     "set_agent_subtype",    // Changes agent mode per-session (safe, no persistence)
+    "use_skill",            // Execute skills (safe — skill enum filtering controls which skills are available)
     "token_lookup",         // Read-only token info lookup (safe)
     "say_to_user",          // Send message to user (safe)
     "task_fully_completed", // Mark task done (safe)

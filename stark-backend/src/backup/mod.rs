@@ -413,6 +413,7 @@ pub struct SpecialRoleAssignmentEntry {
     pub channel_type: String,
     pub user_id: String,
     pub special_role_name: String,
+    pub label: Option<String>,
 }
 
 /// A file from a tool's config directory, stored as base64
@@ -754,6 +755,7 @@ pub async fn collect_backup_data(
                 channel_type: a.channel_type.clone(),
                 user_id: a.user_id.clone(),
                 special_role_name: a.special_role_name.clone(),
+                label: a.label.clone(),
             })
             .collect();
     }

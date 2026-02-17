@@ -41,6 +41,7 @@ export default function SpecialRoles() {
   const [newAssignChannelType, setNewAssignChannelType] = useState('discord');
   const [newAssignUserId, setNewAssignUserId] = useState('');
   const [newAssignRoleName, setNewAssignRoleName] = useState('');
+  const [newAssignLabel, setNewAssignLabel] = useState('');
 
   useEffect(() => {
     loadData();
@@ -170,9 +171,11 @@ export default function SpecialRoles() {
         channel_type: newAssignChannelType,
         user_id: newAssignUserId.trim(),
         special_role_name: newAssignRoleName,
+        label: newAssignLabel.trim() || undefined,
       });
       setAssignments(prev => [...prev, created]);
       setNewAssignUserId('');
+      setNewAssignLabel('');
       setSuccess('Assignment created');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to create assignment';
@@ -432,6 +435,16 @@ export default function SpecialRoles() {
                   ))}
                 </select>
               </div>
+              <div className="flex-1 min-w-0">
+                <label className="block text-xs text-slate-500 mb-1">Label</label>
+                <input
+                  type="text"
+                  value={newAssignLabel}
+                  onChange={e => setNewAssignLabel(e.target.value)}
+                  placeholder="optional label"
+                  className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-stark-500"
+                />
+              </div>
               <div className="flex items-end">
                 <Button onClick={handleCreateAssignment} size="sm" disabled={assignments.length >= MAX_ASSIGNMENTS}>
                   <Plus className="w-4 h-4 mr-1" />
@@ -448,6 +461,7 @@ export default function SpecialRoles() {
                     <tr className="border-b border-slate-700/50">
                       <th className="text-left py-2 px-3 text-slate-500 font-medium">Channel</th>
                       <th className="text-left py-2 px-3 text-slate-500 font-medium">User ID</th>
+                      <th className="text-left py-2 px-3 text-slate-500 font-medium">Label</th>
                       <th className="text-left py-2 px-3 text-slate-500 font-medium">Role</th>
                       <th className="text-left py-2 px-3 text-slate-500 font-medium">Created</th>
                       <th className="text-right py-2 px-3 text-slate-500 font-medium">Actions</th>
@@ -458,6 +472,7 @@ export default function SpecialRoles() {
                       <tr key={a.id} className="border-b border-slate-800/50 hover:bg-slate-800/30">
                         <td className="py-2 px-3 text-slate-300">{a.channel_type}</td>
                         <td className="py-2 px-3 text-slate-300 font-mono text-xs">{a.user_id}</td>
+                        <td className="py-2 px-3 text-slate-400 text-xs">{a.label || '—'}</td>
                         <td className="py-2 px-3">
                           <span className="px-2 py-0.5 bg-stark-500/20 text-stark-400 rounded text-xs font-medium">
                             {a.special_role_name}

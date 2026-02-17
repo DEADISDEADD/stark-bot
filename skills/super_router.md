@@ -1,7 +1,7 @@
 ---
 name: super_router
 description: "Generate AI images and videos from text prompts via the x402 SuperRouter cloud service at superrouter.defirelay.com. Pays with STARKBOT tokens using the x402 payment protocol."
-version: 2.1.0
+version: 2.1.1
 author: starkbot
 homepage: https://superrouter.defirelay.com
 metadata: {"clawdbot":{"emoji":"🎨"}}

@@ -105,12 +105,12 @@ impl Database {
         let conn = self.conn();
         let (sql, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match role_name {
             Some(name) => (
-                "SELECT id, channel_type, user_id, special_role_name, created_at
+                "SELECT id, channel_type, user_id, special_role_name, label, created_at
                  FROM special_role_assignments WHERE special_role_name = ?1 ORDER BY id",
                 vec![Box::new(name.to_string())],
             ),
             None => (
-                "SELECT id, channel_type, user_id, special_role_name, created_at
+                "SELECT id, channel_type, user_id, special_role_name, label, created_at
                  FROM special_role_assignments ORDER BY id",
                 vec![],
             ),
@@ -125,7 +125,8 @@ impl Database {
                     channel_type: row.get(1)?,
                     user_id: row.get(2)?,
                     special_role_name: row.get(3)?,
-                    created_at: row.get(4)?,
+                    label: row.get(4)?,
+                    created_at: row.get(5)?,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -139,13 +140,14 @@ impl Database {
         channel_type: &str,
         user_id: &str,
         special_role_name: &str,
+        label: Option<&str>,
     ) -> SqliteResult<SpecialRoleAssignment> {
         let conn = self.conn();
         let now = Utc::now().to_rfc3339();
         conn.execute(
-            "INSERT INTO special_role_assignments (channel_type, user_id, special_role_name, created_at)
-             VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![channel_type, user_id, special_role_name, now],
+            "INSERT INTO special_role_assignments (channel_type, user_id, special_role_name, label, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![channel_type, user_id, special_role_name, label, now],
         )?;
         let id = conn.last_insert_rowid();
         Ok(SpecialRoleAssignment {
@@ -153,6 +155,7 @@ impl Database {
             channel_type: channel_type.to_string(),
             user_id: user_id.to_string(),
             special_role_name: special_role_name.to_string(),
+            label: label.map(|s| s.to_string()),
             created_at: now,
         })
     }
@@ -188,7 +191,7 @@ impl Database {
     ) -> SqliteResult<SpecialRoleGrants> {
         let conn = self.conn();
         let result = conn.query_row(
-            "SELECT sr.name, sr.allowed_tools, sr.allowed_skills
+            "SELECT sr.name, sr.allowed_tools, sr.allowed_skills, sr.description
              FROM special_role_assignments sra
              JOIN special_roles sr ON sr.name = sra.special_role_name
              WHERE sra.channel_type = ?1 AND sra.user_id = ?2",
@@ -197,14 +200,16 @@ impl Database {
                 let name: String = row.get(0)?;
                 let tools_str: String = row.get(1)?;
                 let skills_str: String = row.get(2)?;
-                Ok((name, tools_str, skills_str))
+                let description: Option<String> = row.get(3)?;
+                Ok((name, tools_str, skills_str, description))
             },
         );
 
         match result {
-            Ok((name, tools_str, skills_str)) => {
+            Ok((name, tools_str, skills_str, description)) => {
                 Ok(SpecialRoleGrants {
                     role_name: Some(name),
+                    description,
                     extra_tools: serde_json::from_str(&tools_str).unwrap_or_default(),
                     extra_skills: serde_json::from_str(&skills_str).unwrap_or_default(),
                 })

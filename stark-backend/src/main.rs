@@ -788,7 +788,7 @@ async fn restore_backup_data(
     // Restore special role assignments (roles must exist first)
     let mut restored_assignments = 0;
     for entry in &backup_data.special_role_assignments {
-        match db.create_special_role_assignment(&entry.channel_type, &entry.user_id, &entry.special_role_name) {
+        match db.create_special_role_assignment(&entry.channel_type, &entry.user_id, &entry.special_role_name, entry.label.as_deref()) {
             Ok(_) => restored_assignments += 1,
             Err(e) => log::warn!(
                 "[Keystore] Failed to restore special role assignment ({}/{} -> {}): {}",

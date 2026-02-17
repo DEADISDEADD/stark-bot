@@ -326,6 +326,8 @@ struct CreateAssignmentRequest {
     channel_type: String,
     user_id: String,
     special_role_name: String,
+    #[serde(default)]
+    label: Option<String>,
 }
 
 async fn create_assignment(
@@ -379,7 +381,7 @@ async fn create_assignment(
         Ok(Some(_)) => {}
     }
 
-    match data.db.create_special_role_assignment(&body.channel_type, &body.user_id, &body.special_role_name) {
+    match data.db.create_special_role_assignment(&body.channel_type, &body.user_id, &body.special_role_name, body.label.as_deref()) {
         Ok(assignment) => HttpResponse::Created().json(assignment),
         Err(e) => {
             log::error!("Failed to create special role assignment: {}", e);

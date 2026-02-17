@@ -21,6 +21,7 @@ pub struct SpecialRoleAssignment {
     pub channel_type: String,
     pub user_id: String,
     pub special_role_name: String,
+    pub label: Option<String>,
     pub created_at: String,
 }
 
@@ -29,6 +30,7 @@ pub struct SpecialRoleAssignment {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SpecialRoleGrants {
     pub role_name: Option<String>,
+    pub description: Option<String>,
     /// Individual tool names granted (e.g. ["x402_preset_fetch"])
     pub extra_tools: Vec<String>,
     /// Individual skill names granted (e.g. ["super_router"])

@@ -1949,6 +1949,7 @@ export interface SpecialRoleAssignmentInfo {
   channel_type: string;
   user_id: string;
   special_role_name: string;
+  label: string | null;
   created_at: string;
 }
 
@@ -2001,6 +2002,7 @@ export async function createSpecialRoleAssignment(assignment: {
   channel_type: string;
   user_id: string;
   special_role_name: string;
+  label?: string;
 }): Promise<SpecialRoleAssignmentInfo> {
   return apiFetch('/special-roles/assignments', {
     method: 'POST',

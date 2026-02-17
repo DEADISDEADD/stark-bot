@@ -63,6 +63,19 @@ export default function Tools() {
     return acc;
   }, { other: 'Other Tools' } as Record<string, string>);
 
+  // Badge colors per group
+  const groupBadgeColors: Record<string, string> = {
+    system: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    web: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    filesystem: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+    finance: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+    development: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
+    exec: 'bg-red-500/20 text-red-400 border-red-500/30',
+    messaging: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
+    social: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
+    memory: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+  };
+
   // Use API order for groups, with 'other' at the end
   const groupOrder = [...groups.map(g => g.key), 'other'];
 
@@ -102,6 +115,9 @@ export default function Tools() {
                             <Wrench className="w-4 h-4 sm:w-5 sm:h-5 text-slate-300" />
                           </div>
                           <p className="font-medium text-white text-sm sm:text-base truncate">{tool.name}</p>
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] sm:text-xs font-medium border shrink-0 ${groupBadgeColors[tool.group] || 'bg-slate-500/20 text-slate-400 border-slate-500/30'}`}>
+                            {groupLabels[tool.group]?.replace(' Tools', '') || tool.group}
+                          </span>
                           {tool.safety_level === 'safe_mode' && (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] sm:text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30 shrink-0">
                               <Shield className="w-3 h-3" />

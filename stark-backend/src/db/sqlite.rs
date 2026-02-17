@@ -1585,6 +1585,12 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_sra_lookup ON special_role_assignments(channel_type, user_id);",
         )?;
 
+        // Migration: Add label column to special_role_assignments if it doesn't exist
+        let _ = conn.execute(
+            "ALTER TABLE special_role_assignments ADD COLUMN label TEXT",
+            [],
+        );
+
         Ok(())
     }
 
