@@ -246,7 +246,7 @@ async fn dispatch_email(
     ));
 
     // Dispatch to agent
-    let result = dispatcher.dispatch(normalized).await;
+    let result = dispatcher.dispatch_safe(normalized).await;
 
     // If auto-reply is enabled and we got a successful response, send reply
     if config.auto_reply && result.error.is_none() && !result.response.is_empty() {

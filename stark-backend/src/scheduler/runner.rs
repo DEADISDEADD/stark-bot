@@ -281,7 +281,7 @@ impl Scheduler {
         // Execute with 10-minute timeout (same as cron default)
         let dispatch_result = timeout(
             TokioDuration::from_secs(DEFAULT_CRON_JOB_TIMEOUT_SECS),
-            self.dispatcher.dispatch(normalized),
+            self.dispatcher.dispatch_safe(normalized),
         ).await;
 
         let (success, response, error_msg) = match dispatch_result {
@@ -443,7 +443,7 @@ impl Scheduler {
 
         let dispatch_result = timeout(
             TokioDuration::from_secs(timeout_secs),
-            self.dispatcher.dispatch(normalized),
+            self.dispatcher.dispatch_safe(normalized),
         ).await;
 
         let completed_at = Utc::now();
@@ -777,7 +777,7 @@ impl Scheduler {
         };
 
         // Execute the heartbeat
-        let result = self.dispatcher.dispatch(normalized).await;
+        let result = self.dispatcher.dispatch_safe(normalized).await;
 
         // === GET SESSION ID ===
         // Query the session using the fixed heartbeat session key
@@ -1038,7 +1038,7 @@ async fn execute_heartbeat_isolated(
         log::info!("[HEARTBEAT-AI] channel_type={}, channel_id={}, chat_id={}",
             HEARTBEAT_CHANNEL_TYPE, HEARTBEAT_CHANNEL_ID, HEARTBEAT_CHAT_ID);
 
-        let result = dispatcher.dispatch(normalized).await;
+        let result = dispatcher.dispatch_safe(normalized).await;
 
         log::info!("[HEARTBEAT-AI] Dispatch returned. Response len: {}, Error: {:?}",
             result.response.len(), result.error);

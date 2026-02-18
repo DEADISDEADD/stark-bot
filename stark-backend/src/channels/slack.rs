@@ -682,7 +682,7 @@ async fn process_slack_message(
 
     // Dispatch to AI
     log::info!("Slack: Dispatching message to AI for user {}", user_name);
-    let result = state.dispatcher.dispatch(normalized).await;
+    let result = state.dispatcher.dispatch_safe(normalized).await;
     log::info!("Slack: Dispatch complete, error={:?}", result.error);
 
     // Unsubscribe from events

@@ -501,7 +501,7 @@ impl DiscordHandler {
 
         // Dispatch to AI
         log::info!("Discord: Dispatching message to AI for user {}", user_name);
-        let result = self.dispatcher.dispatch(normalized).await;
+        let result = self.dispatcher.dispatch_safe(normalized).await;
         log::info!("Discord: Dispatch complete, error={:?}", result.error);
 
         // Unsubscribe from events

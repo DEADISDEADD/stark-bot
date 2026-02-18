@@ -1058,7 +1058,7 @@ async fn process_mention(
 
     // Dispatch to AI
     log::info!("Twitter: Dispatching message to AI for @{}", author_username);
-    let result = dispatcher.dispatch(normalized).await;
+    let result = dispatcher.dispatch_safe(normalized).await;
 
     // Unsubscribe prevents new events; give the capture task a moment to drain
     // any events already in the mpsc buffer (avoids race where say_to_user event

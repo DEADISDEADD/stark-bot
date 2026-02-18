@@ -75,7 +75,7 @@ async fn dev_chat(
         force_safe_mode: false,
     };
 
-    let result = state.dispatcher.dispatch(normalized).await;
+    let result = state.dispatcher.dispatch_safe(normalized).await;
 
     // Clean up: unsubscribe (stops new events) then give listener a moment to drain
     broadcaster.unsubscribe(&client_id);

@@ -1366,6 +1366,31 @@ async fn main() -> std::io::Result<()> {
         });
     }
 
+    // Spawn stale session cleanup task — marks sessions stuck in 'active' as 'failed'.
+    // This catches sessions left behind by panics, dropped futures, or missed finalization.
+    {
+        let db_cleanup = db.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(120));
+            interval.tick().await; // skip immediate tick
+            loop {
+                interval.tick().await;
+                match db_cleanup.cleanup_stale_active_sessions(10) {
+                    Ok(0) => {} // nothing to clean
+                    Ok(count) => {
+                        log::warn!(
+                            "[SESSION_CLEANUP] Marked {} stale active session(s) as failed (>10 min without update)",
+                            count
+                        );
+                    }
+                    Err(e) => {
+                        log::error!("[SESSION_CLEANUP] Failed to clean up stale sessions: {}", e);
+                    }
+                }
+            }
+        });
+    }
+
     // Module workers are now managed by standalone services — no workers to spawn here.
     // Keep an empty map in AppState for API compatibility.
     let module_workers = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, tokio::task::JoinHandle<()>>::new()));
@@ -1485,6 +1510,7 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::agent_subtypes::config)
             .configure(controllers::special_roles::config)
             .configure(controllers::external_channel::config)
+            .configure(controllers::transcribe::config)
             // WebSocket Gateway route (same port as HTTP, required for single-port platforms)
             .route("/ws", web::get().to(gateway::actix_ws::ws_handler));
 

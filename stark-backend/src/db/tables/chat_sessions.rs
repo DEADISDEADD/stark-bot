@@ -900,4 +900,24 @@ impl Database {
             }
         })
     }
+
+    /// Find and mark stale sessions as failed.
+    ///
+    /// Sessions with `completion_status = 'active'` and `updated_at` older than
+    /// `stale_minutes` are considered stuck (e.g., due to a panic or dropped future)
+    /// and are marked as `failed` so they don't block the UI or appear as running.
+    ///
+    /// Returns the number of sessions cleaned up.
+    pub fn cleanup_stale_active_sessions(&self, stale_minutes: i64) -> SqliteResult<usize> {
+        let conn = self.conn();
+        let cutoff = (Utc::now() - chrono::Duration::minutes(stale_minutes)).to_rfc3339();
+        let count = conn.execute(
+            "UPDATE chat_sessions
+             SET completion_status = 'failed', updated_at = ?1
+             WHERE completion_status = 'active'
+               AND updated_at < ?2",
+            rusqlite::params![&Utc::now().to_rfc3339(), &cutoff],
+        )?;
+        Ok(count)
+    }
 }

@@ -9,7 +9,7 @@ use crate::channels::types::{DispatchResult, NormalizedMessage};
 use crate::config::MemoryConfig;
 use crate::context::{self, estimate_tokens, ContextManager};
 use crate::db::Database;
-use crate::execution::ExecutionTracker;
+use crate::execution::{ExecutionTracker, SessionLaneManager};
 use crate::gateway::events::EventBroadcaster;
 use crate::gateway::protocol::GatewayEvent;
 use crate::models::session_message::MessageRole as DbMessageRole;
@@ -73,6 +73,8 @@ pub struct MessageDispatcher {
     resource_manager: Arc<ResourceManager>,
     /// Watchdog configuration for timeout enforcement
     watchdog_config: WatchdogConfig,
+    /// Session lane manager for serializing requests per channel/session
+    session_lanes: Arc<SessionLaneManager>,
     /// Mock AI client for integration tests (bypasses real AI API)
     #[cfg(test)]
     mock_ai_client: Option<crate::ai::MockAiClient>,
@@ -186,6 +188,7 @@ impl MessageDispatcher {
             rollout_manager,
             resource_manager,
             watchdog_config: WatchdogConfig::default(),
+            session_lanes: SessionLaneManager::new(),
             #[cfg(test)]
             mock_ai_client: None,
         }
@@ -281,6 +284,7 @@ impl MessageDispatcher {
             rollout_manager,
             resource_manager,
             watchdog_config: WatchdogConfig::default(),
+            session_lanes: SessionLaneManager::new(),
             #[cfg(test)]
             mock_ai_client: None,
         }
@@ -306,6 +310,38 @@ impl MessageDispatcher {
         &self.resource_manager
     }
 
+    /// Panic-safe dispatch wrapper.
+    ///
+    /// Catches any panic inside `dispatch()` and returns a `DispatchResult::error`
+    /// instead of propagating the panic up to the channel handler. This prevents
+    /// sessions from getting stuck in "Active" state when an unexpected panic
+    /// occurs during AI generation or tool execution.
+    pub async fn dispatch_safe(&self, message: NormalizedMessage) -> DispatchResult {
+        use std::panic::AssertUnwindSafe;
+        use futures_util::FutureExt;
+
+        let channel_id = message.channel_id;
+        match AssertUnwindSafe(self.dispatch(message)).catch_unwind().await {
+            Ok(result) => result,
+            Err(panic_info) => {
+                let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "unknown panic".to_string()
+                };
+                log::error!(
+                    "[DISPATCH] PANIC during dispatch for channel {}: {}",
+                    channel_id, panic_msg
+                );
+                // Best-effort: complete execution tracking so the channel isn't stuck
+                self.execution_tracker.complete_execution(channel_id);
+                DispatchResult::error(format!("Internal error (panic): {}", panic_msg))
+            }
+        }
+    }
+
     /// Dispatch a normalized message to the AI and return the response
     pub async fn dispatch(&self, message: NormalizedMessage) -> DispatchResult {
         // Emit message received event
@@ -315,6 +351,12 @@ impl MessageDispatcher {
             &message.user_name,
             &message.text,
         ));
+
+        // Acquire session lane to serialize requests for the same channel/chat.
+        // This prevents concurrent dispatches from racing on session creation,
+        // context building, and tool execution for the same conversation.
+        let lane_key = format!("{}:{}:{}", message.channel_type, message.channel_id, message.chat_id);
+        let _lane_guard = self.session_lanes.acquire(&lane_key).await;
 
         // Check for reset commands
         let text_lower = message.text.trim().to_lowercase();

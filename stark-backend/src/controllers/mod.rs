@@ -29,4 +29,5 @@ pub mod well_known;
 pub mod system;
 pub mod special_roles;
 pub mod telemetry;
+pub mod transcribe;
 pub mod x402_limits;
