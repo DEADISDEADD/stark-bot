@@ -1,11 +1,21 @@
-//! x402-aware HTTP client
+//! x402-aware HTTP client with ERC-8128 credits support
+//!
+//! When an endpoint returns 402 with `x-erc8128-credits: true`, the client
+//! will first attempt to authenticate via ERC-8128 signed headers (using the
+//! bot's wallet identity). If the bot has credits, the request is served without
+//! on-chain payment. If no credits remain, it falls through to normal x402 payment.
+//!
+//! Endpoints that advertise ERC-8128 credits support are cached so subsequent
+//! requests proactively include ERC-8128 headers on the first attempt.
 
 use reqwest::{header, Client, Response};
 use serde::Serialize;
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 use super::signer::X402Signer;
 use super::types::{PaymentRequired, X402PaymentInfo};
+use crate::erc8128::Erc8128Signer;
 use crate::wallet::WalletProvider;
 
 /// Result of a request that may have required payment
@@ -15,33 +25,53 @@ pub struct X402Response {
 }
 
 /// HTTP client that automatically handles x402 payment flow
+/// and ERC-8128 credits discovery/usage.
 pub struct X402Client {
     client: Client,
     signer: Arc<X402Signer>,
+    wallet_provider: Arc<dyn WalletProvider>,
+    erc8128_signer: Erc8128Signer,
+    /// Hosts known to support ERC-8128 credits (discovered via `x-erc8128-credits` header).
+    erc8128_credits_hosts: Arc<Mutex<HashSet<String>>>,
 }
 
 impl X402Client {
     /// Create a new x402 client with a WalletProvider (preferred)
     pub fn new(wallet_provider: Arc<dyn WalletProvider>) -> Result<Self, String> {
         let signer = X402Signer::new(wallet_provider.clone());
+        let erc8128_signer = Erc8128Signer::new(wallet_provider.clone(), 8453); // Base mainnet
 
         log::info!("[X402] Initialized with wallet address: {}", signer.address());
 
         Ok(Self {
             client: crate::http::shared_client().clone(),
             signer: Arc::new(signer),
+            wallet_provider,
+            erc8128_signer,
+            erc8128_credits_hosts: Arc::new(Mutex::new(HashSet::new())),
         })
     }
 
     /// Create a new x402 client with a private key (backward compatible)
     pub fn from_private_key(private_key: &str) -> Result<Self, String> {
+        // For backward compat: create an EnvWalletProvider-equivalent
+        // This path doesn't support ERC-8128 credits (no WalletProvider)
         let signer = X402Signer::from_private_key(private_key)?;
 
-        log::info!("[X402] Initialized with wallet address: {}", signer.address());
+        log::info!("[X402] Initialized with wallet address: {} (private key mode, ERC-8128 credits disabled)", signer.address());
+
+        // Create a minimal wallet provider from private key for ERC-8128
+        let wp = crate::wallet::EnvWalletProvider::from_private_key(private_key)
+            .map_err(|e| format!("Failed to create wallet provider: {}", e))?;
+        let wp: Arc<dyn WalletProvider> = Arc::new(wp);
+        let erc8128_signer = Erc8128Signer::new(wp.clone(), 8453);
 
         Ok(Self {
             client: crate::http::shared_client().clone(),
             signer: Arc::new(signer),
+            wallet_provider: wp,
+            erc8128_signer,
+            erc8128_credits_hosts: Arc::new(Mutex::new(HashSet::new())),
         })
     }
 
@@ -50,8 +80,56 @@ impl X402Client {
         self.signer.address()
     }
 
+    /// Check if a host is known to support ERC-8128 credits.
+    fn is_erc8128_credits_host(&self, url: &str) -> bool {
+        let host = extract_host(url);
+        self.erc8128_credits_hosts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&host)
+    }
+
+    /// Remember that a host supports ERC-8128 credits.
+    fn mark_erc8128_credits_host(&self, url: &str) {
+        let host = extract_host(url);
+        log::info!("[X402] Discovered ERC-8128 credits support for host: {}", host);
+        self.erc8128_credits_hosts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(host);
+    }
+
+    /// Build a request with ERC-8128 signed headers attached.
+    async fn build_erc8128_post_request(
+        &self,
+        url: &str,
+        body_bytes: &[u8],
+    ) -> Result<reqwest::RequestBuilder, String> {
+        let (authority, path, query) = parse_url_parts(url);
+
+        let signed = self
+            .erc8128_signer
+            .sign_request("POST", &authority, &path, query.as_deref(), Some(body_bytes))
+            .await?;
+
+        let mut req = self
+            .client
+            .post(url)
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("signature-input", &signed.signature_input)
+            .header("signature", &signed.signature);
+
+        if let Some(ref digest) = signed.content_digest {
+            req = req.header("content-digest", digest);
+        }
+
+        Ok(req)
+    }
+
     /// Make a POST request with automatic x402 payment handling
-    /// Returns both the response and payment info if a payment was made
+    /// and ERC-8128 credits support.
+    ///
+    /// Returns both the response and payment info if a payment was made.
     pub async fn post_with_payment<T: Serialize>(
         &self,
         url: &str,
@@ -59,21 +137,115 @@ impl X402Client {
     ) -> Result<X402Response, String> {
         log::info!("[X402] Making POST request to {}", url);
 
-        // First request without payment
-        let initial_response = self.client
+        // Serialize body upfront (needed for ERC-8128 Content-Digest)
+        let body_bytes = serde_json::to_vec(body)
+            .map_err(|e| format!("Failed to serialize request body: {}", e))?;
+
+        // ── Proactive ERC-8128 path: if we know this host supports credits ──
+        if self.is_erc8128_credits_host(url) {
+            log::info!("[X402] Proactively sending ERC-8128 headers (cached credits host)");
+
+            match self.build_erc8128_post_request(url, &body_bytes).await {
+                Ok(req) => {
+                    match req.body(body_bytes.clone()).send().await {
+                        Ok(response) if response.status().as_u16() != 402 => {
+                            log::info!(
+                                "[X402] ERC-8128 credits accepted (proactive), status: {}",
+                                response.status()
+                            );
+                            return Ok(X402Response {
+                                response,
+                                payment: None,
+                            });
+                        }
+                        Ok(response_402) => {
+                            log::info!(
+                                "[X402] ERC-8128 credits not accepted (maybe exhausted), falling through to x402"
+                            );
+                            // Fall through to x402 with this 402 response
+                            return self
+                                .handle_402_with_x402(response_402, url, &body_bytes)
+                                .await;
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "[X402] ERC-8128 proactive request failed: {}, falling through",
+                                e
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("[X402] ERC-8128 signing failed: {}, falling through", e);
+                }
+            }
+        }
+
+        // ── Standard path: initial request without payment or ERC-8128 ──
+        let initial_response = self
+            .client
             .post(url)
             .header(header::CONTENT_TYPE, "application/json")
-            .json(body)
+            .body(body_bytes.clone())
             .send()
             .await
             .map_err(|e| format!("Request failed: {}", e))?;
 
-        self.handle_402_response(initial_response, || {
-            self.client
-                .post(url)
-                .header(header::CONTENT_TYPE, "application/json")
-                .json(body)
-        }).await
+        if initial_response.status().as_u16() != 402 {
+            return Ok(X402Response {
+                response: initial_response,
+                payment: None,
+            });
+        }
+
+        // ── Got 402: check for ERC-8128 credits discovery ──
+        if has_erc8128_credits_header(&initial_response) {
+            self.mark_erc8128_credits_host(url);
+
+            // Try ERC-8128 signed retry before x402 payment
+            log::info!("[X402] Discovered ERC-8128 credits, trying signed retry");
+
+            match self.build_erc8128_post_request(url, &body_bytes).await {
+                Ok(req) => {
+                    match req.body(body_bytes.clone()).send().await {
+                        Ok(response) if response.status().as_u16() != 402 => {
+                            log::info!(
+                                "[X402] ERC-8128 credits accepted (discovered), status: {}",
+                                response.status()
+                            );
+                            return Ok(X402Response {
+                                response,
+                                payment: None,
+                            });
+                        }
+                        Ok(response_402) => {
+                            log::info!(
+                                "[X402] ERC-8128 signed request still got 402 (no credits?), falling through to x402"
+                            );
+                            return self
+                                .handle_402_with_x402(response_402, url, &body_bytes)
+                                .await;
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "[X402] ERC-8128 retry request failed: {}, falling through to x402",
+                                e
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[X402] ERC-8128 signing failed: {}, falling through to x402",
+                        e
+                    );
+                }
+            }
+        }
+
+        // ── No ERC-8128 or it failed: standard x402 payment ──
+        self.handle_402_with_x402(initial_response, url, &body_bytes)
+            .await
     }
 
     /// Make a GET request with automatic x402 payment handling
@@ -94,6 +266,24 @@ impl X402Client {
         self.handle_402_response(initial_response, || {
             self.client.get(url)
         }).await
+    }
+
+    /// Handle a 402 response with standard x402 payment flow.
+    /// Called after ERC-8128 credits path has been tried or skipped.
+    async fn handle_402_with_x402(
+        &self,
+        response_402: Response,
+        url: &str,
+        _body_bytes: &[u8],
+    ) -> Result<X402Response, String> {
+        // Re-use the existing handle_402_response logic
+        self.handle_402_response(response_402, || {
+            self.client
+                .post(url)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(_body_bytes.to_vec())
+        })
+        .await
     }
 
     /// Handle 402 response and retry with payment if needed
@@ -423,4 +613,51 @@ where
         response: paid_response,
         payment: Some(payment_info),
     })
+}
+
+/// Check if a response has the `x-erc8128-credits` header indicating
+/// the endpoint supports ERC-8128 credits as an alternative to x402.
+fn has_erc8128_credits_header(response: &Response) -> bool {
+    response
+        .headers()
+        .get("x-erc8128-credits")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == "true")
+}
+
+/// Extract host from a URL string (e.g. "https://api.example.com:8080/path" → "api.example.com:8080")
+fn extract_host(url: &str) -> String {
+    url.strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Parse a URL into (authority, path, query) components for ERC-8128 signing.
+fn parse_url_parts(url: &str) -> (String, String, Option<String>) {
+    let without_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+
+    let (authority, path_and_query) = match without_scheme.find('/') {
+        Some(idx) => (
+            without_scheme[..idx].to_string(),
+            &without_scheme[idx..],
+        ),
+        None => (without_scheme.to_string(), "/"),
+    };
+
+    let (path, query) = match path_and_query.find('?') {
+        Some(idx) => (
+            path_and_query[..idx].to_string(),
+            Some(path_and_query[idx + 1..].to_string()),
+        ),
+        None => (path_and_query.to_string(), None),
+    };
+
+    (authority, path, query)
 }
