@@ -125,6 +125,12 @@ pub async fn get_available_archetypes(
             "description": "OpenAI native tool calling. Same as Kimi.",
             "uses_native_tools": true,
         }),
+        serde_json::json!({
+            "id": "minimax",
+            "name": "MiniMax (Native Tool Calling)",
+            "description": "MiniMax native tool calling for MiniMax and Morpheus models.",
+            "uses_native_tools": true,
+        }),
     ];
 
     HttpResponse::Ok().json(archetypes)

@@ -382,6 +382,9 @@ impl SpawnSubagentsTool {
                                 status_summary.push((id.clone(), label.clone(), status_str));
                             }
                             Ok(None) => {
+                                // Agent not found in DB yet — likely a race between
+                                // DB persistence and this poll. Keep polling.
+                                all_terminal = false;
                                 status_summary.push((id.clone(), label.clone(), "not_found".to_string()));
                             }
                             Err(_) => {

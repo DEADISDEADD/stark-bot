@@ -65,8 +65,9 @@ export default function AgentSettings() {
       const data = await getAgentSettings() as Settings;
 
       // Determine which endpoint option is being used (match by endpoint + model)
-      const matchedPreset = loadedPresets.find(p => p.endpoint === data.endpoint && p.model === data.model)
-        ?? loadedPresets.find(p => p.endpoint === data.endpoint);
+      // Only match on both endpoint AND model to avoid false positives when
+      // multiple presets share the same endpoint URL.
+      const matchedPreset = loadedPresets.find(p => p.endpoint === data.endpoint && p.model === data.model);
       if (matchedPreset) {
         setEndpointOption(matchedPreset.id);
       } else if (data.endpoint) {
@@ -220,18 +221,24 @@ export default function AgentSettings() {
                 >
                   {presets.map(preset => (
                     <option key={preset.id} value={preset.id}>
-                      {preset.display_name}{preset.x402_cost ? ` (${(preset.x402_cost / 1_000_000).toFixed(4)} USDC/call)` : ''}
+                      {preset.display_name}{preset.x402_cost != null && preset.x402_cost > 0 ? ` (${(preset.x402_cost / 1_000_000).toFixed(4)} USDC/call)` : preset.x402_cost === 0 ? ' (free)' : ''}
                     </option>
                   ))}
                   <option value="custom">Custom Endpoint</option>
                 </select>
                 {(() => {
                   const selected = presets.find(p => p.id === endpointOption);
-                  if (selected?.x402_cost) {
+                  if (selected?.x402_cost != null && selected.x402_cost > 0) {
                     const cost = (selected.x402_cost / 1_000_000).toFixed(4);
                     return (
                       <p className="text-xs text-yellow-400 mt-1">
                         x402 payment: {cost} USDC per API call
+                      </p>
+                    );
+                  } else if (selected?.x402_cost === 0) {
+                    return (
+                      <p className="text-xs text-green-400 mt-1">
+                        Free — no x402 payment required
                       </p>
                     );
                   }

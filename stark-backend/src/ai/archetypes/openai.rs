@@ -39,6 +39,10 @@ impl ModelArchetype for OpenAIArchetype {
         base_prompt.to_string()
     }
 
+    fn requires_single_system_message(&self) -> bool {
+        true
+    }
+
     fn parse_response(&self, content: &str) -> Option<AgentResponse> {
         Some(AgentResponse {
             body: content.to_string(),
