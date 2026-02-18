@@ -1,14 +1,14 @@
 ---
 name: railway
 description: "Manage Railway infrastructure - deploy services, manage environment variables, and monitor deployments using the Railway CLI."
-version: 3.2.0
+version: 3.3.0
 author: starkbot
 homepage: https://railway.com
 metadata: {"requires_auth": true, "clawdbot":{"emoji":"🚂"}}
 requires_tools: [exec, api_keys_check, define_tasks]
 tags: [development, devops, railway, infrastructure, deployment, hosting]
 requires_api_keys:
-  RAILWAY_TOKEN:
+  RAILWAY_API_TOKEN:
     description: "Railway API Token"
     secret: true
 ---
@@ -19,14 +19,14 @@ Manage your Railway infrastructure using the Railway CLI. Deploy services, manag
 
 ## Authentication
 
-**First, check if RAILWAY_TOKEN is configured:**
+**First, check if RAILWAY_API_TOKEN is configured:**
 ```tool:api_keys_check
-key_name: RAILWAY_TOKEN
+key_name: RAILWAY_API_TOKEN
 ```
 
-If not configured, ask the user to create a token at https://railway.com/account/tokens and add it in Settings > API Keys as `RAILWAY_TOKEN`.
+If not configured, ask the user to create a token at https://railway.com/account/tokens and add it in Settings > API Keys as `RAILWAY_API_TOKEN`.
 
-Both `RAILWAY_API_TOKEN` and `RAILWAY_TOKEN` env vars are automatically injected into all `exec` commands. This handles both account/workspace tokens and project tokens.
+The `RAILWAY_API_TOKEN` env var is automatically injected into all `exec` commands.
 
 ---
 
@@ -253,13 +253,13 @@ timeout: 30
 |-------|-------|----------|
 | `Unauthorized` on `whoami` | `whoami` only works with Account tokens, not workspace/project tokens | Use `railway list` instead to verify auth, or create an Account Token (select "No workspace") |
 | `Unauthorized` on other commands | Token is invalid/expired or wrong scope | Regenerate token at https://railway.com/account/tokens |
-| `Cannot login in non-interactive mode` | CLI requires browser login | Use `RAILWAY_TOKEN` env var instead (already injected by exec) |
+| `Cannot login in non-interactive mode` | CLI requires browser login | Use `RAILWAY_API_TOKEN` env var instead (already injected by exec) |
 | `No project linked` | CLI doesn't know which project to target | Use `railway link --project ID --environment ID` first |
 | Service creation fails | Railway GitHub app not authorized | Install at https://railway.com/account/github |
 
 ### Token Types
 
-- **Account tokens** (`RAILWAY_TOKEN`) — full access, works with CLI, preferred
+- **Account tokens** (`RAILWAY_API_TOKEN`) — full access, works with CLI, preferred
 - **Project tokens** — scoped to one environment, limited CLI support
 
 ---

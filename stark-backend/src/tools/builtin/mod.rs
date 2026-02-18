@@ -24,7 +24,8 @@ mod web_fetch;
 // Re-exports from submodules
 pub use bash::{
     ApplyPatchTool, ClaudeCodeRemoteTool, DeleteFileTool, EditFileTool, ExecTool, GitTool,
-    GlobTool, GrepTool, ListFilesTool, ReadFileTool, ReadSymbolTool, RenameFileTool, WriteFileTool,
+    GlobTool, GrepTool, ListFilesTool, ReadFileTool, ReadSymbolTool, RenameFileTool,
+    RunSkillScriptTool, WriteFileTool,
 };
 pub use code::{CommitterTool, DeployTool, IndexProjectTool, PrQualityTool, VerifyChangesTool};
 pub use core::{
@@ -38,7 +39,7 @@ pub use core::{
 };
 pub use cryptocurrency::{
     load_networks, load_tokens, BridgeUsdcTool, BroadcastWeb3TxTool, DecodeCalldataTool,
-    DexScreenerTool, Erc8128FetchTool, GeckoTerminalTool, ListQueuedWeb3TxTool, PolymarketTradeTool,
+    DexScreenerTool, Erc8128FetchTool, GeckoTerminalTool, ListQueuedWeb3TxTool,
     SelectWeb3NetworkTool, SendEthTool, SetAddressTool, SiwaAuthTool, ToRawAmountTool, TokenLookupTool,
     VerifyTxBroadcastTool, Web3PresetFunctionCallTool, X402AgentInvokeTool, X402FetchTool,
     X402PostTool, X402RpcTool,

@@ -321,7 +321,7 @@ impl SkillRegistry {
         Ok(loaded)
     }
 
-    /// Import a file-based Skill into the database
+    /// Import a file-based Skill into the database, including any scripts/ alongside SKILL.md
     fn import_file_skill(&self, skill: &Skill) -> Result<(), String> {
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -342,11 +342,57 @@ impl SkillRegistry {
             subagent_type: skill.metadata.subagent_type.clone(),
             requires_api_keys: skill.metadata.requires_api_keys.clone(),
             created_at: now.clone(),
-            updated_at: now,
+            updated_at: now.clone(),
         };
 
-        self.db.create_skill(&db_skill)
+        let skill_id = self.db.create_skill(&db_skill)
             .map_err(|e| format!("Failed to create skill in database: {}", e))?;
+
+        // Scan scripts/ subdirectory alongside SKILL.md and import into DB
+        if !skill.path.is_empty() {
+            let skill_md_path = std::path::Path::new(&skill.path);
+            if let Some(parent) = skill_md_path.parent() {
+                let scripts_dir = parent.join("scripts");
+                if scripts_dir.is_dir() {
+                    if let Ok(entries) = std::fs::read_dir(&scripts_dir) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if !path.is_file() {
+                                continue;
+                            }
+                            let file_name = match path.file_name() {
+                                Some(n) => n.to_string_lossy().to_string(),
+                                None => continue,
+                            };
+                            let language = crate::skills::zip_parser::ParsedScript::detect_language(&file_name);
+                            if language == "unknown" {
+                                continue; // skip non-script files (e.g. requirements.txt)
+                            }
+                            let code = match std::fs::read_to_string(&path) {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    log::warn!("Failed to read script {}: {}", path.display(), e);
+                                    continue;
+                                }
+                            };
+                            let db_script = DbSkillScript {
+                                id: None,
+                                skill_id,
+                                name: file_name.clone(),
+                                code,
+                                language,
+                                created_at: now.clone(),
+                            };
+                            if let Err(e) = self.db.create_skill_script(&db_script) {
+                                log::warn!("Failed to import script '{}' for skill '{}': {}", file_name, skill.metadata.name, e);
+                            } else {
+                                log::info!("Imported script '{}' for skill '{}'", file_name, skill.metadata.name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         Ok(())
     }

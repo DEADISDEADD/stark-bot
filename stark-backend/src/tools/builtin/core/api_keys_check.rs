@@ -72,7 +72,7 @@ impl Tool for ApiKeysCheckTool {
 
         if let Some(key_name) = params.key_name {
             // Check specific key — works for both built-in and custom keys.
-            // Also checks legacy names for renamed keys (e.g. RAILWAY_TOKEN → RAILWAY_API_TOKEN).
+            // Also checks legacy names for renamed keys.
             let is_set = context
                 .get_api_key(&key_name)
                 .map(|k| !k.is_empty())

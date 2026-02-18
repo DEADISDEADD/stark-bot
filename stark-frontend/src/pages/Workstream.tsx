@@ -353,9 +353,9 @@ export default function Workstream() {
   return (
     <div className="p-4 md:p-6 h-full flex flex-col gap-4 min-h-0">
       {/* Header */}
-      <div className="flex items-center justify-between shrink-0">
+      <div className="flex items-center justify-between shrink-0 flex-wrap gap-2">
         <h1 className="text-2xl font-bold text-white">Workstream</h1>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <span className="text-xs text-slate-400">Auto-execute</span>
             <button
@@ -392,7 +392,7 @@ export default function Workstream() {
       )}
 
       {/* ─── Sprint Timeline (top ~55%) ──────────────────────────────────── */}
-      <div className="flex-[3] min-h-[200px] rounded-xl border border-slate-700/50 bg-slate-800/30 overflow-hidden flex flex-col">
+      <div className="flex-none md:flex-[3] min-h-[280px] md:min-h-[200px] rounded-xl border border-slate-700/50 bg-slate-800/30 overflow-hidden flex flex-col">
         {/* Timeline header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700/50">
           <h2 className="text-lg font-semibold text-white">Sprint Timeline</h2>
@@ -419,9 +419,9 @@ export default function Workstream() {
         </div>
 
         {/* Day columns with timeline grid */}
-        <div className="relative flex-1 flex flex-col">
+        <div className="relative flex-1 flex flex-col overflow-x-auto">
           {/* Day header row */}
-          <div className="grid grid-cols-7 border-b border-slate-700/30">
+          <div className="grid grid-cols-7 border-b border-slate-700/30 min-w-[600px]">
             {days.map((day, i) => {
               const isToday = isSameDay(day, today);
               return (
@@ -437,7 +437,7 @@ export default function Workstream() {
           </div>
 
           {/* Timeline body - clickable cells + job bars */}
-          <div className="relative flex-1 min-h-[160px]">
+          <div className="relative flex-1 min-h-[160px] min-w-[600px]">
             {/* Click target grid */}
             <div className="grid grid-cols-7 absolute inset-0">
               {days.map((day, i) => {
@@ -506,7 +506,7 @@ export default function Workstream() {
       </div>
 
       {/* ─── Kanban Board (bottom ~45%) ──────────────────────────────────── */}
-      <div className="flex-[2] min-h-0 flex flex-col">
+      <div className="flex-none md:flex-[2] min-h-0 flex flex-col">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1 min-h-0">
           {COLUMNS.map((col) => (
             <div
@@ -702,7 +702,7 @@ export default function Workstream() {
               <p>Updated: {new Date(detailItem.updated_at).toLocaleString()}</p>
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-slate-700">
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-slate-700">
               <Button
                 variant="danger"
                 size="sm"
@@ -712,7 +712,7 @@ export default function Workstream() {
                 Delete
               </Button>
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {detailItem.status !== 'ready' && (
                   <Button variant="secondary" size="sm" onClick={() => { handleStatusChange(detailItem.id, 'ready'); setDetailItem(null); }}>
                     Move to To-do

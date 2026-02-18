@@ -62,6 +62,7 @@ export default function FileBrowser() {
   const [error, setError] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [workspaceInfo, setWorkspaceInfo] = useState<{ path: string; exists: boolean } | null>(null);
+  const [mobileView, setMobileView] = useState<'list' | 'preview'>('list');
 
   const loadDirectory = async (path: string = '') => {
     setIsLoading(true);
@@ -139,6 +140,7 @@ export default function FileBrowser() {
       setFileContent(null);
     } else {
       loadFile(entry.path);
+      setMobileView('preview');
     }
   };
 
@@ -170,7 +172,7 @@ export default function FileBrowser() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="p-6 border-b border-slate-700">
+      <div className="p-4 md:p-6 border-b border-slate-700">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-2xl font-bold text-white">File Browser</h1>
@@ -191,7 +193,7 @@ export default function FileBrowser() {
         </div>
 
         {/* Breadcrumb */}
-        <div className="flex items-center gap-1 text-sm">
+        <div className="flex items-center gap-1 text-sm flex-wrap">
           <button
             onClick={navigateHome}
             className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
@@ -232,7 +234,7 @@ export default function FileBrowser() {
       {/* Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* File List */}
-        <div className="w-80 border-r border-slate-700 overflow-y-auto">
+        <div className={`w-full md:w-80 border-r border-slate-700 overflow-y-auto ${mobileView === 'preview' ? 'hidden md:block' : ''}`}>
           {isLoading ? (
             <div className="flex items-center justify-center h-32">
               <RefreshCw className="w-6 h-6 text-slate-400 animate-spin" />
@@ -287,10 +289,16 @@ export default function FileBrowser() {
         </div>
 
         {/* File Preview */}
-        <div className="flex-1 overflow-hidden flex flex-col bg-slate-900">
+        <div className={`flex-1 overflow-hidden flex flex-col bg-slate-900 ${mobileView === 'list' ? 'hidden md:flex' : ''}`}>
           {selectedFile ? (
             <>
               <div className="px-4 py-3 border-b border-slate-700 flex items-center gap-2">
+                <button
+                  onClick={() => setMobileView('list')}
+                  className="md:hidden p-1 -ml-1 mr-1 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
                 <FileCode className="w-4 h-4 text-slate-400" />
                 <span className="text-sm text-slate-300 font-mono truncate">
                   {selectedFile}
