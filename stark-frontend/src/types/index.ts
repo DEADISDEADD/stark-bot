@@ -254,9 +254,9 @@ export interface HybridSearchResponse {
 export interface EmbeddingStatsResponse {
   success: boolean;
   total_memories: number;
-  with_embeddings: number;
-  without_embeddings: number;
-  coverage_pct: number;
+  memories_with_embeddings: number;
+  memories_without_embeddings: number;
+  coverage_percent: number;
 }
 
 export interface MemoryAssociation {

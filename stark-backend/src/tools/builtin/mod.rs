@@ -19,8 +19,8 @@ mod local_rpc;
 mod memory_associate;
 mod memory_graph;
 mod process_status;
-mod qmd_memory_read;
-mod qmd_memory_search;
+mod memory_read;
+mod memory_search;
 mod web_fetch;
 
 // Re-exports from submodules
@@ -52,6 +52,6 @@ pub use local_rpc::LocalRpcTool;
 pub use memory_associate::MemoryAssociateTool;
 pub use memory_graph::MemoryGraphTool;
 pub use process_status::ProcessStatusTool;
-pub use qmd_memory_read::QmdMemoryReadTool;
-pub use qmd_memory_search::QmdMemorySearchTool;
+pub use memory_read::MemoryReadTool;
+pub use memory_search::MemorySearchTool;
 pub use web_fetch::WebFetchTool;

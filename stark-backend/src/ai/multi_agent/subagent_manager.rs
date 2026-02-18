@@ -15,7 +15,7 @@ use crate::gateway::protocol::GatewayEvent;
 use crate::models::{AgentSettings, MessageRole as DbMessageRole, SessionScope};
 use crate::tools::{ToolContext, ToolDefinition, ToolRegistry};
 use crate::skills::SkillRegistry;
-use crate::qmd_memory::MemoryStore;
+
 use dashmap::DashMap;
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -73,8 +73,6 @@ pub struct SubAgentManager {
     wallet_provider: Option<Arc<dyn crate::wallet::WalletProvider>>,
     /// Skill registry for sub-agent tool context
     skill_registry: OnceLock<Arc<SkillRegistry>>,
-    /// QMD memory store for sub-agent tool context
-    memory_store: OnceLock<Arc<MemoryStore>>,
     /// Transaction queue manager for web3 tx tools
     tx_queue: OnceLock<Arc<crate::tx_queue::TxQueueManager>>,
     /// Process manager for bash execution tracking
@@ -114,7 +112,6 @@ impl SubAgentManager {
             config,
             wallet_provider,
             skill_registry: OnceLock::new(),
-            memory_store: OnceLock::new(),
             tx_queue: OnceLock::new(),
             process_manager: OnceLock::new(),
             disk_quota: OnceLock::new(),
@@ -124,11 +121,6 @@ impl SubAgentManager {
     /// Set the skill registry for sub-agent tool contexts (can be called after Arc wrapping)
     pub fn set_skill_registry(&self, registry: Arc<SkillRegistry>) {
         let _ = self.skill_registry.set(registry);
-    }
-
-    /// Set the memory store for sub-agent tool contexts (can be called after Arc wrapping)
-    pub fn set_memory_store(&self, store: Arc<MemoryStore>) {
-        let _ = self.memory_store.set(store);
     }
 
     /// Set the tx queue manager for sub-agent tool contexts (can be called after Arc wrapping)
@@ -215,7 +207,6 @@ impl SubAgentManager {
         let channel_sem = self.get_channel_semaphore(context.parent_channel_id);
         let wallet_provider = self.wallet_provider.clone();
         let skill_registry = self.skill_registry.get().cloned();
-        let memory_store = self.memory_store.get().cloned();
         let tx_queue = self.tx_queue.get().cloned();
         let process_manager = self.process_manager.get().cloned();
         let disk_quota = self.disk_quota.get().cloned();
@@ -249,7 +240,6 @@ impl SubAgentManager {
                 context.clone(),
                 wallet_provider,
                 skill_registry,
-                memory_store,
                 tx_queue,
                 process_manager,
                 disk_quota,
@@ -341,7 +331,6 @@ impl SubAgentManager {
         mut context: SubAgentContext,
         wallet_provider: Option<Arc<dyn crate::wallet::WalletProvider>>,
         skill_registry: Option<Arc<SkillRegistry>>,
-        memory_store: Option<Arc<MemoryStore>>,
         tx_queue: Option<Arc<crate::tx_queue::TxQueueManager>>,
         process_manager: Option<Arc<crate::execution::ProcessManager>>,
         disk_quota: Option<Arc<crate::disk_quota::DiskQuotaManager>>,
@@ -465,9 +454,6 @@ impl SubAgentManager {
         // Attach optional stores so sub-agent tools work (use_skill, memory_search, web3_tx, etc.)
         if let Some(registry) = skill_registry.clone() {
             tool_context = tool_context.with_skill_registry(registry);
-        }
-        if let Some(store) = memory_store.clone() {
-            tool_context = tool_context.with_memory_store(store);
         }
         if let Some(wp) = wallet_provider.clone() {
             tool_context = tool_context.with_wallet_provider(wp);

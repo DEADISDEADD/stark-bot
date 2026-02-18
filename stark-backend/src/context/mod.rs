@@ -16,7 +16,6 @@ use crate::config::MemoryConfig;
 use crate::db::Database;
 use crate::models::SessionMessage;
 use crate::models::session_message::MessageRole as DbMessageRole;
-use crate::qmd_memory::MemoryStore;
 use chrono::Utc;
 use std::sync::Arc;
 pub use tokenizer::TokenEstimator;
@@ -138,8 +137,6 @@ pub struct ContextManager {
     keep_recent_messages: i32,
     /// Memory configuration
     memory_config: MemoryConfig,
-    /// QMD Memory store for file-based memory
-    memory_store: Option<Arc<MemoryStore>>,
     /// Configuration for sliding window compaction
     sliding_window_config: SlidingWindowConfig,
     /// Three-tier compaction thresholds (can be overridden from bot settings)
@@ -154,7 +151,6 @@ impl ContextManager {
             reserve_tokens: DEFAULT_RESERVE_TOKENS,
             keep_recent_messages: DEFAULT_KEEP_RECENT_MESSAGES,
             memory_config: MemoryConfig::from_env(),
-            memory_store: None,
             sliding_window_config: SlidingWindowConfig::default(),
             compaction_config: ThreeTierCompactionConfig::default(),
         }
@@ -182,11 +178,6 @@ impl ContextManager {
 
     pub fn with_memory_config(mut self, config: MemoryConfig) -> Self {
         self.memory_config = config;
-        self
-    }
-
-    pub fn with_memory_store(mut self, store: Arc<MemoryStore>) -> Self {
-        self.memory_store = Some(store);
         self
     }
 
@@ -437,7 +428,7 @@ impl ContextManager {
     /// Phase 1: Flush memories before compaction
     /// Gives the AI a "silent turn" to extract important memories from the conversation
     /// that would otherwise be lost during summarization.
-    /// Now writes to QMD markdown files instead of database.
+    /// Writes extracted memories to the DB memories table.
     pub async fn flush_memories_before_compaction(
         &self,
         session_id: i64,
@@ -449,20 +440,11 @@ impl ContextManager {
             return Ok(0);
         }
 
-        // Check if we have a memory store
-        let memory_store = match &self.memory_store {
-            Some(store) => store,
-            None => {
-                log::warn!("[PRE_FLUSH] No memory store available, skipping memory flush");
-                return Ok(0);
-            }
-        };
-
         log::info!("[PRE_FLUSH] Starting memory flush for session {} ({} messages)",
             session_id, messages_to_compact.len());
 
         // Filter out messages from memory-excluded tools (e.g. install_api_key)
-        // so secrets never leak into memory markdown files
+        // so secrets never leak into memory
         let messages_filtered: Vec<&SessionMessage> = messages_to_compact.iter()
             .filter(|m| {
                 if m.role == DbMessageRole::ToolCall || m.role == DbMessageRole::ToolResult {
@@ -523,7 +505,7 @@ impl ContextManager {
             return Ok(0);
         }
 
-        // Parse and write to markdown files
+        let today = Utc::now().format("%Y-%m-%d").to_string();
         let mut count = 0;
 
         // Extract long-term section
@@ -535,7 +517,12 @@ impl ContextManager {
             let long_term_content = &response[long_term_start..section_end];
 
             if !long_term_content.trim().is_empty() {
-                if let Err(e) = memory_store.append_long_term(long_term_content, identity_id) {
+                if let Err(e) = self.db.insert_memory(
+                    "long_term",
+                    long_term_content.trim(),
+                    None, None, 5, identity_id, None, None, None,
+                    Some("pre_compaction_flush"), None,
+                ) {
                     log::error!("[PRE_FLUSH] Failed to write long-term memory: {}", e);
                 } else {
                     count += 1;
@@ -553,7 +540,12 @@ impl ContextManager {
             let daily_content = &response[daily_start..section_end];
 
             if !daily_content.trim().is_empty() {
-                if let Err(e) = memory_store.append_daily_log(daily_content, identity_id) {
+                if let Err(e) = self.db.insert_memory(
+                    "daily_log",
+                    daily_content.trim(),
+                    None, None, 5, identity_id, None, None, None,
+                    Some("pre_compaction_flush"), Some(&today),
+                ) {
                     log::error!("[PRE_FLUSH] Failed to write daily log: {}", e);
                 } else {
                     count += 1;
@@ -651,10 +643,16 @@ impl ContextManager {
 
         log::info!("[COMPACTION] Generated summary ({} chars) for session {}", summary.len(), session_id);
 
-        // Write the compaction summary to the daily log as a session summary
-        if let Some(ref memory_store) = self.memory_store {
+        // Write the compaction summary to DB as a daily_log memory
+        {
             let summary_entry = format!("### Session Summary\n{}", summary);
-            if let Err(e) = memory_store.append_daily_log(&summary_entry, identity_id) {
+            let today = Utc::now().format("%Y-%m-%d").to_string();
+            if let Err(e) = self.db.insert_memory(
+                "daily_log",
+                &summary_entry,
+                None, None, 5, identity_id, Some(session_id), None, None,
+                Some("compaction_summary"), Some(&today),
+            ) {
                 log::error!("[COMPACTION] Failed to write session summary to daily log: {}", e);
             }
         }
@@ -703,8 +701,6 @@ impl ContextManager {
             return None;
         }
 
-        let memory_store = self.memory_store.as_ref()?;
-
         // Build search query from last 3 user messages
         let query_terms: Vec<String> = recent_messages
             .iter()
@@ -729,17 +725,25 @@ impl ContextManager {
         log::debug!("[MEMORY_RETRIEVAL] Searching with query: {}", &query);
 
         let limit = self.memory_config.cross_session_memory_limit;
-        match memory_store.search(&query, limit) {
+        match self.db.search_memories_fts(&query, identity_id, limit) {
             Ok(results) if !results.is_empty() => {
                 log::info!(
                     "[MEMORY_RETRIEVAL] Found {} relevant memories for identity {:?}",
                     results.len(), identity_id
                 );
 
-                // Format as bullet points, using snippets
+                // Format as bullet points with content snippets
                 let formatted = results
                     .iter()
-                    .map(|r| format!("- {}", r.snippet.replace(">>>", "**").replace("<<<", "**")))
+                    .map(|(mem, _rank)| {
+                        let snippet: String = if mem.content.chars().count() > 200 {
+                            let truncated: String = mem.content.chars().take(200).collect();
+                            format!("{}...", truncated)
+                        } else {
+                            mem.content.clone()
+                        };
+                        format!("- {}", snippet)
+                    })
                     .collect::<Vec<_>>()
                     .join("\n");
 
@@ -878,14 +882,13 @@ impl ContextManager {
 }
 
 /// Save session summary before reset (session memory hook)
-/// Now writes to QMD markdown files instead of database.
+/// Writes extracted summary to DB memories table.
 pub async fn save_session_memory(
     db: &Arc<Database>,
     client: &AiClient,
     session_id: i64,
     identity_id: Option<&str>,
     message_limit: i32,
-    memory_store: Option<&Arc<MemoryStore>>,
 ) -> Result<(), String> {
     // Get recent messages from the session
     let messages = db.get_recent_session_messages(session_id, message_limit)
@@ -941,15 +944,16 @@ pub async fn save_session_memory(
     // Parse title and summary from response
     let (title, summary) = parse_title_summary(&response);
 
-    // Write to daily log in QMD memory store
-    if let Some(store) = memory_store {
-        let content = format!("### {}\n{}", title, summary);
-        store.append_daily_log(&content, identity_id)
-            .map_err(|e| format!("Failed to write session summary: {}", e))?;
-        log::info!("[SESSION_MEMORY] Saved session summary to daily log: {}", title);
-    } else {
-        log::warn!("[SESSION_MEMORY] No memory store available, session summary not saved");
-    }
+    // Write to DB memories table
+    let content = format!("### {}\n{}", title, summary);
+    let today = Utc::now().format("%Y-%m-%d").to_string();
+    db.insert_memory(
+        "daily_log",
+        &content,
+        None, None, 5, identity_id, Some(session_id), None, None,
+        Some("session_reset"), Some(&today),
+    ).map_err(|e| format!("Failed to write session summary: {}", e))?;
+    log::info!("[SESSION_MEMORY] Saved session summary to daily log: {}", title);
 
     Ok(())
 }

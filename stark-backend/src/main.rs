@@ -20,7 +20,6 @@ mod gateway;
 mod integrations;
 mod middleware;
 mod models;
-mod qmd_memory;
 mod scheduler;
 mod skills;
 mod tools;
@@ -980,6 +979,137 @@ fn start_service_binary(exe_path: &std::path::Path, name: &str, port: u16, envs:
     }
 }
 
+/// Migrate QMD markdown memory files into the DB `memories` table.
+/// Parses identity from subdirectory, date from filename, and splits entries at `## HH:MM` headers.
+fn migrate_qmd_memories_to_db(
+    db: &db::Database,
+    memory_dir: &std::path::Path,
+) -> Result<usize, String> {
+    use std::fs;
+
+    // Inline list: recursively find all .md files in the memory directory
+    fn list_md_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) -> std::io::Result<()> {
+        if !dir.exists() { return Ok(()); }
+        for entry in fs::read_dir(dir)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                list_md_files(&path, out)?;
+            } else if path.extension().map(|e| e == "md").unwrap_or(false) {
+                out.push(path);
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    list_md_files(memory_dir, &mut files)
+        .map_err(|e| format!("Failed to list memory files: {}", e))?;
+
+    if files.is_empty() {
+        return Ok(0);
+    }
+
+    let mut count = 0usize;
+
+    for file_path in &files {
+        let rel = file_path
+            .strip_prefix(memory_dir)
+            .unwrap_or(file_path)
+            .to_string_lossy()
+            .to_string();
+
+        let content = match fs::read_to_string(file_path) {
+            Ok(c) if !c.trim().is_empty() => c,
+            _ => continue,
+        };
+
+        // Determine identity_id from subdirectory (e.g. "user123/MEMORY.md" -> Some("user123"))
+        let parts: Vec<&str> = rel.split('/').collect();
+        let (identity_id, filename) = if parts.len() >= 2 {
+            (Some(parts[0].to_string()), parts.last().unwrap().to_string())
+        } else {
+            (None, parts[0].to_string())
+        };
+
+        let identity_ref = identity_id.as_deref();
+
+        // Determine memory_type and log_date from filename
+        let (memory_type, log_date) = if filename == "MEMORY.md" {
+            ("long_term", None)
+        } else if let Some(date) = filename.strip_suffix(".md")
+            .and_then(|stem| chrono::NaiveDate::parse_from_str(stem, "%Y-%m-%d").ok()) {
+            ("daily_log", Some(date.format("%Y-%m-%d").to_string()))
+        } else {
+            // Unknown file type, skip
+            continue;
+        };
+
+        // Split content at "## HH:MM" timestamp headers into individual entries
+        let entries = split_qmd_entries(&content);
+
+        for entry in &entries {
+            if entry.trim().is_empty() {
+                continue;
+            }
+            if let Err(e) = db.insert_memory(
+                memory_type,
+                entry,
+                None,                         // category
+                None,                         // tags
+                5,                            // importance (default)
+                identity_ref,
+                None,                         // session_id
+                None,                         // entity_type
+                None,                         // entity_name
+                Some("qmd_migration"),        // source_type
+                log_date.as_deref(),
+            ) {
+                log::warn!("[MIGRATION] Failed to insert entry from {}: {}", rel, e);
+            } else {
+                count += 1;
+            }
+        }
+    }
+
+    Ok(count)
+}
+
+/// Split QMD markdown content at `## HH:MM` timestamp headers into individual entries.
+/// If no headers are found, returns the entire content as a single entry.
+fn split_qmd_entries(content: &str) -> Vec<String> {
+    let mut entries = Vec::new();
+    let mut current = String::new();
+
+    for line in content.lines() {
+        // Match "## HH:MM" pattern (timestamp header)
+        if line.starts_with("## ")
+            && line.len() >= 8
+            && line.chars().nth(3).map(|c| c.is_ascii_digit()).unwrap_or(false)
+        {
+            // Flush previous entry
+            if !current.trim().is_empty() {
+                entries.push(current.trim().to_string());
+            }
+            current = String::new();
+            // Skip the timestamp header itself — content follows
+            continue;
+        }
+        current.push_str(line);
+        current.push('\n');
+    }
+
+    // Flush last entry
+    if !current.trim().is_empty() {
+        entries.push(current.trim().to_string());
+    }
+
+    // If nothing was split (no timestamp headers), return whole content
+    if entries.is_empty() && !content.trim().is_empty() {
+        entries.push(content.trim().to_string());
+    }
+
+    entries
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -1263,6 +1393,33 @@ async fn main() -> std::io::Result<()> {
             embedding_generator.clone(),
         )));
 
+    // One-time migration: import QMD markdown files into the DB memories table.
+    // This runs once; afterward the memory/ directory is renamed to memory.migrated/.
+    {
+        let memory_dir = config::memory_config().memory_dir;
+        let memory_path = std::path::Path::new(&memory_dir);
+        if memory_path.exists() && memory_path.is_dir() {
+            match migrate_qmd_memories_to_db(&db, memory_path) {
+                Ok(count) if count > 0 => {
+                    log::info!("[MIGRATION] Migrated {} QMD memory entries to DB", count);
+                    // Rename to prevent re-migration
+                    let migrated_path = memory_path.with_extension("migrated");
+                    if let Err(e) = std::fs::rename(memory_path, &migrated_path) {
+                        log::warn!("[MIGRATION] Failed to rename memory/ to memory.migrated/: {}", e);
+                    } else {
+                        log::info!("[MIGRATION] Renamed {} -> {}", memory_dir, migrated_path.display());
+                    }
+                }
+                Ok(_) => {
+                    log::info!("[MIGRATION] No QMD memory files to migrate");
+                }
+                Err(e) => {
+                    log::error!("[MIGRATION] QMD migration failed: {}", e);
+                }
+            }
+        }
+    }
+
     // Create the shared MessageDispatcher for all message processing
     log::info!("Initializing message dispatcher");
     let mut dispatcher_builder = MessageDispatcher::new_with_wallet_and_skills(
@@ -1280,10 +1437,6 @@ async fn main() -> std::io::Result<()> {
     }
     if let Some(ref dq) = disk_quota {
         dispatcher_builder = dispatcher_builder.with_disk_quota(dq.clone());
-        // Also wire disk quota into the MemoryStore for memory append limits
-        if let Some(ref store) = dispatcher_builder.memory_store() {
-            store.set_disk_quota(dq.clone());
-        }
     }
     let dispatcher = Arc::new(dispatcher_builder);
 

@@ -44,8 +44,8 @@ impl Database {
         let manager = SqliteConnectionManager::file(database_url)
             .with_init(|conn| {
                 conn.execute_batch(
-                    "PRAGMA journal_mode=WAL;
-                     PRAGMA busy_timeout=5000;
+                    "PRAGMA busy_timeout=5000;
+                     PRAGMA journal_mode=WAL;
                      PRAGMA cache_size=-64000;
                      PRAGMA mmap_size=268435456;
                      PRAGMA temp_store=memory;

@@ -1,7 +1,8 @@
-//! QMD Memory Search Tool
+//! Memory Search Tool
 //!
-//! Full-text search across memory markdown files using FTS5 BM25 ranking.
-//! In safe mode, results are sandboxed to the safemode/ memory directory only.
+//! Full-text search across DB memories using FTS5 BM25 ranking,
+//! with optional hybrid mode (FTS + vector + graph via RRF).
+//! In safe mode, results are sandboxed to the safemode identity only.
 
 use crate::tools::registry::Tool;
 use crate::tools::types::{
@@ -14,11 +15,11 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 
 /// Tool for searching memories using full-text search
-pub struct QmdMemorySearchTool {
+pub struct MemorySearchTool {
     definition: ToolDefinition,
 }
 
-impl QmdMemorySearchTool {
+impl MemorySearchTool {
     pub fn new() -> Self {
         let mut properties = HashMap::new();
 
@@ -71,7 +72,7 @@ impl QmdMemorySearchTool {
     }
 }
 
-impl Default for QmdMemorySearchTool {
+impl Default for MemorySearchTool {
     fn default() -> Self {
         Self::new()
     }
@@ -96,8 +97,11 @@ fn is_safe_mode(context: &ToolContext) -> bool {
         .unwrap_or(false)
 }
 
+/// Safe mode identity
+const SAFE_MODE_IDENTITY: &str = "safemode";
+
 #[async_trait]
-impl Tool for QmdMemorySearchTool {
+impl Tool for MemorySearchTool {
     fn definition(&self) -> ToolDefinition {
         self.definition.clone()
     }
@@ -113,12 +117,11 @@ impl Tool for QmdMemorySearchTool {
             return ToolResult::error("Query cannot be empty");
         }
 
-        // Get memory store from context
-        let memory_store = match &context.memory_store {
-            Some(store) => store,
+        let db = match &context.database {
+            Some(db) => db,
             None => {
                 return ToolResult::error(
-                    "Memory store not available. Memory search requires the memory system to be initialized.",
+                    "Database not available. Memory search requires the database to be initialized.",
                 );
             }
         };
@@ -126,11 +129,36 @@ impl Tool for QmdMemorySearchTool {
         let safe_mode = is_safe_mode(context);
         let result_limit = params.limit.unwrap_or(10).min(50).max(1);
 
+        // Identity filter for safe mode
+        let identity_id: Option<&str> = if safe_mode {
+            Some(SAFE_MODE_IDENTITY)
+        } else {
+            context.identity_id.as_deref()
+        };
+
         // Hybrid mode: use combined FTS + vector + graph search
         if params.mode == "hybrid" {
             if let Some(ref hybrid_engine) = context.hybrid_search {
                 match hybrid_engine.search(&params.query, result_limit as usize).await {
                     Ok(results) => {
+                        // In safe mode, filter to safemode identity
+                        // (hybrid engine doesn't have identity filtering, so we filter here)
+                        let results: Vec<_> = if safe_mode {
+                            results.into_iter()
+                                .filter(|r| {
+                                    // Check if the memory belongs to safemode identity
+                                    if let Ok(Some(mem)) = db.get_memory(r.memory_id) {
+                                        mem.identity_id.as_deref() == Some(SAFE_MODE_IDENTITY)
+                                    } else {
+                                        false
+                                    }
+                                })
+                                .take(result_limit as usize)
+                                .collect()
+                        } else {
+                            results
+                        };
+
                         if results.is_empty() {
                             return ToolResult::success(format!(
                                 "No memories found matching: \"{}\" (hybrid mode)",
@@ -177,27 +205,9 @@ impl Tool for QmdMemorySearchTool {
             }
         }
 
-        // FTS mode (default): use file-based full-text search
-        // In safe mode, request more results so we have enough after filtering
-        let search_limit = if safe_mode {
-            result_limit * 3
-        } else {
-            result_limit
-        };
-
-        // Perform search
-        match memory_store.search(&params.query, search_limit) {
+        // FTS mode (default): use DB full-text search
+        match db.search_memories_fts(&params.query, identity_id, result_limit) {
             Ok(results) => {
-                // In safe mode, filter to only safemode/ directory files
-                let results: Vec<_> = if safe_mode {
-                    results.into_iter()
-                        .filter(|r| r.file_path.starts_with("safemode/"))
-                        .take(result_limit as usize)
-                        .collect()
-                } else {
-                    results.into_iter().take(result_limit as usize).collect()
-                };
-
                 if results.is_empty() {
                     return ToolResult::success(format!(
                         "No memories found matching: \"{}\"",
@@ -211,20 +221,30 @@ impl Tool for QmdMemorySearchTool {
                     results.len()
                 );
 
-                for (i, result) in results.iter().enumerate() {
+                for (i, (mem, rank)) in results.iter().enumerate() {
+                    let snippet: String = if mem.content.chars().count() > 300 {
+                        let truncated: String = mem.content.chars().take(300).collect();
+                        format!("{}...", truncated)
+                    } else {
+                        mem.content.clone()
+                    };
                     output.push_str(&format!(
-                        "### {}. {}\n**Score:** {:.2}\n{}\n\n",
+                        "### {}. Memory #{} ({})\n**Score:** {:.2} | **Importance:** {} | **Type:** {}\n{}\n\n",
                         i + 1,
-                        result.file_path,
-                        -result.score, // Negate because BM25 returns negative scores
-                        result.snippet.replace(">>>", "**").replace("<<<", "**")
+                        mem.id,
+                        mem.memory_type,
+                        -rank, // Negate because BM25 returns negative scores
+                        mem.importance,
+                        mem.memory_type,
+                        snippet,
                     ));
                 }
 
                 ToolResult::success(output).with_metadata(json!({
                     "query": params.query,
+                    "mode": "fts",
                     "result_count": results.len(),
-                    "files": results.iter().map(|r| r.file_path.clone()).collect::<Vec<_>>()
+                    "memory_ids": results.iter().map(|(m, _)| m.id).collect::<Vec<_>>()
                 }))
             }
             Err(e) => ToolResult::error(format!("Search failed: {}", e)),
@@ -242,7 +262,7 @@ mod tests {
 
     #[test]
     fn test_memory_search_definition() {
-        let tool = QmdMemorySearchTool::new();
+        let tool = MemorySearchTool::new();
         let def = tool.definition();
 
         assert_eq!(def.name, "memory_search");

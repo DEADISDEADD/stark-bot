@@ -257,7 +257,7 @@ export default function MemoryGraph() {
       id: n.id,
       content: n.content ?? '',
       memory_type: n.memory_type ?? 'unknown',
-      importance: n.importance ?? 0.5,
+      importance: n.importance != null ? n.importance / 10 : 0.5,
     }));
 
     d3NodesRef.current = d3Nodes;
@@ -710,13 +710,13 @@ export default function MemoryGraph() {
                       <div
                         className="h-full rounded-full"
                         style={{
-                          width: `${Math.round(selectedNode.importance * 100)}%`,
+                          width: `${Math.round((selectedNode.importance / 10) * 100)}%`,
                           backgroundColor: nodeColor(selectedNode.memory_type),
                         }}
                       />
                     </div>
                     <span className="text-xs text-slate-400">
-                      {(selectedNode.importance * 100).toFixed(0)}%
+                      {(selectedNode.importance * 10).toFixed(0)}%
                     </span>
                   </div>
                 </div>
@@ -746,15 +746,15 @@ export default function MemoryGraph() {
                 <div className="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-blue-500 rounded-full transition-all"
-                    style={{ width: `${embeddingStats.coverage_pct}%` }}
+                    style={{ width: `${embeddingStats.coverage_percent}%` }}
                   />
                 </div>
                 <span className="text-xs text-slate-400 tabular-nums">
-                  {embeddingStats.coverage_pct.toFixed(1)}%
+                  {embeddingStats.coverage_percent.toFixed(1)}%
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                {embeddingStats.with_embeddings} / {embeddingStats.total_memories} memories embedded
+                {embeddingStats.memories_with_embeddings} / {embeddingStats.total_memories} memories embedded
               </p>
             </div>
           )}

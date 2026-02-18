@@ -5,7 +5,6 @@ use crate::disk_quota::DiskQuotaManager;
 use crate::execution::ProcessManager;
 use crate::gateway::events::EventBroadcaster;
 use crate::gateway::protocol::GatewayEvent;
-use crate::qmd_memory::MemoryStore;
 use crate::skills::SkillRegistry;
 use crate::tools::register::RegisterStore;
 use crate::tx_queue::TxQueueManager;
@@ -405,8 +404,6 @@ pub struct ToolContext {
     /// Currently selected network from the UI (e.g., "base", "polygon", "mainnet")
     /// Web3 tools should use this as default unless user explicitly specifies otherwise
     pub selected_network: Option<String>,
-    /// QMD Memory store for markdown-based memory system
-    pub memory_store: Option<Arc<MemoryStore>>,
     /// Wallet provider for signing transactions (Standard or Flash mode)
     pub wallet_provider: Option<Arc<dyn WalletProvider>>,
     /// Platform-specific chat/conversation ID (e.g., Telegram chat_id)
@@ -448,7 +445,6 @@ impl std::fmt::Debug for ToolContext {
             .field("skill_registry", &self.skill_registry.is_some())
             .field("tx_queue", &self.tx_queue.is_some())
             .field("selected_network", &self.selected_network)
-            .field("memory_store", &self.memory_store.is_some())
             .field("wallet_provider", &self.wallet_provider.is_some())
             .field("platform_chat_id", &self.platform_chat_id)
             .field("api_keys", &self.api_keys.read().ok().map(|m| m.len()))
@@ -482,7 +478,6 @@ impl Default for ToolContext {
             skill_registry: None,
             tx_queue: None,
             selected_network: None,
-            memory_store: None,
             wallet_provider: None,
             platform_chat_id: None,
             api_keys: Arc::new(RwLock::new(HashMap::new())),
@@ -687,12 +682,6 @@ impl ToolContext {
     /// Set the selected network from the UI (for web3 tools to use as default)
     pub fn with_selected_network(mut self, network: Option<String>) -> Self {
         self.selected_network = network;
-        self
-    }
-
-    /// Add a MemoryStore to the context (for QMD memory tools)
-    pub fn with_memory_store(mut self, store: Arc<MemoryStore>) -> Self {
-        self.memory_store = Some(store);
         self
     }
 
