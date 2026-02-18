@@ -5,6 +5,7 @@ use crate::disk_quota::DiskQuotaManager;
 use crate::execution::ProcessManager;
 use crate::gateway::events::EventBroadcaster;
 use crate::gateway::protocol::GatewayEvent;
+use crate::notes::NoteStore;
 use crate::skills::SkillRegistry;
 use crate::tools::register::RegisterStore;
 use crate::tx_queue::TxQueueManager;
@@ -404,6 +405,8 @@ pub struct ToolContext {
     /// Currently selected network from the UI (e.g., "base", "polygon", "mainnet")
     /// Web3 tools should use this as default unless user explicitly specifies otherwise
     pub selected_network: Option<String>,
+    /// Notes store for Obsidian-compatible notes with FTS5
+    pub notes_store: Option<Arc<NoteStore>>,
     /// Wallet provider for signing transactions (Standard or Flash mode)
     pub wallet_provider: Option<Arc<dyn WalletProvider>>,
     /// Platform-specific chat/conversation ID (e.g., Telegram chat_id)
@@ -445,6 +448,7 @@ impl std::fmt::Debug for ToolContext {
             .field("skill_registry", &self.skill_registry.is_some())
             .field("tx_queue", &self.tx_queue.is_some())
             .field("selected_network", &self.selected_network)
+            .field("notes_store", &self.notes_store.is_some())
             .field("wallet_provider", &self.wallet_provider.is_some())
             .field("platform_chat_id", &self.platform_chat_id)
             .field("api_keys", &self.api_keys.read().ok().map(|m| m.len()))
@@ -478,6 +482,7 @@ impl Default for ToolContext {
             skill_registry: None,
             tx_queue: None,
             selected_network: None,
+            notes_store: None,
             wallet_provider: None,
             platform_chat_id: None,
             api_keys: Arc::new(RwLock::new(HashMap::new())),
@@ -682,6 +687,12 @@ impl ToolContext {
     /// Set the selected network from the UI (for web3 tools to use as default)
     pub fn with_selected_network(mut self, network: Option<String>) -> Self {
         self.selected_network = network;
+        self
+    }
+
+    /// Add a NoteStore to the context (for notes tools)
+    pub fn with_notes_store(mut self, store: Arc<NoteStore>) -> Self {
+        self.notes_store = Some(store);
         self
     }
 

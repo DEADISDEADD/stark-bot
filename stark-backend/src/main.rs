@@ -20,6 +20,7 @@ mod gateway;
 mod integrations;
 mod middleware;
 mod models;
+mod notes;
 mod scheduler;
 mod skills;
 mod tools;
@@ -92,7 +93,7 @@ pub struct AppState {
 ///
 /// Conditions for auto-retrieval:
 /// 1. Wallet address hasn't been auto-retrieved before (tracked in keystore_state)
-/// 2. Local database appears fresh (no API keys, no mind nodes beyond trunk)
+/// 2. Local database appears fresh (no API keys, no impulse nodes beyond trunk)
 ///
 /// Retry logic: 3 attempts with exponential backoff (2s, 4s, 8s)
 async fn auto_retrieve_from_keystore(
@@ -118,15 +119,15 @@ async fn auto_retrieve_from_keystore(
     }
 
     // Additional check: only auto-retrieve if local state is truly fresh
-    // (no API keys and only trunk node in mind map)
+    // (no API keys and only trunk node in impulse map)
     let has_api_keys = db.list_api_keys().map(|k| !k.is_empty()).unwrap_or(false);
-    let mind_node_count = db.list_mind_nodes().map(|n| n.len()).unwrap_or(0);
+    let impulse_node_count = db.list_impulse_nodes().map(|n| n.len()).unwrap_or(0);
 
-    if has_api_keys || mind_node_count > 1 {
+    if has_api_keys || impulse_node_count > 1 {
         log::info!(
             "[Keystore] Local state exists (keys: {}, nodes: {}), skipping auto-retrieval",
             has_api_keys,
-            mind_node_count
+            impulse_node_count
         );
         // Mark as retrieved so we don't check again
         let _ = db.mark_keystore_auto_retrieved(&wallet_address);
@@ -180,7 +181,7 @@ async fn auto_retrieve_from_keystore(
                                 let _ = db.record_auto_sync_result(
                                     &wallet_address,
                                     "success",
-                                    &format!("Restored {} API keys and {} mind map nodes", key_count, node_count),
+                                    &format!("Restored {} API keys and {} impulse map nodes", key_count, node_count),
                                     Some(key_count as i32),
                                     Some(node_count as i32),
                                 );
@@ -276,28 +277,28 @@ async fn restore_backup_data(
         log::info!("[Keystore] Restored {} API keys", restored_keys);
     }
 
-    // Clear existing mind nodes and connections before restore
-    match db.clear_mind_nodes_for_restore() {
+    // Clear existing impulse nodes and connections before restore
+    match db.clear_impulse_nodes_for_restore() {
         Ok((nodes_deleted, connections_deleted)) => {
             if nodes_deleted > 0 || connections_deleted > 0 {
                 log::info!("[Keystore] Cleared {} nodes and {} connections for restore", nodes_deleted, connections_deleted);
             }
         }
-        Err(e) => log::warn!("[Keystore] Failed to clear mind nodes for restore: {}", e),
+        Err(e) => log::warn!("[Keystore] Failed to clear impulse nodes for restore: {}", e),
     }
 
-    // Restore mind map nodes (create ID mapping for connections)
+    // Restore impulse map nodes (create ID mapping for connections)
     let mut old_to_new_id: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
     let mut restored_nodes = 0;
 
     // First, get or create trunk and map backup trunk ID to it
     let current_trunk = db.get_or_create_trunk_node().ok();
     if let Some(ref trunk) = current_trunk {
-        for node in &backup_data.mind_map_nodes {
+        for node in &backup_data.impulse_map_nodes {
             if node.is_trunk {
                 old_to_new_id.insert(node.id, trunk.id);
                 if !node.body.is_empty() {
-                    let _ = db.update_mind_node(trunk.id, &db::tables::mind_nodes::UpdateMindNodeRequest {
+                    let _ = db.update_impulse_node(trunk.id, &db::tables::impulse_nodes::UpdateImpulseNodeRequest {
                         body: Some(node.body.clone()),
                         position_x: node.position_x,
                         position_y: node.position_y,
@@ -308,38 +309,38 @@ async fn restore_backup_data(
         }
     }
 
-    for node in &backup_data.mind_map_nodes {
+    for node in &backup_data.impulse_map_nodes {
         if node.is_trunk {
             // Already handled above
             continue;
         }
 
-        let request = db::tables::mind_nodes::CreateMindNodeRequest {
+        let request = db::tables::impulse_nodes::CreateImpulseNodeRequest {
             body: Some(node.body.clone()),
             position_x: node.position_x,
             position_y: node.position_y,
             parent_id: None,
         };
-        match db.create_mind_node(&request) {
+        match db.create_impulse_node(&request) {
             Ok(new_node) => {
                 old_to_new_id.insert(node.id, new_node.id);
                 restored_nodes += 1;
             }
-            Err(e) => log::warn!("[Keystore] Failed to restore mind node: {}", e),
+            Err(e) => log::warn!("[Keystore] Failed to restore impulse node: {}", e),
         }
     }
     if restored_nodes > 0 {
-        log::info!("[Keystore] Restored {} mind map nodes", restored_nodes);
+        log::info!("[Keystore] Restored {} impulse map nodes", restored_nodes);
     }
 
-    // Restore mind map connections using ID mapping
+    // Restore impulse map connections using ID mapping
     let mut restored_connections = 0;
-    for conn in &backup_data.mind_map_connections {
+    for conn in &backup_data.impulse_map_connections {
         if let (Some(&parent_id), Some(&child_id)) = (
             old_to_new_id.get(&conn.parent_id),
             old_to_new_id.get(&conn.child_id),
         ) {
-            match db.create_mind_node_connection(parent_id, child_id) {
+            match db.create_impulse_node_connection(parent_id, child_id) {
                 Ok(_) => restored_connections += 1,
                 Err(e) => {
                     if !e.to_string().contains("UNIQUE constraint") {
@@ -350,7 +351,7 @@ async fn restore_backup_data(
         }
     }
     if restored_connections > 0 {
-        log::info!("[Keystore] Restored {} mind map connections", restored_connections);
+        log::info!("[Keystore] Restored {} impulse map connections", restored_connections);
     }
 
     // Restore bot settings if present
@@ -502,6 +503,7 @@ async fn restore_backup_data(
                     hb_config.active_hours_end.as_deref(),
                     hb_config.active_days.as_deref(),
                     Some(hb_config.enabled),
+                    Some(hb_config.impulse_evolver),
                 ) {
                     log::warn!("[Keystore] Failed to restore heartbeat config: {}", e);
                 } else {
@@ -754,6 +756,7 @@ async fn restore_backup_data(
             max_iterations: entry.max_iterations.unwrap_or(90) as u32,
             skip_task_planner: entry.skip_task_planner.unwrap_or(false),
             aliases,
+            hidden: entry.hidden.unwrap_or(false),
         };
         match db.upsert_agent_subtype(&config) {
             Ok(_) => restored_subtypes += 1,
@@ -1153,7 +1156,7 @@ async fn main() -> std::io::Result<()> {
     let disk_quota: Option<Arc<disk_quota::DiskQuotaManager>> = if disk_quota_mb > 0 {
         let tracked_dirs = vec![
             std::path::PathBuf::from(config::workspace_dir()),
-            std::path::PathBuf::from(config::journal_dir()),
+            std::path::PathBuf::from(config::notes_config().notes_dir),
             std::path::PathBuf::from(config::memory_config().memory_dir),
             std::path::PathBuf::from(config::soul_dir()),
             // Include the database directory
@@ -1437,6 +1440,10 @@ async fn main() -> std::io::Result<()> {
     }
     if let Some(ref dq) = disk_quota {
         dispatcher_builder = dispatcher_builder.with_disk_quota(dq.clone());
+        // Also wire disk quota into the NoteStore
+        if let Some(ref store) = dispatcher_builder.notes_store() {
+            store.set_disk_quota(dq.clone());
+        }
     }
     let dispatcher = Arc::new(dispatcher_builder);
 
@@ -1571,6 +1578,31 @@ async fn main() -> std::io::Result<()> {
         });
     }
 
+    // Spawn stale session cleanup task — marks sessions stuck in 'active' as 'failed'.
+    // This catches sessions left behind by panics, dropped futures, or missed finalization.
+    {
+        let db_cleanup = db.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(120));
+            interval.tick().await; // skip immediate tick
+            loop {
+                interval.tick().await;
+                match db_cleanup.cleanup_stale_active_sessions(10) {
+                    Ok(0) => {} // nothing to clean
+                    Ok(count) => {
+                        log::warn!(
+                            "[SESSION_CLEANUP] Marked {} stale active session(s) as failed (>10 min without update)",
+                            count
+                        );
+                    }
+                    Err(e) => {
+                        log::error!("[SESSION_CLEANUP] Failed to clean up stale sessions: {}", e);
+                    }
+                }
+            }
+        });
+    }
+
     // Module workers are now managed by standalone services — no workers to spawn here.
     // Keep an empty map in AppState for API compatibility.
     let module_workers = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, tokio::task::JoinHandle<()>>::new()));
@@ -1673,15 +1705,16 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::tools::config)
             .configure(controllers::skills::config)
             .configure(controllers::cron::config)
+            .configure(controllers::heartbeat::config)
             .configure(controllers::gmail::config)
             .configure(controllers::payments::config)
             .configure(controllers::eip8004::config)
             .configure(controllers::files::config)
             .configure(controllers::intrinsic::config)
-            .configure(controllers::journal::config)
+            .configure(controllers::notes::config)
             .configure(controllers::tx_queue::config)
             .configure(controllers::broadcasted_transactions::config)
-            .configure(controllers::mindmap::config)
+            .configure(controllers::impulse_map::config)
             .configure(controllers::kanban::config)
             .configure(controllers::modules::config)
             .configure(controllers::memory::config)
@@ -1692,6 +1725,7 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::agent_subtypes::config)
             .configure(controllers::special_roles::config)
             .configure(controllers::external_channel::config)
+            .configure(controllers::transcribe::config)
             // WebSocket Gateway route (same port as HTTP, required for single-port platforms)
             .route("/ws", web::get().to(gateway::actix_ws::ws_handler));
 

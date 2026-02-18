@@ -39,12 +39,17 @@ impl SessionMessageWriter {
         content: String,
         user_name: Option<&str>,
     ) {
-        let _ = self.tx.send(PendingMessage {
+        if let Err(e) = self.tx.send(PendingMessage {
             session_id,
             role,
             content,
             user_name: user_name.map(|s| s.to_string()),
-        });
+        }) {
+            log::error!(
+                "[SESSION_WRITER] Failed to queue {:?} message for session {} — background drain task may have crashed: {}",
+                role, session_id, e
+            );
+        }
     }
 
     /// Background loop that drains the channel and writes to DB.

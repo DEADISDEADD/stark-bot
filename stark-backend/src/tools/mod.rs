@@ -32,6 +32,8 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     // Memory graph tools (associations + knowledge graph)
     registry.register(Arc::new(builtin::MemoryAssociateTool::new()));
     registry.register(Arc::new(builtin::MemoryGraphTool::new()));
+    // Notes tool (Obsidian-compatible notes with FTS5)
+    registry.register(Arc::new(builtin::NotesTool::new()));
     registry.register(Arc::new(builtin::ModifySoulTool::new()));
     registry.register(Arc::new(builtin::RegisterNewIdentityTool::new()));
     registry.register(Arc::new(builtin::ImportIdentityTool::new()));
@@ -45,7 +47,7 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::WorkstreamTool::new()));
     registry.register(Arc::new(builtin::InstallApiKeyTool::new()));
     registry.register(Arc::new(builtin::HeartbeatConfigTool::new()));
-    registry.register(Arc::new(builtin::MindmapManageTool::new()));
+    registry.register(Arc::new(builtin::ImpulseMapManageTool::new()));
 
     // Special roles (enriched safe mode management)
     registry.register(Arc::new(builtin::ModifySpecialRoleTool::new()));
@@ -80,8 +82,6 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::VerifyTxBroadcastTool::new()));
     // Network selection for chain-specific operations
     registry.register(Arc::new(builtin::SelectWeb3NetworkTool::new()));
-    // Polymarket prediction market trading
-    registry.register(Arc::new(builtin::PolymarketTradeTool::new()));
     // DexScreener market data
     registry.register(Arc::new(builtin::DexScreenerTool::new()));
     // GeckoTerminal interactive price charts
@@ -119,6 +119,8 @@ fn register_all_tools(registry: &mut ToolRegistry) {
 
     // Exec tool (Development mode)
     registry.register(Arc::new(builtin::ExecTool::new()));
+    // Skill script execution (hidden — only available when a skill declares requires_tools)
+    registry.register(Arc::new(builtin::RunSkillScriptTool::new()));
     // Claude Code Remote — SSH into remote machine running Claude Code CLI
     registry.register(Arc::new(builtin::ClaudeCodeRemoteTool::new()));
 

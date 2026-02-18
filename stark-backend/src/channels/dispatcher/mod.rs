@@ -6,10 +6,11 @@ use crate::ai::{
     ThinkingLevel,
 };
 use crate::channels::types::{DispatchResult, NormalizedMessage};
-use crate::config::MemoryConfig;
+use crate::config::{MemoryConfig, NotesConfig};
+use crate::notes::NoteStore;
 use crate::context::{self, estimate_tokens, ContextManager};
 use crate::db::Database;
-use crate::execution::ExecutionTracker;
+use crate::execution::{ExecutionTracker, SessionLaneManager};
 use crate::gateway::events::EventBroadcaster;
 use crate::gateway::protocol::GatewayEvent;
 use crate::models::session_message::MessageRole as DbMessageRole;
@@ -52,6 +53,8 @@ pub struct MessageDispatcher {
     memory_config: MemoryConfig,
     /// Hybrid search engine (FTS + vector + graph)
     hybrid_search: Option<Arc<crate::memory::HybridSearchEngine>>,
+    /// Notes store for Obsidian-compatible notes with FTS5
+    notes_store: Option<Arc<NoteStore>>,
     /// SubAgent manager for spawning background AI agents
     subagent_manager: Option<Arc<SubAgentManager>>,
     /// Skill registry for managing skills
@@ -72,6 +75,8 @@ pub struct MessageDispatcher {
     resource_manager: Arc<ResourceManager>,
     /// Watchdog configuration for timeout enforcement
     watchdog_config: WatchdogConfig,
+    /// Session lane manager for serializing requests per channel/session
+    session_lanes: Arc<SessionLaneManager>,
     /// Mock AI client for integration tests (bypasses real AI API)
     #[cfg(test)]
     mock_ai_client: Option<crate::ai::MockAiClient>,
@@ -116,6 +121,20 @@ impl MessageDispatcher {
         skill_registry: Option<Arc<crate::skills::SkillRegistry>>,
     ) -> Self {
         let memory_config = MemoryConfig::from_env();
+
+        // Create NoteStore for Obsidian-compatible notes
+        let notes_config = NotesConfig::from_env();
+        let notes_dir = std::path::PathBuf::from(notes_config.notes_dir.clone());
+        let notes_store = match NoteStore::new(notes_dir, &notes_config.notes_db_path()) {
+            Ok(store) => {
+                log::info!("[DISPATCHER] NoteStore initialized at {}", notes_config.notes_dir);
+                Some(Arc::new(store))
+            }
+            Err(e) => {
+                log::error!("[DISPATCHER] Failed to create NoteStore: {}", e);
+                None
+            }
+        };
 
         // Create SubAgentManager for spawning background AI agents
         // Uses OnceLock for late-bound fields (tx_queue, disk_quota set via with_* after construction)
@@ -167,6 +186,7 @@ impl MessageDispatcher {
             archetype_registry: ArchetypeRegistry::new(),
             memory_config,
             hybrid_search: None,
+            notes_store,
             subagent_manager: Some(subagent_manager),
             skill_registry,
             hook_manager: None,
@@ -177,6 +197,7 @@ impl MessageDispatcher {
             rollout_manager,
             resource_manager,
             watchdog_config: WatchdogConfig::default(),
+            session_lanes: SessionLaneManager::new(),
             #[cfg(test)]
             mock_ai_client: None,
         }
@@ -238,6 +259,13 @@ impl MessageDispatcher {
         let execution_tracker = Arc::new(ExecutionTracker::new(broadcaster.clone()));
         let memory_config = MemoryConfig::from_env();
 
+        // Create NoteStore
+        let notes_config = NotesConfig::from_env();
+        let notes_dir = std::path::PathBuf::from(notes_config.notes_dir.clone());
+        let notes_store = NoteStore::new(notes_dir, &notes_config.notes_db_path())
+            .ok()
+            .map(Arc::new);
+
         // Create context manager
         let context_manager = ContextManager::new(db.clone())
             .with_memory_config(memory_config.clone());
@@ -259,6 +287,7 @@ impl MessageDispatcher {
             archetype_registry: ArchetypeRegistry::new(),
             memory_config,
             hybrid_search: None,
+            notes_store,
             subagent_manager: None, // No tools = no subagent support
             skill_registry: None,   // No skills without tools
             hook_manager: None,     // No hooks without explicit setup
@@ -269,9 +298,15 @@ impl MessageDispatcher {
             rollout_manager,
             resource_manager,
             watchdog_config: WatchdogConfig::default(),
+            session_lanes: SessionLaneManager::new(),
             #[cfg(test)]
             mock_ai_client: None,
         }
+    }
+
+    /// Get the NoteStore (if available)
+    pub fn notes_store(&self) -> Option<Arc<NoteStore>> {
+        self.notes_store.clone()
     }
 
     /// Get the SubAgentManager (if available)
@@ -289,6 +324,38 @@ impl MessageDispatcher {
         &self.resource_manager
     }
 
+    /// Panic-safe dispatch wrapper.
+    ///
+    /// Catches any panic inside `dispatch()` and returns a `DispatchResult::error`
+    /// instead of propagating the panic up to the channel handler. This prevents
+    /// sessions from getting stuck in "Active" state when an unexpected panic
+    /// occurs during AI generation or tool execution.
+    pub async fn dispatch_safe(&self, message: NormalizedMessage) -> DispatchResult {
+        use std::panic::AssertUnwindSafe;
+        use futures_util::FutureExt;
+
+        let channel_id = message.channel_id;
+        match AssertUnwindSafe(self.dispatch(message)).catch_unwind().await {
+            Ok(result) => result,
+            Err(panic_info) => {
+                let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "unknown panic".to_string()
+                };
+                log::error!(
+                    "[DISPATCH] PANIC during dispatch for channel {}: {}",
+                    channel_id, panic_msg
+                );
+                // Best-effort: complete execution tracking so the channel isn't stuck
+                self.execution_tracker.complete_execution(channel_id);
+                DispatchResult::error(format!("Internal error (panic): {}", panic_msg))
+            }
+        }
+    }
+
     /// Dispatch a normalized message to the AI and return the response
     pub async fn dispatch(&self, message: NormalizedMessage) -> DispatchResult {
         // Emit message received event
@@ -298,6 +365,12 @@ impl MessageDispatcher {
             &message.user_name,
             &message.text,
         ));
+
+        // Acquire session lane to serialize requests for the same channel/chat.
+        // This prevents concurrent dispatches from racing on session creation,
+        // context building, and tool execution for the same conversation.
+        let lane_key = format!("{}:{}:{}", message.channel_type, message.channel_id, message.chat_id);
+        let _lane_guard = self.session_lanes.acquire(&lane_key).await;
 
         // Check for reset commands
         let text_lower = message.text.trim().to_lowercase();
@@ -935,6 +1008,12 @@ impl MessageDispatcher {
             log::debug!("[DISPATCH] HybridSearchEngine attached to tool context");
         }
 
+        // Add NoteStore for notes tools
+        if let Some(ref store) = self.notes_store {
+            tool_context = tool_context.with_notes_store(store.clone());
+            log::debug!("[DISPATCH] NoteStore attached to tool context");
+        }
+
         // Add DiskQuotaManager for enforcing disk usage limits
         if let Some(ref dq) = self.disk_quota {
             tool_context = tool_context.with_disk_quota(dq.clone());
@@ -1381,6 +1460,15 @@ impl MessageDispatcher {
                 Orchestrator::new(original_message.text.clone())
             }
         };
+
+        // Auto-select hidden subtypes by matching channel_type to subtype key
+        // (e.g., channel_type "impulse_evolver" → hidden subtype "impulse_evolver")
+        if let Some(config) = agent_types::get_subtype_config(&original_message.channel_type) {
+            if config.hidden {
+                orchestrator.set_subtype(Some(config.key.clone()));
+                log::info!("[MULTI_AGENT] Hidden subtype auto-selected: {}", config.key);
+            }
+        }
 
         // Update the selected network from the current message
         // This ensures the agent uses the network the user has selected in the UI

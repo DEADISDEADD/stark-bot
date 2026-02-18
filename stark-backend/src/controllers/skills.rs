@@ -91,6 +91,9 @@ pub struct ArgumentInfo {
 pub struct ScriptInfo {
     pub name: String,
     pub language: String,
+    /// Script source code (included in detail views)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 impl From<&DbSkillScript> for ScriptInfo {
@@ -98,6 +101,7 @@ impl From<&DbSkillScript> for ScriptInfo {
         ScriptInfo {
             name: script.name.clone(),
             language: script.language.clone(),
+            code: Some(script.code.clone()),
         }
     }
 }

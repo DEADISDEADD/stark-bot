@@ -716,7 +716,7 @@ pub async fn start_telegram_listener(
                         "Telegram: Dispatching message to AI for user {}",
                         user_name
                     );
-                    let result = dispatcher.dispatch(normalized).await;
+                    let result = dispatcher.dispatch_safe(normalized).await;
                     log::info!("Telegram: Dispatch complete, error={:?}", result.error);
 
                     // Unsubscribe from events

@@ -26,8 +26,7 @@ const SERVICE_CAPABILITIES: ServiceCapability[] = [
   { id: 'twitter', label: 'X / Twitter', icon: '/icons/twitter.svg', matchNames: ['twitter', 'x_post', 'tweet'], matchTags: ['twitter', 'x', 'social-media'] },
   { id: 'discord', label: 'Discord', icon: '/icons/discord.svg', matchNames: ['discord'], matchTags: ['discord'] },
   { id: 'telegram', label: 'Telegram', icon: '/icons/telegram.svg', matchNames: ['telegram'], matchTags: ['telegram'] },
-  { id: 'uniswap', label: 'Uniswap', icon: '/icons/uniswap.svg', matchNames: ['uniswap'], matchTags: ['uniswap', 'dex'] },
-  { id: 'wallet', label: 'Wallet', icon: '/icons/wallet.svg', matchNames: ['wallet', 'transfer', 'send_eth', 'send_usdc'], matchTags: ['wallet', 'transfer', 'crypto'] },
+  { id: 'wallet', label: 'Encrypted Wallet', icon: '/icons/wallet.svg', matchNames: ['wallet', 'transfer', 'send_eth', 'send_usdc'], matchTags: ['wallet', 'transfer', 'crypto'] },
 ];
 
 export default function Dashboard() {
@@ -160,7 +159,7 @@ export default function Dashboard() {
           </li>
           <li className="flex items-start gap-2">
             <span className="text-stark-400 mt-1">•</span>
-            <span>To setup automation, configure a heartbeat and the mindmap or set up scheduled cron jobs</span>
+            <span>To setup automation, configure a heartbeat and the impulse map or set up scheduled cron jobs</span>
           </li>
         </ul>
       </div>

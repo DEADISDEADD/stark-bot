@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, RotateCcw, Copy, Check, Wallet, Bug, Square, Loader2, ChevronDown, CheckCircle, Circle, ExternalLink, Wrench } from 'lucide-react';
+import { Send, RotateCcw, Copy, Check, Wallet, Bug, Square, Loader2, ChevronDown, CheckCircle, Circle, ExternalLink, Wrench, Mic, MicOff } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import ChatMessage from '@/components/chat/ChatMessage';
 import TypingIndicator from '@/components/chat/TypingIndicator';
@@ -15,7 +15,7 @@ import SubagentBadge from '@/components/chat/SubagentBadge';
 import { Subagent, SubagentStatus } from '@/lib/subagent-types';
 import { useGateway } from '@/hooks/useGateway';
 import { useWallet, SUPPORTED_NETWORKS, type SupportedNetwork } from '@/hooks/useWallet';
-import { sendChatMessage, getAgentSettings, getSkills, getTools, confirmTransaction, cancelTransaction, stopExecution, listSubagents, getActiveWebSession, getSessionTranscript, getExecutionStatus, createNewWebSession, getPlannerTasks, getAgentSubtypes, AgentSubtypeInfo } from '@/lib/api';
+import { sendChatMessage, getAgentSettings, getSkills, getTools, confirmTransaction, cancelTransaction, stopExecution, listSubagents, getActiveWebSession, getSessionTranscript, getExecutionStatus, createNewWebSession, getPlannerTasks, getAgentSubtypes, AgentSubtypeInfo, transcribeAudio } from '@/lib/api';
 import { Command, COMMAND_DEFINITIONS, getAllCommands } from '@/lib/commands';
 import type { ChatMessage as ChatMessageType, MessageRole, SlashCommand, TrackedTransaction, TxPendingEvent, TxConfirmedEvent, PendingConfirmation, ConfirmationRequiredEvent, PlannerTask, TaskQueueUpdateEvent, TaskStatusChangeEvent } from '@/types';
 
@@ -112,6 +112,10 @@ export default function AgentChat() {
   const [copied, setCopied] = useState(false);
   const [trackedTxs, setTrackedTxs] = useState<TrackedTransaction[]>([]);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const [txQueueConfirmation, setTxQueueConfirmation] = useState<TxQueueTransaction | null>(null);
   const [subagents, setSubagents] = useState<Subagent[]>([]);
   const [plannerTasks, setPlannerTasks] = useState<PlannerTask[]>([]);
@@ -1399,6 +1403,69 @@ export default function AgentChat() {
     commandHandlers[command]();
   }, [addMessage, commandHandlers]);
 
+  const toggleRecording = useCallback(async () => {
+    if (isRecording) {
+      // Stop recording
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+      setIsRecording(false);
+      return;
+    }
+
+    // Start recording
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+
+      // Prefer WebM/Opus, fall back to browser default
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : '';
+
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        // Stop all tracks to release mic
+        stream.getTracks().forEach((t) => t.stop());
+
+        const blob = new Blob(audioChunksRef.current, {
+          type: recorder.mimeType || 'audio/webm',
+        });
+
+        if (blob.size === 0) return;
+
+        setIsTranscribing(true);
+        try {
+          const { text } = await transcribeAudio(blob);
+          if (text) {
+            setInput((prev) => (prev ? prev + ' ' + text : text));
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Transcription failed';
+          addMessage('system', `Voice transcription error: ${msg}`);
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      addMessage('system', `Microphone access denied: ${msg}`);
+    }
+  }, [isRecording, addMessage]);
+
   const handleSend = useCallback(async () => {
     const trimmedInput = input.trim();
     if (!trimmedInput || isLoading) return;
@@ -2046,6 +2113,28 @@ export default function AgentChat() {
             </div>
             <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
               <CommandMenu onCommandSelect={handleMenuCommand} />
+              {!isLoading && (
+                <button
+                  onClick={toggleRecording}
+                  disabled={isTranscribing}
+                  className={`w-12 h-12 flex items-center justify-center rounded-lg transition-all ${
+                    isRecording
+                      ? 'bg-red-600 hover:bg-red-500 animate-pulse'
+                      : isTranscribing
+                        ? 'bg-slate-700 cursor-wait'
+                        : 'bg-slate-700 hover:bg-slate-600'
+                  } text-white disabled:opacity-50`}
+                  title={isRecording ? 'Stop recording' : isTranscribing ? 'Transcribing...' : 'Voice input'}
+                >
+                  {isTranscribing ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : isRecording ? (
+                    <MicOff className="w-5 h-5" />
+                  ) : (
+                    <Mic className="w-5 h-5" />
+                  )}
+                </button>
+              )}
               {isLoading ? (
                 /* Stop button when running */
                 <button

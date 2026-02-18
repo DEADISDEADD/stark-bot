@@ -221,7 +221,7 @@ async fn chat(
 
     // Dispatch through the unified pipeline
     // This gives us: sessions, identities, memories, tool execution, gateway events
-    let result = state.dispatcher.dispatch(normalized).await;
+    let result = state.dispatcher.dispatch_safe(normalized).await;
 
     if let Some(error) = result.error {
         log::error!("Chat dispatch error: {}", error);

@@ -32,10 +32,12 @@ pub struct BackupData {
     pub wallet_address: String,
     /// API keys (always included)
     pub api_keys: Vec<ApiKeyEntry>,
-    /// Mind map nodes
-    pub mind_map_nodes: Vec<MindNodeEntry>,
-    /// Mind map connections
-    pub mind_map_connections: Vec<MindConnectionEntry>,
+    /// Impulse map nodes
+    #[serde(alias = "mind_map_nodes")]
+    pub impulse_map_nodes: Vec<ImpulseNodeEntry>,
+    /// Impulse map connections
+    #[serde(alias = "mind_map_connections")]
+    pub impulse_map_connections: Vec<ImpulseConnectionEntry>,
     /// Cron jobs (scheduled tasks)
     pub cron_jobs: Vec<CronJobEntry>,
     /// Heartbeat config (optional)
@@ -92,8 +94,8 @@ impl Default for BackupData {
             created_at: Utc::now(),
             wallet_address: String::new(),
             api_keys: Vec::new(),
-            mind_map_nodes: Vec::new(),
-            mind_map_connections: Vec::new(),
+            impulse_map_nodes: Vec::new(),
+            impulse_map_connections: Vec::new(),
             cron_jobs: Vec::new(),
             heartbeat_config: None,
             memories: None,
@@ -136,8 +138,8 @@ impl BackupData {
     /// Calculate total item count for progress reporting
     pub fn item_count(&self) -> usize {
         self.api_keys.len()
-            + self.mind_map_nodes.len()
-            + self.mind_map_connections.len()
+            + self.impulse_map_nodes.len()
+            + self.impulse_map_connections.len()
             + self.cron_jobs.len()
             + self.memories.as_ref().map(|m| m.len()).unwrap_or(0)
             + if self.bot_settings.is_some() { 1 } else { 0 }
@@ -167,10 +169,10 @@ pub struct ApiKeyEntry {
     pub key_value: String,
 }
 
-/// Mind map node entry in backup
+/// Impulse map node entry in backup
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct MindNodeEntry {
+pub struct ImpulseNodeEntry {
     pub id: i64,
     pub body: String,
     pub position_x: Option<f64>,
@@ -180,10 +182,10 @@ pub struct MindNodeEntry {
     pub updated_at: String,
 }
 
-/// Mind map connection entry in backup
+/// Impulse map connection entry in backup
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct MindConnectionEntry {
+pub struct ImpulseConnectionEntry {
     pub parent_id: i64,
     pub child_id: i64,
 }
@@ -221,6 +223,7 @@ pub struct HeartbeatConfigEntry {
     pub active_hours_end: Option<String>,
     pub active_days: Option<String>,
     pub enabled: bool,
+    pub impulse_evolver: bool,
 }
 
 /// Memory entry in backup
@@ -395,6 +398,8 @@ pub struct AgentSubtypeEntry {
     pub max_iterations: Option<u32>,
     pub skip_task_planner: Option<bool>,
     pub aliases_json: String,
+    #[serde(default)]
+    pub hidden: Option<bool>,
 }
 
 /// Special role entry in backup (enriched safe mode)
@@ -448,7 +453,7 @@ impl BackupOptions {
         }
     }
 
-    /// Minimal backup (API keys and mind map only)
+    /// Minimal backup (API keys and impulse map only)
     pub fn minimal() -> Self {
         Self {
             include_memories: false,
@@ -479,11 +484,11 @@ pub async fn collect_backup_data(
             .collect();
     }
 
-    // Mind map nodes
-    if let Ok(nodes) = db.list_mind_nodes() {
-        backup.mind_map_nodes = nodes
+    // Impulse map nodes
+    if let Ok(nodes) = db.list_impulse_nodes() {
+        backup.impulse_map_nodes = nodes
             .iter()
-            .map(|n| MindNodeEntry {
+            .map(|n| ImpulseNodeEntry {
                 id: n.id,
                 body: n.body.clone(),
                 position_x: n.position_x,
@@ -495,11 +500,11 @@ pub async fn collect_backup_data(
             .collect();
     }
 
-    // Mind map connections
-    if let Ok(connections) = db.list_mind_node_connections() {
-        backup.mind_map_connections = connections
+    // Impulse map connections
+    if let Ok(connections) = db.list_impulse_node_connections() {
+        backup.impulse_map_connections = connections
             .iter()
-            .map(|c| MindConnectionEntry {
+            .map(|c| ImpulseConnectionEntry {
                 parent_id: c.parent_id,
                 child_id: c.child_id,
             })
@@ -563,6 +568,7 @@ pub async fn collect_backup_data(
                 active_hours_end: config.active_hours_end.clone(),
                 active_days: config.active_days.clone(),
                 enabled: config.enabled,
+                impulse_evolver: config.impulse_evolver,
             });
         }
     }
@@ -732,6 +738,7 @@ pub async fn collect_backup_data(
                 max_iterations: Some(s.max_iterations),
                 skip_task_planner: Some(s.skip_task_planner),
                 aliases_json: serde_json::to_string(&s.aliases).unwrap_or_else(|_| "[]".to_string()),
+                hidden: Some(s.hidden),
             })
             .collect();
     }

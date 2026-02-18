@@ -596,7 +596,7 @@ impl Database {
         })
     }
 
-    /// List heartbeat sessions with their associated mind node IDs
+    /// List heartbeat sessions with their associated impulse node IDs
     /// Parses the node ID from the heartbeat message content
     pub fn list_heartbeat_sessions(&self, limit: i32) -> SqliteResult<Vec<(ChatSession, Option<i64>)>> {
         let conn = self.conn();
@@ -619,7 +619,7 @@ impl Database {
 
         drop(stmt);
 
-        // For each session, try to extract the mind node ID from the first message
+        // For each session, try to extract the impulse node ID from the first message
         let mut results = Vec::new();
         for session in sessions {
             let node_id = self.extract_heartbeat_node_id(&conn, session.id);
@@ -629,7 +629,7 @@ impl Database {
         Ok(results)
     }
 
-    /// Extract the mind node ID from a heartbeat session's first message
+    /// Extract the impulse node ID from a heartbeat session's first message
     /// Looks for pattern "Current Position: Node #X" in the message
     fn extract_heartbeat_node_id(&self, conn: &super::super::DbConn, session_id: i64) -> Option<i64> {
         let content: Option<String> = conn.query_row(
@@ -901,4 +901,23 @@ impl Database {
         })
     }
 
+    /// Find and mark stale sessions as failed.
+    ///
+    /// Sessions with `completion_status = 'active'` and `updated_at` older than
+    /// `stale_minutes` are considered stuck (e.g., due to a panic or dropped future)
+    /// and are marked as `failed` so they don't block the UI or appear as running.
+    ///
+    /// Returns the number of sessions cleaned up.
+    pub fn cleanup_stale_active_sessions(&self, stale_minutes: i64) -> SqliteResult<usize> {
+        let conn = self.conn();
+        let cutoff = (Utc::now() - chrono::Duration::minutes(stale_minutes)).to_rfc3339();
+        let count = conn.execute(
+            "UPDATE chat_sessions
+             SET completion_status = 'failed', updated_at = ?1
+             WHERE completion_status = 'active'
+               AND updated_at < ?2",
+            rusqlite::params![&Utc::now().to_rfc3339(), &cutoff],
+        )?;
+        Ok(count)
+    }
 }

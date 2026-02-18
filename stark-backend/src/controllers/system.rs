@@ -122,7 +122,7 @@ async fn system_info(data: web::Data<AppState>, req: HttpRequest) -> impl Respon
 
     let workspace_dir = config::workspace_dir();
     let memory_dir = config::memory_config().memory_dir;
-    let journal_dir = config::journal_dir();
+    let notes_dir = config::notes_dir();
     let soul_dir = config::soul_dir();
 
     // Database directory
@@ -137,7 +137,7 @@ async fn system_info(data: web::Data<AppState>, req: HttpRequest) -> impl Respon
     let mut breakdown = HashMap::new();
     breakdown.insert("workspace".to_string(), dir_size(&workspace_dir));
     breakdown.insert("memory".to_string(), dir_size(&memory_dir));
-    breakdown.insert("journal".to_string(), dir_size(&journal_dir));
+    breakdown.insert("notes".to_string(), dir_size(&notes_dir));
     breakdown.insert("soul".to_string(), dir_size(&soul_dir));
     breakdown.insert("database".to_string(), dir_size(&db_dir));
 
@@ -210,6 +210,11 @@ async fn cleanup_memories(
     // Refresh disk quota
     if let Some(ref dq) = data.disk_quota {
         dq.refresh();
+    }
+
+    // Reindex notes store
+    if let Some(store) = data.dispatcher.notes_store() {
+        let _ = store.reindex();
     }
 
     HttpResponse::Ok().json(CleanupResponse {

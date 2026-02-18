@@ -14,6 +14,7 @@ mod list_files;
 mod read_file;
 mod read_symbol;
 mod rename_file;
+mod run_skill_script;
 mod write_file;
 
 pub use apply_patch::ApplyPatchTool;
@@ -28,4 +29,5 @@ pub use list_files::ListFilesTool;
 pub use read_file::ReadFileTool;
 pub use read_symbol::ReadSymbolTool;
 pub use rename_file::RenameFileTool;
+pub use run_skill_script::RunSkillScriptTool;
 pub use write_file::WriteFileTool;

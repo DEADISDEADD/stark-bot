@@ -18,6 +18,7 @@ pub mod social_media;
 mod local_rpc;
 mod memory_associate;
 mod memory_graph;
+mod notes;
 mod process_status;
 mod memory_read;
 mod memory_search;
@@ -26,12 +27,13 @@ mod web_fetch;
 // Re-exports from submodules
 pub use bash::{
     ApplyPatchTool, ClaudeCodeRemoteTool, DeleteFileTool, EditFileTool, ExecTool, GitTool,
-    GlobTool, GrepTool, ListFilesTool, ReadFileTool, ReadSymbolTool, RenameFileTool, WriteFileTool,
+    GlobTool, GrepTool, ListFilesTool, ReadFileTool, ReadSymbolTool, RenameFileTool,
+    RunSkillScriptTool, WriteFileTool,
 };
 pub use code::{CommitterTool, DeployTool, IndexProjectTool, PrQualityTool, VerifyChangesTool};
 pub use core::{
     AddTaskTool, DefineTasksTool, AgentSendTool, ApiKeysCheckTool, AskUserTool, HeartbeatConfigTool,
-    ImportIdentityTool, InstallApiKeyTool, ManageModulesTool, ManageSkillsTool, MindmapManageTool,
+    ImportIdentityTool, InstallApiKeyTool, ManageModulesTool, ManageSkillsTool, ImpulseMapManageTool,
     ReadSkillTool, RegisterNewIdentityTool, WorkstreamTool, ModifySoulTool, ModifySpecialRoleTool, SayToUserTool,
     SetAgentSubtypeTool, SubagentStatusTool, SpawnSubagentsTool, TaskFullyCompletedTool, UseSkillTool,
     // Meta tools (self-management)
@@ -40,7 +42,7 @@ pub use core::{
 };
 pub use cryptocurrency::{
     load_networks, load_tokens, BridgeUsdcTool, BroadcastWeb3TxTool, DecodeCalldataTool,
-    DexScreenerTool, Erc8128FetchTool, GeckoTerminalTool, ListQueuedWeb3TxTool, PolymarketTradeTool,
+    DexScreenerTool, Erc8128FetchTool, GeckoTerminalTool, ListQueuedWeb3TxTool,
     SelectWeb3NetworkTool, SendEthTool, SetAddressTool, SiwaAuthTool, ToRawAmountTool, TokenLookupTool,
     VerifyTxBroadcastTool, Web3PresetFunctionCallTool, X402AgentInvokeTool, X402FetchTool,
     X402PostTool, X402RpcTool,
@@ -51,6 +53,7 @@ pub use social_media::{DiscordLookupTool, DiscordReadTool, DiscordWriteTool, Fig
 pub use local_rpc::LocalRpcTool;
 pub use memory_associate::MemoryAssociateTool;
 pub use memory_graph::MemoryGraphTool;
+pub use notes::NotesTool;
 pub use process_status::ProcessStatusTool;
 pub use memory_read::MemoryReadTool;
 pub use memory_search::MemorySearchTool;
