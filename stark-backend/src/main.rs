@@ -770,6 +770,10 @@ async fn restore_backup_data(
     }
     if restored_subtypes > 0 {
         log::info!("[Keystore] Restored {} agent subtypes", restored_subtypes);
+        // Migrate skill tags on restored subtypes (remove deprecated, add new required tags)
+        if let Err(e) = db.migrate_agent_subtype_skill_tags() {
+            log::warn!("[Keystore] Failed to migrate restored subtype skill tags: {}", e);
+        }
         // Reload registry with restored data
         if let Ok(subtypes) = db.list_agent_subtypes() {
             ai::multi_agent::types::load_subtype_registry(subtypes);
@@ -1205,6 +1209,10 @@ async fn main() -> std::io::Result<()> {
             let _ = db.upsert_agent_subtype(config);
         }
         log::info!("Synced {} agent subtypes from defaultagents.ron", configs.len());
+        // Migrate skill tags (remove deprecated, add new required tags)
+        if let Err(e) = db.migrate_agent_subtype_skill_tags() {
+            log::warn!("Failed to migrate agent subtype skill tags: {}", e);
+        }
         let subtypes = db.list_agent_subtypes().unwrap_or_default();
         ai::multi_agent::types::load_subtype_registry(subtypes);
     }

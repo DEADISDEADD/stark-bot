@@ -141,4 +141,40 @@ impl Database {
         let conn = self.conn();
         conn.query_row("SELECT COUNT(*) FROM agent_subtypes", [], |row| row.get(0))
     }
+
+    /// Migrate skill tags on saved agent subtypes:
+    /// - Remove deprecated tags (super_router, journal) from all subtypes
+    /// - Ensure secretary subtype has image_generation and notes tags
+    pub fn migrate_agent_subtype_skill_tags(&self) -> SqliteResult<()> {
+        let subtypes = self.list_agent_subtypes()?;
+        let deprecated_tags: &[&str] = &["super_router", "journal"];
+        let secretary_required_tags: &[&str] = &["image_generation", "notes"];
+
+        for mut subtype in subtypes {
+            let mut changed = false;
+
+            // Remove deprecated tags
+            let before = subtype.skill_tags.len();
+            subtype.skill_tags.retain(|t| !deprecated_tags.contains(&t.as_str()));
+            if subtype.skill_tags.len() != before {
+                changed = true;
+            }
+
+            // Add required tags to secretary
+            if subtype.key == "secretary" {
+                for &tag in secretary_required_tags {
+                    if !subtype.skill_tags.iter().any(|t| t == tag) {
+                        subtype.skill_tags.push(tag.to_string());
+                        changed = true;
+                    }
+                }
+            }
+
+            if changed {
+                log::info!("[Migration] Patching skill_tags for subtype '{}'", subtype.key);
+                self.upsert_agent_subtype(&subtype)?;
+            }
+        }
+        Ok(())
+    }
 }
