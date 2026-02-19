@@ -8,6 +8,12 @@ pub const DEFAULT_MAX_TOOL_ITERATIONS: i32 = 100;
 /// Default max safe mode queries per user per 10 minutes
 pub const DEFAULT_SAFE_MODE_MAX_QUERIES_PER_10MIN: i32 = 5;
 
+/// Default whisper server URL
+pub const DEFAULT_WHISPER_SERVER_URL: &str = "https://whisper.defirelay.com";
+
+/// Default embeddings server URL
+pub const DEFAULT_EMBEDDINGS_SERVER_URL: &str = "https://embeddings.defirelay.com";
+
 /// Bot settings stored in database
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BotSettings {
@@ -37,6 +43,10 @@ pub struct BotSettings {
     pub proxy_url: Option<String>,
     /// Whether kanban "ready" tasks are auto-executed by the scheduler
     pub kanban_auto_execute: bool,
+    /// Custom whisper server URL (None = default: https://whisper.defirelay.com)
+    pub whisper_server_url: Option<String>,
+    /// Custom embeddings server URL (None = default: https://embeddings.defirelay.com)
+    pub embeddings_server_url: Option<String>,
     /// Whether message coalescing is enabled
     #[serde(default)]
     pub coalescing_enabled: bool,
@@ -77,6 +87,8 @@ impl Default for BotSettings {
             theme_accent: None,
             proxy_url: None,
             kanban_auto_execute: true,
+            whisper_server_url: None,
+            embeddings_server_url: None,
             coalescing_enabled: false,
             coalescing_debounce_ms: 1500,
             coalescing_max_wait_ms: 5000,
@@ -115,6 +127,10 @@ pub struct UpdateBotSettingsRequest {
     pub proxy_url: Option<String>,
     /// Whether kanban "ready" tasks are auto-executed by the scheduler
     pub kanban_auto_execute: Option<bool>,
+    /// Custom whisper server URL (empty string or null = use default)
+    pub whisper_server_url: Option<String>,
+    /// Custom embeddings server URL (empty string or null = use default)
+    pub embeddings_server_url: Option<String>,
     pub coalescing_enabled: Option<bool>,
     pub coalescing_debounce_ms: Option<u64>,
     pub coalescing_max_wait_ms: Option<u64>,

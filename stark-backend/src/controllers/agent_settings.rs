@@ -1,7 +1,7 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use crate::ai::ArchetypeId;
 use crate::keystore_client::{KEYSTORE_CLIENT, DEFAULT_KEYSTORE_URL};
-use crate::models::{AgentSettings, AgentSettingsResponse, UpdateAgentSettingsRequest, UpdateBotSettingsRequest};
+use crate::models::{AgentSettings, AgentSettingsResponse, UpdateAgentSettingsRequest, UpdateBotSettingsRequest, DEFAULT_EMBEDDINGS_SERVER_URL, DEFAULT_WHISPER_SERVER_URL};
 use crate::ai_endpoint_config;
 use crate::tools::rpc_config;
 use crate::AppState;
@@ -258,6 +258,15 @@ pub async fn update_bot_settings(
         log::info!("Keystore URL updated to: {}", new_url);
     }
 
+    // Update live embeddings generator URL if embeddings_server_url is being changed
+    if let Some(ref url) = request.embeddings_server_url {
+        let resolved_url = if url.is_empty() { DEFAULT_EMBEDDINGS_SERVER_URL } else { url.as_str() };
+        if let Some(ref emb_gen) = state.remote_embedding_generator {
+            emb_gen.update_server_url(resolved_url);
+            log::info!("Embeddings server URL updated live to: {}", resolved_url);
+        }
+    }
+
     match state.db.update_bot_settings_full(
         request.bot_name.as_deref(),
         request.bot_email.as_deref(),
@@ -273,6 +282,8 @@ pub async fn update_bot_settings(
         request.theme_accent.as_deref(),
         request.proxy_url.as_deref(),
         request.kanban_auto_execute,
+        request.whisper_server_url.as_deref(),
+        request.embeddings_server_url.as_deref(),
     ) {
         Ok(settings) => {
             log::info!(
@@ -399,6 +410,46 @@ pub async fn get_ai_endpoint_presets(
     HttpResponse::Ok().json(presets)
 }
 
+/// Health check for infrastructure services (whisper + embeddings)
+pub async fn services_health(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    let settings = state.db.get_bot_settings().unwrap_or_default();
+    let whisper_url = settings.whisper_server_url
+        .unwrap_or_else(|| DEFAULT_WHISPER_SERVER_URL.to_string());
+    let embeddings_url = settings.embeddings_server_url
+        .unwrap_or_else(|| DEFAULT_EMBEDDINGS_SERVER_URL.to_string());
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let whisper_check = {
+        let url = format!("{}/health", whisper_url.trim_end_matches('/'));
+        let client = client.clone();
+        async move { client.get(&url).send().await.map(|r| r.status().is_success()).unwrap_or(false) }
+    };
+
+    let embeddings_check = {
+        let url = format!("{}/health", embeddings_url.trim_end_matches('/'));
+        let client = client.clone();
+        async move { client.get(&url).send().await.map(|r| r.status().is_success()).unwrap_or(false) }
+    };
+
+    let (whisper_healthy, embeddings_healthy) = tokio::join!(whisper_check, embeddings_check);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "whisper": { "url": whisper_url, "healthy": whisper_healthy },
+        "embeddings": { "url": embeddings_url, "healthy": embeddings_healthy },
+    }))
+}
+
 /// Configure routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -422,5 +473,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::resource("/api/auto-sync-status")
             .route(web::get().to(get_auto_sync_status))
+    );
+    cfg.service(
+        web::resource("/api/services/health")
+            .route(web::get().to(services_health))
     );
 }

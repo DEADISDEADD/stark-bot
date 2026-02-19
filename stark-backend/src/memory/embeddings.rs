@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::sync::RwLock;
 use std::time::Duration;
 
 /// Trait for generating text embeddings from various providers.
@@ -11,7 +12,7 @@ pub trait EmbeddingGenerator {
 /// Mirrors the whisper-server pattern (POST JSON, get JSON response).
 pub struct RemoteEmbeddingGenerator {
     client: reqwest::Client,
-    server_url: String,
+    server_url: RwLock<String>,
 }
 
 impl RemoteEmbeddingGenerator {
@@ -20,14 +21,20 @@ impl RemoteEmbeddingGenerator {
             .timeout(Duration::from_secs(10))
             .build()
             .expect("Failed to build HTTP client");
-        Self { client, server_url }
+        Self { client, server_url: RwLock::new(server_url) }
+    }
+
+    /// Update the server URL at runtime (e.g. when bot settings change).
+    pub fn update_server_url(&self, url: &str) {
+        *self.server_url.write().unwrap() = url.to_string();
     }
 }
 
 #[async_trait]
 impl EmbeddingGenerator for RemoteEmbeddingGenerator {
     async fn generate(&self, text: &str) -> Result<Vec<f32>, String> {
-        let url = format!("{}/embed", self.server_url.trim_end_matches('/'));
+        let server_url = self.server_url.read().unwrap().clone();
+        let url = format!("{}/embed", server_url.trim_end_matches('/'));
 
         let body = serde_json::json!({ "text": text });
 

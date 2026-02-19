@@ -83,6 +83,8 @@ pub struct AppState {
     pub resource_manager: Arc<telemetry::ResourceManager>,
     /// Hybrid search engine (FTS + vector + graph)
     pub hybrid_search: Option<Arc<memory::HybridSearchEngine>>,
+    /// Concrete remote embedding generator for live URL updates
+    pub remote_embedding_generator: Option<Arc<memory::embeddings::RemoteEmbeddingGenerator>>,
 }
 
 /// Auto-retrieve backup from keystore on fresh instance
@@ -374,6 +376,8 @@ async fn restore_backup_data(
             settings.theme_accent.as_deref(),
             None, // Don't restore proxy_url - it's infrastructure config
             None, // Don't restore kanban_auto_execute - keep current setting
+            settings.whisper_server_url.as_deref(),
+            settings.embeddings_server_url.as_deref(),
         ) {
             Ok(_) => log::info!("[Keystore] Restored bot settings"),
             Err(e) => log::warn!("[Keystore] Failed to restore bot settings: {}", e),
@@ -1381,16 +1385,19 @@ async fn main() -> std::io::Result<()> {
     log::info!("Registered {} tool validators", validator_registry.len());
 
     // Create embedding generator for hybrid search + association loop
-    let embeddings_server_url = std::env::var("EMBEDDINGS_SERVER_URL")
-        .unwrap_or_else(|_| "https://embeddings.defirelay.com".to_string());
+    let embeddings_server_url = db.get_bot_settings()
+        .ok()
+        .and_then(|s| s.embeddings_server_url)
+        .unwrap_or_else(|| crate::models::DEFAULT_EMBEDDINGS_SERVER_URL.to_string());
     log::info!(
         "HybridSearchEngine: using remote embeddings server at {}",
         embeddings_server_url
     );
+    let remote_embedding_generator = Arc::new(memory::embeddings::RemoteEmbeddingGenerator::new(
+        embeddings_server_url,
+    ));
     let embedding_generator: Arc<dyn memory::EmbeddingGenerator + Send + Sync> =
-        Arc::new(memory::embeddings::RemoteEmbeddingGenerator::new(
-            embeddings_server_url,
-        ));
+        remote_embedding_generator.clone();
 
     // Create hybrid search engine (FTS + vector + graph)
     let hybrid_search_engine: Option<Arc<memory::HybridSearchEngine>> =
@@ -1686,6 +1693,7 @@ async fn main() -> std::io::Result<()> {
                 telemetry_store: Arc::new(telemetry::TelemetryStore::new(Arc::clone(&db))),
                 resource_manager: Arc::new(telemetry::ResourceManager::new(Arc::clone(&db))),
                 hybrid_search: hybrid_search_engine.clone(),
+                remote_embedding_generator: Some(Arc::clone(&remote_embedding_generator)),
             }))
             .app_data(web::Data::new(Arc::clone(&sched)))
             // WebSocket data for /ws route

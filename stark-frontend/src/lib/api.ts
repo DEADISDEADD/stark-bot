@@ -1192,6 +1192,8 @@ export interface BotSettings {
   theme_accent?: string;
   proxy_url?: string;
   kanban_auto_execute: boolean;
+  whisper_server_url?: string;
+  embeddings_server_url?: string;
   compaction_background_threshold?: number;
   compaction_aggressive_threshold?: number;
   compaction_emergency_threshold?: number;
@@ -1218,6 +1220,8 @@ export async function updateBotSettings(data: {
   theme_accent?: string;
   proxy_url?: string;
   kanban_auto_execute?: boolean;
+  whisper_server_url?: string;
+  embeddings_server_url?: string;
   compaction_background_threshold?: number;
   compaction_aggressive_threshold?: number;
   compaction_emergency_threshold?: number;
@@ -1226,6 +1230,16 @@ export async function updateBotSettings(data: {
     method: 'PUT',
     body: JSON.stringify(data),
   });
+}
+
+// Services Health API
+export interface ServicesHealth {
+  whisper: { url: string; healthy: boolean };
+  embeddings: { url: string; healthy: boolean };
+}
+
+export async function getServicesHealth(): Promise<ServicesHealth> {
+  return apiFetch('/services/health');
 }
 
 // AI Endpoint Presets API

@@ -121,9 +121,11 @@ async fn transcribe(
         });
     }
 
-    // Determine whisper server URL
-    let whisper_url = std::env::var("WHISPER_SERVER_URL")
-        .unwrap_or_else(|_| "https://whisper.defirelay.com".to_string());
+    // Determine whisper server URL from DB settings (default if not configured)
+    let whisper_url = state.db.get_bot_settings()
+        .ok()
+        .and_then(|s| s.whisper_server_url)
+        .unwrap_or_else(|| crate::models::DEFAULT_WHISPER_SERVER_URL.to_string());
     let url = format!("{}/transcribe", whisper_url.trim_end_matches('/'));
 
     // Build multipart form to forward to whisper server

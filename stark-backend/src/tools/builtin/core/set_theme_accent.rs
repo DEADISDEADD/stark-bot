@@ -86,7 +86,7 @@ impl Tool for SetThemeAccentTool {
         match db.update_bot_settings_full(
             None, None, None, None, None, None, None, None, None, None, None,
             accent_str,
-            None, None,
+            None, None, None, None,
         ) {
             Ok(settings) => {
                 let display_color = settings

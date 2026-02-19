@@ -453,6 +453,10 @@ impl Database {
             conn.execute("ALTER TABLE bot_settings ADD COLUMN kanban_auto_execute INTEGER NOT NULL DEFAULT 1", [])?;
         }
 
+        // Migration: Add whisper_server_url and embeddings_server_url columns
+        let _ = conn.execute("ALTER TABLE bot_settings ADD COLUMN whisper_server_url TEXT", []);
+        let _ = conn.execute("ALTER TABLE bot_settings ADD COLUMN embeddings_server_url TEXT", []);
+
         // Initialize bot_settings with defaults if empty
         let bot_settings_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM bot_settings", [], |row| row.get(0))

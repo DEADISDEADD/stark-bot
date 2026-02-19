@@ -253,6 +253,8 @@ pub struct BotSettingsEntry {
     pub safe_mode_max_queries_per_10min: Option<i32>,
     pub guest_dashboard_enabled: bool,
     pub theme_accent: Option<String>,
+    pub whisper_server_url: Option<String>,
+    pub embeddings_server_url: Option<String>,
 }
 
 /// Channel setting entry in backup
@@ -531,6 +533,8 @@ pub async fn collect_backup_data(
             safe_mode_max_queries_per_10min: Some(settings.safe_mode_max_queries_per_10min),
             guest_dashboard_enabled: settings.guest_dashboard_enabled,
             theme_accent: settings.theme_accent.clone(),
+            whisper_server_url: settings.whisper_server_url.clone(),
+            embeddings_server_url: settings.embeddings_server_url.clone(),
         });
     }
 

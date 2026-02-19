@@ -17,7 +17,7 @@ impl Database {
         let conn = self.conn();
 
         let result = conn.query_row(
-            "SELECT id, bot_name, bot_email, web3_tx_requires_confirmation, rpc_provider, custom_rpc_endpoints, max_tool_iterations, rogue_mode_enabled, safe_mode_max_queries_per_10min, keystore_url, chat_session_memory_generation, guest_dashboard_enabled, theme_accent, proxy_url, kanban_auto_execute, created_at, updated_at, coalescing_enabled, coalescing_debounce_ms, coalescing_max_wait_ms, compaction_background_threshold, compaction_aggressive_threshold, compaction_emergency_threshold FROM bot_settings LIMIT 1",
+            "SELECT id, bot_name, bot_email, web3_tx_requires_confirmation, rpc_provider, custom_rpc_endpoints, max_tool_iterations, rogue_mode_enabled, safe_mode_max_queries_per_10min, keystore_url, chat_session_memory_generation, guest_dashboard_enabled, theme_accent, proxy_url, kanban_auto_execute, created_at, updated_at, coalescing_enabled, coalescing_debounce_ms, coalescing_max_wait_ms, compaction_background_threshold, compaction_aggressive_threshold, compaction_emergency_threshold, whisper_server_url, embeddings_server_url FROM bot_settings LIMIT 1",
             [],
             |row| {
                 let web3_tx_confirmation: i64 = row.get(3)?;
@@ -40,6 +40,8 @@ impl Database {
                 let compaction_background_threshold: f64 = row.get::<_, Option<f64>>(20)?.unwrap_or(0.80);
                 let compaction_aggressive_threshold: f64 = row.get::<_, Option<f64>>(21)?.unwrap_or(0.85);
                 let compaction_emergency_threshold: f64 = row.get::<_, Option<f64>>(22)?.unwrap_or(0.95);
+                let whisper_server_url: Option<String> = row.get(23)?;
+                let embeddings_server_url: Option<String> = row.get(24)?;
 
                 let custom_rpc_endpoints: Option<HashMap<String, String>> = custom_rpc_endpoints_json
                     .and_then(|json| serde_json::from_str(&json).ok());
@@ -60,6 +62,8 @@ impl Database {
                     theme_accent,
                     proxy_url,
                     kanban_auto_execute: kanban_auto_execute != 0,
+                    whisper_server_url,
+                    embeddings_server_url,
                     coalescing_enabled: coalescing_enabled != 0,
                     coalescing_debounce_ms,
                     coalescing_max_wait_ms,
@@ -91,7 +95,7 @@ impl Database {
         bot_email: Option<&str>,
         web3_tx_requires_confirmation: Option<bool>,
     ) -> SqliteResult<BotSettings> {
-        self.update_bot_settings_full(bot_name, bot_email, web3_tx_requires_confirmation, None, None, None, None, None, None, None, None, None, None, None)
+        self.update_bot_settings_full(bot_name, bot_email, web3_tx_requires_confirmation, None, None, None, None, None, None, None, None, None, None, None, None, None)
     }
 
     /// Update bot settings with all fields including RPC config and keystore URL
@@ -111,6 +115,8 @@ impl Database {
         theme_accent: Option<&str>,
         proxy_url: Option<&str>,
         kanban_auto_execute: Option<bool>,
+        whisper_server_url: Option<&str>,
+        embeddings_server_url: Option<&str>,
     ) -> SqliteResult<BotSettings> {
         let conn = self.conn();
         let now = Utc::now().to_rfc3339();
@@ -214,6 +220,20 @@ impl Database {
                     rusqlite::params![if enabled { 1 } else { 0 }, &now],
                 )?;
             }
+            if let Some(url) = whisper_server_url {
+                let url_value: Option<&str> = if url.is_empty() { None } else { Some(url) };
+                conn.execute(
+                    "UPDATE bot_settings SET whisper_server_url = ?1, updated_at = ?2",
+                    rusqlite::params![url_value, &now],
+                )?;
+            }
+            if let Some(url) = embeddings_server_url {
+                let url_value: Option<&str> = if url.is_empty() { None } else { Some(url) };
+                conn.execute(
+                    "UPDATE bot_settings SET embeddings_server_url = ?1, updated_at = ?2",
+                    rusqlite::params![url_value, &now],
+                )?;
+            }
         } else {
             // Insert new
             let name = bot_name.unwrap_or("StarkBot");
@@ -232,9 +252,11 @@ impl Database {
             let theme_accent_value: Option<&str> = theme_accent.filter(|u| !u.is_empty());
             let proxy_url_value: Option<&str> = proxy_url.filter(|u| !u.is_empty());
             let kanban_auto = kanban_auto_execute.unwrap_or(true);
+            let whisper_url_value: Option<&str> = whisper_server_url.filter(|u| !u.is_empty());
+            let embeddings_url_value: Option<&str> = embeddings_server_url.filter(|u| !u.is_empty());
             conn.execute(
-                "INSERT INTO bot_settings (bot_name, bot_email, web3_tx_requires_confirmation, rpc_provider, custom_rpc_endpoints, max_tool_iterations, rogue_mode_enabled, safe_mode_max_queries_per_10min, keystore_url, chat_session_memory_generation, guest_dashboard_enabled, theme_accent, proxy_url, kanban_auto_execute, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
-                rusqlite::params![name, email, if confirmation { 1 } else { 0 }, provider, endpoints_json, max_iterations, if rogue_mode { 1 } else { 0 }, safe_mode_queries, keystore_url_value, if session_memory { 1 } else { 0 }, if guest_dashboard { 1 } else { 0 }, theme_accent_value, proxy_url_value, if kanban_auto { 1 } else { 0 }, &now, &now],
+                "INSERT INTO bot_settings (bot_name, bot_email, web3_tx_requires_confirmation, rpc_provider, custom_rpc_endpoints, max_tool_iterations, rogue_mode_enabled, safe_mode_max_queries_per_10min, keystore_url, chat_session_memory_generation, guest_dashboard_enabled, theme_accent, proxy_url, kanban_auto_execute, whisper_server_url, embeddings_server_url, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                rusqlite::params![name, email, if confirmation { 1 } else { 0 }, provider, endpoints_json, max_iterations, if rogue_mode { 1 } else { 0 }, safe_mode_queries, keystore_url_value, if session_memory { 1 } else { 0 }, if guest_dashboard { 1 } else { 0 }, theme_accent_value, proxy_url_value, if kanban_auto { 1 } else { 0 }, whisper_url_value, embeddings_url_value, &now, &now],
             )?;
         }
 

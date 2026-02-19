@@ -1,5 +1,5 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { Save, Bot, Server, Shield, Cloud, AlertTriangle, CheckCircle, Info, XCircle, Copy, Check, Wallet, Brain, Palette, Globe, Minimize2 } from 'lucide-react';
+import { Save, Bot, Server, Shield, Cloud, AlertTriangle, CheckCircle, Info, XCircle, Copy, Check, Wallet, Brain, Palette, Globe, Minimize2, Radio } from 'lucide-react';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
@@ -10,9 +10,11 @@ import {
   getRpcProviders,
   getAutoSyncStatus,
   getConfigStatus,
+  getServicesHealth,
   BotSettings as BotSettingsType,
   RpcProvider,
   AutoSyncStatus,
+  ServicesHealth,
 } from '@/lib/api';
 
 export default function BotSettings() {
@@ -34,6 +36,10 @@ export default function BotSettings() {
   const [walletMode, setWalletMode] = useState<string>('');
   const [walletCopied, setWalletCopied] = useState(false);
   const [proxyUrl, setProxyUrl] = useState('');
+  const [whisperServerUrl, setWhisperServerUrl] = useState('');
+  const [embeddingsServerUrl, setEmbeddingsServerUrl] = useState('');
+  const [servicesHealth, setServicesHealth] = useState<ServicesHealth | null>(null);
+  const [servicesHealthLoading, setServicesHealthLoading] = useState(false);
   const [compactionBackgroundThreshold, setCompactionBackgroundThreshold] = useState(60);
   const [compactionAggressiveThreshold, setCompactionAggressiveThreshold] = useState(80);
   const [compactionEmergencyThreshold, setCompactionEmergencyThreshold] = useState(95);
@@ -58,6 +64,7 @@ export default function BotSettings() {
     loadRpcProviders();
     loadAutoSyncStatus();
     loadWalletConfig();
+    loadServicesHealth();
   }, []);
 
   const loadWalletConfig = async () => {
@@ -92,6 +99,18 @@ export default function BotSettings() {
     }
   };
 
+  const loadServicesHealth = async () => {
+    setServicesHealthLoading(true);
+    try {
+      const health = await getServicesHealth();
+      setServicesHealth(health);
+    } catch (err) {
+      console.error('Failed to load services health:', err);
+    } finally {
+      setServicesHealthLoading(false);
+    }
+  };
+
   const loadSettings = async () => {
     try {
       const data = await getBotSettings();
@@ -105,6 +124,8 @@ export default function BotSettings() {
       setChatSessionMemoryGeneration(data.chat_session_memory_generation ?? true);
       setGuestDashboardEnabled(data.guest_dashboard_enabled ?? false);
       setProxyUrl(data.proxy_url || '');
+      setWhisperServerUrl(data.whisper_server_url || '');
+      setEmbeddingsServerUrl(data.embeddings_server_url || '');
       setCompactionBackgroundThreshold(data.compaction_background_threshold ?? 60);
       setCompactionAggressiveThreshold(data.compaction_aggressive_threshold ?? 80);
       setCompactionEmergencyThreshold(data.compaction_emergency_threshold ?? 95);
@@ -162,6 +183,8 @@ export default function BotSettings() {
         guest_dashboard_enabled: guestDashboardEnabled,
         theme_accent: themeAccent || '',
         proxy_url: proxyUrl,
+        whisper_server_url: whisperServerUrl,
+        embeddings_server_url: embeddingsServerUrl,
         compaction_background_threshold: compactionBackgroundThreshold,
         compaction_aggressive_threshold: compactionAggressiveThreshold,
         compaction_emergency_threshold: compactionEmergencyThreshold,
@@ -547,6 +570,65 @@ export default function BotSettings() {
               Optional HTTP proxy URL for tool requests (e.g. http://proxy:8080).
               Leave empty to connect directly. Does not affect AI model API calls.
             </p>
+          </CardContent>
+        </Card>
+
+        {/* Infrastructure Services Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Radio className="w-5 h-5 text-stark-400" />
+              Infrastructure Services
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <label className="block text-sm font-medium text-slate-300">
+                  Whisper Server URL
+                </label>
+                {servicesHealthLoading ? (
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-slate-500 animate-pulse" title="Checking..." />
+                ) : servicesHealth ? (
+                  <span
+                    className={`inline-block w-2.5 h-2.5 rounded-full ${servicesHealth.whisper.healthy ? 'bg-green-400' : 'bg-red-400'}`}
+                    title={servicesHealth.whisper.healthy ? 'Healthy' : 'Unreachable'}
+                  />
+                ) : null}
+              </div>
+              <Input
+                value={whisperServerUrl}
+                onChange={(e) => setWhisperServerUrl(e.target.value)}
+                placeholder="https://whisper.defirelay.com"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Speech-to-text server for voice input. Leave empty to use the default server.
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <label className="block text-sm font-medium text-slate-300">
+                  Embeddings Server URL
+                </label>
+                {servicesHealthLoading ? (
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-slate-500 animate-pulse" title="Checking..." />
+                ) : servicesHealth ? (
+                  <span
+                    className={`inline-block w-2.5 h-2.5 rounded-full ${servicesHealth.embeddings.healthy ? 'bg-green-400' : 'bg-red-400'}`}
+                    title={servicesHealth.embeddings.healthy ? 'Healthy' : 'Unreachable'}
+                  />
+                ) : null}
+              </div>
+              <Input
+                value={embeddingsServerUrl}
+                onChange={(e) => setEmbeddingsServerUrl(e.target.value)}
+                placeholder="https://embeddings.defirelay.com"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Text embedding server for semantic memory search. Leave empty to use the default server.
+              </p>
+            </div>
           </CardContent>
         </Card>
 

@@ -12,7 +12,7 @@ pub mod session_message;
 pub mod special_role;
 
 pub use agent_settings::{AgentSettings, AgentSettingsResponse, UpdateAgentSettingsRequest, MIN_CONTEXT_TOKENS, DEFAULT_CONTEXT_TOKENS};
-pub use bot_settings::{BotSettings, UpdateBotSettingsRequest, DEFAULT_MAX_TOOL_ITERATIONS, DEFAULT_SAFE_MODE_MAX_QUERIES_PER_10MIN};
+pub use bot_settings::{BotSettings, UpdateBotSettingsRequest, DEFAULT_MAX_TOOL_ITERATIONS, DEFAULT_SAFE_MODE_MAX_QUERIES_PER_10MIN, DEFAULT_WHISPER_SERVER_URL, DEFAULT_EMBEDDINGS_SERVER_URL};
 pub use api_key::{ApiKey, ApiKeyResponse};
 pub use channel::{Channel, ChannelResponse, ChannelType, CreateChannelRequest, CreateSafeModeChannelRequest, UpdateChannelRequest};
 pub use channel_settings::{

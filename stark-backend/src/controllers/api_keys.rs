@@ -1301,6 +1301,8 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
             settings.theme_accent.as_deref(),
             None, // Don't restore proxy_url - it's infrastructure config
             None, // Don't restore kanban_auto_execute - keep current setting
+            settings.whisper_server_url.as_deref(),
+            settings.embeddings_server_url.as_deref(),
         ) {
             log::warn!("Failed to restore bot settings: {}", e);
         }

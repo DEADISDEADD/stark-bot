@@ -27,6 +27,8 @@ const SERVICE_CAPABILITIES: ServiceCapability[] = [
   { id: 'discord', label: 'Discord', icon: '/icons/discord.svg', matchNames: ['discord'], matchTags: ['discord'] },
   { id: 'telegram', label: 'Telegram', icon: '/icons/telegram.svg', matchNames: ['telegram'], matchTags: ['telegram'] },
   { id: 'wallet', label: 'Encrypted Wallet', icon: '/icons/wallet.svg', matchNames: ['wallet', 'transfer', 'send_eth', 'send_usdc'], matchTags: ['wallet', 'transfer', 'crypto'] },
+  { id: 'image_generation', label: 'Image Generation', icon: '/icons/image_generation.svg', matchNames: ['image_generation', 'generate_image'], matchTags: ['image', 'image-generation'] },
+  { id: 'video_generation', label: 'Video Generation', icon: '/icons/video_generation.svg', matchNames: ['video_generation', 'generate_video'], matchTags: ['video', 'video-generation'] },
 ];
 
 export default function Dashboard() {
