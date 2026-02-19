@@ -5,8 +5,10 @@
 
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
+use std::io::{Cursor, Write as _};
 use std::path::Path;
 use tokio::fs;
+use zip::write::FileOptions;
 
 use crate::config::notes_dir;
 use crate::AppState;
@@ -544,6 +546,73 @@ async fn list_tags(data: web::Data<AppState>, req: HttpRequest) -> impl Responde
     }
 }
 
+// --- Export all notes as ZIP ---
+
+async fn export_notes(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&data, &req) {
+        return resp;
+    }
+
+    let notes = notes_dir();
+    let notes_path = Path::new(&notes);
+
+    if !notes_path.exists() {
+        return HttpResponse::NotFound().json(serde_json::json!({
+            "error": "Notes directory does not exist"
+        }));
+    }
+
+    let canonical_notes = match notes_path.canonicalize() {
+        Ok(p) => p,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Notes not accessible: {}", e)
+            }));
+        }
+    };
+
+    // Collect all markdown files
+    let files = crate::notes::file_ops::list_notes(&canonical_notes).unwrap_or_default();
+
+    // Build ZIP in memory
+    let buf = Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(buf);
+    let options = FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+    for file_path in &files {
+        let rel = match file_path.strip_prefix(&canonical_notes) {
+            Ok(r) => r.to_string_lossy().to_string(),
+            Err(_) => continue,
+        };
+
+        let content = match std::fs::read(file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        if zip.start_file(&rel, options).is_ok() {
+            let _ = zip.write_all(&content);
+        }
+    }
+
+    let buf = match zip.finish() {
+        Ok(b) => b.into_inner(),
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Failed to create ZIP: {}", e)
+            }));
+        }
+    };
+
+    let timestamp = chrono::Utc::now().format("%Y%m%d");
+    let filename = format!("starkbot-notes-{}.zip", timestamp);
+
+    HttpResponse::Ok()
+        .content_type("application/zip")
+        .insert_header(("Content-Disposition", format!("attachment; filename=\"{}\"", filename)))
+        .body(buf)
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/notes")
@@ -551,6 +620,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("/read", web::get().to(read_note))
             .route("/search", web::get().to(search_notes))
             .route("/info", web::get().to(notes_info))
-            .route("/tags", web::get().to(list_tags)),
+            .route("/tags", web::get().to(list_tags))
+            .route("/export", web::get().to(export_notes)),
     );
 }

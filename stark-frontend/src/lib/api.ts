@@ -1593,6 +1593,19 @@ export async function getNotesTags(): Promise<TagsResponse> {
   return apiFetch('/notes/tags');
 }
 
+export async function exportNotesZip(): Promise<Blob> {
+  const token = localStorage.getItem('stark_token');
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE}/notes/export`, { headers });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+    throw new Error(data.error || 'Export failed');
+  }
+  return response.blob();
+}
+
 // Transaction Queue API
 export interface QueuedTransactionInfo {
   uuid: string;

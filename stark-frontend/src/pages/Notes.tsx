@@ -11,12 +11,14 @@ import {
   Search,
   Tag,
   X,
+  Download,
 } from 'lucide-react';
 import {
   listNotes,
   readNoteFile,
   searchNotes,
   getNotesTags,
+  exportNotesZip,
   NoteEntry,
   TagItem,
 } from '@/lib/api';
@@ -57,6 +59,9 @@ export default function Notes() {
   // Tag filter
   const [tags, setTags] = useState<TagItem[]>([]);
   const [activeTag, setActiveTag] = useState<string | null>(null);
+
+  // Export
+  const [isExporting, setIsExporting] = useState(false);
 
   const loadDirectory = async (path?: string): Promise<TreeNode[]> => {
     const response = await listNotes(path);
@@ -208,6 +213,25 @@ export default function Notes() {
     setActiveTag(null);
   };
 
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const blob = await exportNotesZip();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `starkbot-notes-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   useEffect(() => {
     loadRoot();
   }, []);
@@ -295,13 +319,27 @@ export default function Notes() {
               Obsidian-compatible knowledge base
             </p>
           </div>
-          <button
-            onClick={refresh}
-            className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleExport}
+              disabled={isExporting}
+              className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50"
+              title="Export for Obsidian"
+            >
+              {isExporting ? (
+                <RefreshCw className="w-5 h-5 animate-spin" />
+              ) : (
+                <Download className="w-5 h-5" />
+              )}
+            </button>
+            <button
+              onClick={refresh}
+              className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Search bar */}
