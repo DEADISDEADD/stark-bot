@@ -236,6 +236,10 @@ pub struct MemoryEntry {
     pub tags: Option<String>,
     pub importance: Option<i32>,
     pub identity_id: Option<String>,
+    pub entity_type: Option<String>,
+    pub entity_name: Option<String>,
+    pub source_type: Option<String>,
+    pub log_date: Option<String>,
     pub created_at: String,
 }
 
@@ -579,6 +583,30 @@ pub async fn collect_backup_data(
         }
     }
 
+    // Memories (all types, with full metadata for edge/embedding recomputation)
+    if let Ok(memories) = db.list_all_memories() {
+        if !memories.is_empty() {
+            backup.memories = Some(
+                memories
+                    .iter()
+                    .map(|m| MemoryEntry {
+                        memory_type: m.memory_type.clone(),
+                        content: m.content.clone(),
+                        category: m.category.clone(),
+                        tags: m.tags.clone(),
+                        importance: Some(m.importance as i32),
+                        identity_id: m.identity_id.clone(),
+                        entity_type: m.entity_type.clone(),
+                        entity_name: m.entity_name.clone(),
+                        source_type: m.source_type.clone(),
+                        log_date: m.log_date.clone(),
+                        created_at: m.created_at.clone(),
+                    })
+                    .collect(),
+            );
+        }
+    }
+
     // Channel settings
     if let Ok(settings) = db.get_all_channel_settings() {
         backup.channel_settings = settings
@@ -884,4 +912,278 @@ pub fn decrypt_with_private_key(private_key: &str, encrypted_hex: &str) -> Resul
         .map_err(|e| format!("Decryption failed: {:?}", e))?;
 
     String::from_utf8(decrypted).map_err(|e| format!("Invalid UTF-8 in decrypted data: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: create a temp database with full schema
+    fn temp_db() -> crate::db::Database {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.db");
+        // Keep dir alive by leaking it (tests are short-lived)
+        let path_str = path.to_str().unwrap().to_string();
+        std::mem::forget(dir);
+        crate::db::Database::new(&path_str).unwrap()
+    }
+
+    #[test]
+    fn memory_entry_roundtrip_serialization() {
+        let entry = MemoryEntry {
+            memory_type: "long_term".to_string(),
+            content: "The user prefers dark mode".to_string(),
+            category: Some("preferences".to_string()),
+            tags: Some("ui,theme".to_string()),
+            importance: Some(7),
+            identity_id: Some("default".to_string()),
+            entity_type: Some("user".to_string()),
+            entity_name: Some("andy".to_string()),
+            source_type: Some("inferred".to_string()),
+            log_date: None,
+            created_at: "2025-01-15T10:00:00Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&entry).unwrap();
+        let deserialized: MemoryEntry = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.memory_type, "long_term");
+        assert_eq!(deserialized.content, "The user prefers dark mode");
+        assert_eq!(deserialized.category.as_deref(), Some("preferences"));
+        assert_eq!(deserialized.tags.as_deref(), Some("ui,theme"));
+        assert_eq!(deserialized.importance, Some(7));
+        assert_eq!(deserialized.identity_id.as_deref(), Some("default"));
+        assert_eq!(deserialized.entity_type.as_deref(), Some("user"));
+        assert_eq!(deserialized.entity_name.as_deref(), Some("andy"));
+        assert_eq!(deserialized.source_type.as_deref(), Some("inferred"));
+        assert!(deserialized.log_date.is_none());
+    }
+
+    #[test]
+    fn memory_entry_backwards_compat_missing_new_fields() {
+        // Simulate an old backup that doesn't have the new fields
+        let json = r#"{
+            "memory_type": "daily_log",
+            "content": "Had a meeting",
+            "importance": 5,
+            "created_at": "2025-01-01T00:00:00Z"
+        }"#;
+
+        let entry: MemoryEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.memory_type, "daily_log");
+        assert_eq!(entry.content, "Had a meeting");
+        // New fields default to None
+        assert!(entry.entity_type.is_none());
+        assert!(entry.entity_name.is_none());
+        assert!(entry.source_type.is_none());
+        assert!(entry.log_date.is_none());
+    }
+
+    #[test]
+    fn backup_data_includes_memories_in_item_count() {
+        let mut backup = BackupData::new("0x1234".to_string());
+        assert_eq!(backup.item_count(), 0);
+
+        backup.memories = Some(vec![
+            MemoryEntry {
+                memory_type: "long_term".to_string(),
+                content: "fact 1".to_string(),
+                ..Default::default()
+            },
+            MemoryEntry {
+                memory_type: "daily_log".to_string(),
+                content: "log entry".to_string(),
+                ..Default::default()
+            },
+        ]);
+        assert_eq!(backup.item_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn collect_backup_data_includes_memories() {
+        let db = temp_db();
+
+        // Insert test memories with full metadata
+        db.insert_memory(
+            "long_term",
+            "User prefers Rust over Python",
+            Some("preferences"),
+            Some("language,coding"),
+            8,
+            Some("default"),
+            None,
+            Some("user"),
+            Some("andy"),
+            Some("inferred"),
+            None,
+        )
+        .unwrap();
+
+        db.insert_memory(
+            "daily_log",
+            "Discussed backup architecture",
+            Some("engineering"),
+            None,
+            5,
+            Some("default"),
+            None,
+            None,
+            None,
+            Some("api"),
+            Some("2025-06-15"),
+        )
+        .unwrap();
+
+        let backup = collect_backup_data(&db, "0xtest".to_string()).await;
+
+        let memories = backup.memories.expect("memories should be Some");
+        assert_eq!(memories.len(), 2);
+
+        // Verify first memory metadata is preserved
+        let m1 = &memories[0];
+        assert_eq!(m1.memory_type, "long_term");
+        assert_eq!(m1.content, "User prefers Rust over Python");
+        assert_eq!(m1.category.as_deref(), Some("preferences"));
+        assert_eq!(m1.tags.as_deref(), Some("language,coding"));
+        assert_eq!(m1.importance, Some(8));
+        assert_eq!(m1.identity_id.as_deref(), Some("default"));
+        assert_eq!(m1.entity_type.as_deref(), Some("user"));
+        assert_eq!(m1.entity_name.as_deref(), Some("andy"));
+        assert_eq!(m1.source_type.as_deref(), Some("inferred"));
+        assert!(m1.log_date.is_none());
+
+        // Verify second memory
+        let m2 = &memories[1];
+        assert_eq!(m2.memory_type, "daily_log");
+        assert_eq!(m2.source_type.as_deref(), Some("api"));
+        assert_eq!(m2.log_date.as_deref(), Some("2025-06-15"));
+    }
+
+    #[tokio::test]
+    async fn collect_backup_data_no_memories_is_none() {
+        let db = temp_db();
+        let backup = collect_backup_data(&db, "0xtest".to_string()).await;
+        assert!(backup.memories.is_none(), "empty DB should produce None for memories");
+    }
+
+    #[tokio::test]
+    async fn memories_backup_restore_roundtrip() {
+        let db = temp_db();
+
+        // Insert memories with diverse metadata
+        let id1 = db.insert_memory(
+            "long_term", "Fact A", Some("cat"), Some("t1,t2"), 9,
+            Some("id1"), None, Some("entity_t"), Some("entity_n"),
+            Some("inferred"), None,
+        ).unwrap();
+
+        let id2 = db.insert_memory(
+            "daily_log", "Log B", None, None, 3,
+            Some("id1"), None, None, None,
+            Some("api"), Some("2025-03-01"),
+        ).unwrap();
+
+        // Also create associations and embeddings (to verify they exist before clear)
+        db.create_memory_association(id1, id2, "related", 0.8, None).unwrap();
+        db.upsert_memory_embedding(id1, &[0.1_f32, 0.2, 0.3], "test-model", 3).unwrap();
+
+        // Collect backup
+        let backup = collect_backup_data(&db, "0xtest".to_string()).await;
+        let memories = backup.memories.as_ref().unwrap();
+        assert_eq!(memories.len(), 2);
+
+        // Serialize → deserialize (simulates encrypt/decrypt cycle)
+        let json = serde_json::to_string(&backup).unwrap();
+        let restored_backup: BackupData = serde_json::from_str(&json).unwrap();
+        let restored_memories = restored_backup.memories.unwrap();
+        assert_eq!(restored_memories.len(), 2);
+
+        // Simulate restore: clear + re-insert
+        let cleared = db.clear_memories_for_restore().unwrap();
+        assert!(cleared >= 2);
+
+        // Verify cascading delete cleaned up associations and embeddings
+        assert_eq!(db.count_memory_associations(id1).unwrap(), 0);
+        assert!(db.get_memory_embedding(id1).unwrap().is_none());
+
+        // Re-insert from backup
+        for mem in &restored_memories {
+            db.insert_memory(
+                &mem.memory_type,
+                &mem.content,
+                mem.category.as_deref(),
+                mem.tags.as_deref(),
+                mem.importance.unwrap_or(5) as i64,
+                mem.identity_id.as_deref(),
+                None,
+                mem.entity_type.as_deref(),
+                mem.entity_name.as_deref(),
+                mem.source_type.as_deref(),
+                mem.log_date.as_deref(),
+            ).unwrap();
+        }
+
+        // Verify restored data
+        let all = db.list_all_memories().unwrap();
+        assert_eq!(all.len(), 2);
+
+        let r1 = &all[0];
+        assert_eq!(r1.memory_type, "long_term");
+        assert_eq!(r1.content, "Fact A");
+        assert_eq!(r1.category.as_deref(), Some("cat"));
+        assert_eq!(r1.tags.as_deref(), Some("t1,t2"));
+        assert_eq!(r1.importance, 9);
+        assert_eq!(r1.entity_type.as_deref(), Some("entity_t"));
+        assert_eq!(r1.entity_name.as_deref(), Some("entity_n"));
+        assert_eq!(r1.source_type.as_deref(), Some("inferred"));
+
+        let r2 = &all[1];
+        assert_eq!(r2.memory_type, "daily_log");
+        assert_eq!(r2.log_date.as_deref(), Some("2025-03-01"));
+        assert_eq!(r2.source_type.as_deref(), Some("api"));
+    }
+
+    #[tokio::test]
+    async fn memories_metadata_sufficient_for_recomputation() {
+        // Proves that restored memories have enough metadata for
+        // the embeddings backfill and association rebuild to work
+        let db = temp_db();
+
+        db.insert_memory(
+            "long_term", "Rust is a systems language", Some("knowledge"),
+            Some("rust,programming"), 7, Some("default"), None,
+            Some("concept"), Some("rust-lang"), Some("inferred"), None,
+        ).unwrap();
+
+        db.insert_memory(
+            "long_term", "Cargo is Rust's build tool", Some("knowledge"),
+            Some("rust,tooling"), 6, Some("default"), None,
+            Some("concept"), Some("cargo"), Some("inferred"), None,
+        ).unwrap();
+
+        // Collect and restore
+        let backup = collect_backup_data(&db, "0xtest".to_string()).await;
+        db.clear_memories_for_restore().unwrap();
+
+        for mem in backup.memories.as_ref().unwrap() {
+            db.insert_memory(
+                &mem.memory_type, &mem.content,
+                mem.category.as_deref(), mem.tags.as_deref(),
+                mem.importance.unwrap_or(5) as i64, mem.identity_id.as_deref(),
+                None, mem.entity_type.as_deref(), mem.entity_name.as_deref(),
+                mem.source_type.as_deref(), mem.log_date.as_deref(),
+            ).unwrap();
+        }
+
+        // After restore, memories should show up as needing embeddings
+        let needs_embeddings = db.list_memories_without_embeddings(100).unwrap();
+        assert_eq!(needs_embeddings.len(), 2, "restored memories should need embedding backfill");
+
+        // Entity metadata is preserved for association rebuilding
+        let all = db.list_all_memories().unwrap();
+        let entity_types: Vec<_> = all.iter().filter_map(|m| m.entity_type.as_deref()).collect();
+        assert_eq!(entity_types, vec!["concept", "concept"]);
+        let entity_names: Vec<_> = all.iter().filter_map(|m| m.entity_name.as_deref()).collect();
+        assert_eq!(entity_names, vec!["rust-lang", "cargo"]);
+    }
 }

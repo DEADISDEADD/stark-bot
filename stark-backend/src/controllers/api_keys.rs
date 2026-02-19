@@ -317,6 +317,8 @@ pub struct BackupResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub special_role_assignment_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -363,6 +365,8 @@ pub struct PreviewKeysResponse {
     pub special_role_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub special_role_assignment_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backup_version: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -701,6 +705,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 message: None,
                 error: Some("No wallet configured".to_string()),
             });
@@ -729,6 +734,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 message: None,
                 error: Some(format!("Failed to get encryption key: {}", e)),
             });
@@ -757,6 +763,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
             has_identity: None,
             special_role_count: None,
             special_role_assignment_count: None,
+            memory_count: None,
             message: None,
             error: Some("No data to backup".to_string()),
         });
@@ -772,6 +779,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
     let discord_registration_count = backup.discord_registrations.len();
     let skill_count = backup.skills.len();
     let agent_settings_count = backup.agent_settings.len();
+    let memory_count = backup.memories.as_ref().map(|m| m.len()).unwrap_or(0);
     let has_settings = backup.bot_settings.is_some();
     let has_heartbeat = backup.heartbeat_config.is_some();
     let item_count = backup.item_count();
@@ -798,6 +806,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 message: None,
                 error: Some("Failed to serialize backup".to_string()),
             });
@@ -826,6 +835,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 message: None,
                 error: Some("Failed to encrypt backup".to_string()),
             });
@@ -862,8 +872,9 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 has_identity: Some(has_identity),
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: Some(memory_count),
                 message: Some(format!(
-                    "Backed up {} items ({} keys, {} nodes, {} connections, {} cron jobs, {} channels, {} channel settings, {} discord registrations, {} skills, {} AI models{}{}{}{})",
+                    "Backed up {} items ({} keys, {} nodes, {} connections, {} cron jobs, {} channels, {} channel settings, {} discord registrations, {} skills, {} AI models, {} memories{}{}{}{})",
                     item_count,
                     key_count,
                     node_count,
@@ -874,6 +885,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                     discord_registration_count,
                     skill_count,
                     agent_settings_count,
+                    memory_count,
                     if has_settings { ", settings" } else { "" },
                     if has_heartbeat { ", heartbeat" } else { "" },
                     if has_soul { ", soul" } else { "" },
@@ -901,6 +913,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 message: None,
                 error: resp.error.or(Some("Failed to upload to keystore".to_string())),
             })
@@ -924,6 +937,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 message: None,
                 error: Some(format!("Keystore error: {}", e)),
             })
@@ -958,6 +972,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 message: None,
                 error: Some("No wallet configured".to_string()),
             });
@@ -985,6 +1000,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 message: None,
                 error: Some(format!("Failed to get encryption key: {}", e)),
             });
@@ -1016,6 +1032,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 message: None,
                 error: Some(format!("Keystore error: {}", e)),
             });
@@ -1042,6 +1059,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 message: None,
                 error: Some(error),
             });
@@ -1063,6 +1081,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
             has_identity: None,
             special_role_count: None,
             special_role_assignment_count: None,
+            memory_count: None,
             message: None,
             error: Some(error),
         });
@@ -1088,6 +1107,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 message: None,
                 error: Some("No encrypted data in response".to_string()),
             });
@@ -1116,6 +1136,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 message: None,
                 error: Some("Failed to decrypt backup (wrong wallet?)".to_string()),
             });
@@ -1148,6 +1169,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                         has_identity: None,
                         special_role_count: None,
                         special_role_assignment_count: None,
+                memory_count: None,
                         message: None,
                         error: Some("Invalid backup data format".to_string()),
                     });
@@ -1426,6 +1448,42 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
             Err(e) => {
                 log::warn!("Failed to create heartbeat config for restore: {}", e);
             }
+        }
+    }
+
+    // Restore memories (clear existing, then re-insert with full metadata)
+    let mut restored_memories = 0;
+    if let Some(ref memories) = backup_data.memories {
+        // Clear existing memories (cascades to embeddings + associations via FK)
+        match state.db.clear_memories_for_restore() {
+            Ok(deleted) => {
+                log::info!("Cleared {} memories for restore", deleted);
+            }
+            Err(e) => {
+                log::warn!("Failed to clear memories for restore: {}", e);
+            }
+        }
+
+        for mem in memories {
+            match state.db.insert_memory(
+                &mem.memory_type,
+                &mem.content,
+                mem.category.as_deref(),
+                mem.tags.as_deref(),
+                mem.importance.unwrap_or(5) as i64,
+                mem.identity_id.as_deref(),
+                None, // session_id — sessions are ephemeral, don't restore
+                mem.entity_type.as_deref(),
+                mem.entity_name.as_deref(),
+                mem.source_type.as_deref(),
+                mem.log_date.as_deref(),
+            ) {
+                Ok(_) => restored_memories += 1,
+                Err(e) => log::warn!("Failed to restore memory: {}", e),
+            }
+        }
+        if restored_memories > 0 {
+            log::info!("Restored {} memories (embeddings + associations will be recomputed)", restored_memories);
         }
     }
 
@@ -1806,8 +1864,9 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
         has_identity: Some(has_identity),
         special_role_count: Some(restored_special_roles),
         special_role_assignment_count: Some(restored_special_role_assignments),
+        memory_count: Some(restored_memories),
         message: Some(format!(
-            "Restored {} keys, {} nodes, {} connections, {} cron jobs, {} channels, {} channel settings, {} discord registrations, {} skills, {} AI models, {} special roles, {} role assignments{}{}{}{}",
+            "Restored {} keys, {} nodes, {} connections, {} cron jobs, {} channels, {} channel settings, {} discord registrations, {} skills, {} AI models, {} special roles, {} role assignments, {} memories{}{}{}{}",
             restored_keys,
             restored_nodes,
             restored_connections,
@@ -1819,6 +1878,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
             restored_agent_settings,
             restored_special_roles,
             restored_special_role_assignments,
+            restored_memories,
             if has_settings { ", settings" } else { "" },
             if has_heartbeat { ", heartbeat" } else { "" },
             if has_soul { ", soul" } else { "" },
@@ -1865,6 +1925,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 backup_version: None,
                 message: None,
                 error: Some("No wallet configured".to_string()),
@@ -1894,6 +1955,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 backup_version: None,
                 message: None,
                 error: Some(format!("Failed to get encryption key: {}", e)),
@@ -1927,6 +1989,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 backup_version: None,
                 message: None,
                 error: Some(format!("Keystore error: {}", e)),
@@ -1955,6 +2018,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 backup_version: None,
                 message: None,
                 error: Some(error),
@@ -1978,6 +2042,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
             has_identity: None,
             special_role_count: None,
             special_role_assignment_count: None,
+            memory_count: None,
             backup_version: None,
             message: None,
             error: Some(error),
@@ -2005,6 +2070,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 backup_version: None,
                 message: None,
                 error: Some("No encrypted data in response".to_string()),
@@ -2035,6 +2101,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 backup_version: None,
                 message: None,
                 error: Some("Failed to decrypt backup (wrong wallet?)".to_string()),
@@ -2082,6 +2149,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
             has_identity: Some(backup_data.identity_document.is_some()),
             special_role_count: Some(backup_data.special_roles.len()),
             special_role_assignment_count: Some(backup_data.special_role_assignments.len()),
+            memory_count: Some(backup_data.memories.as_ref().map(|m| m.len()).unwrap_or(0)),
             backup_version: Some(backup_data.version),
             message: Some("Cloud backup retrieved successfully".to_string()),
             error: None,
@@ -2111,6 +2179,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 special_role_count: None,
                 special_role_assignment_count: None,
+                memory_count: None,
                 backup_version: None,
                 message: None,
                 error: Some("Invalid backup data format".to_string()),
@@ -2145,6 +2214,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
         has_identity: None,
         special_role_count: None,
         special_role_assignment_count: None,
+        memory_count: None,
         backup_version: None,
         message: Some("Cloud keys retrieved successfully (legacy format)".to_string()),
         error: None,

@@ -358,14 +358,106 @@ pub fn spawn_association_loop(
             config.batch_size
         );
 
+        let mut first_pass = true;
+
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(config.interval_secs)).await;
+
+            // On first pass, auto-backfill embeddings if coverage is very low.
+            // This bootstraps the embedding pool so vector-based associations can work.
+            if first_pass {
+                first_pass = false;
+                if let Err(e) = auto_backfill_embeddings_if_needed(&db, &embedding_generator).await {
+                    log::warn!("Auto-backfill embeddings failed (non-fatal): {}", e);
+                }
+            }
 
             if let Err(e) = run_association_pass(&db, &embedding_generator, &config).await {
                 log::error!("Association loop pass failed: {}", e);
             }
         }
     })
+}
+
+/// Auto-backfill embeddings when coverage is below 50%.
+/// Generates embeddings for up to 200 memories per invocation to avoid
+/// blocking the association loop for too long.
+async fn auto_backfill_embeddings_if_needed(
+    db: &Database,
+    embedding_generator: &Arc<dyn EmbeddingGenerator + Send + Sync>,
+) -> Result<(), String> {
+    // All DB work in a block so conn/stmt are dropped before any .await
+    let memories: Vec<(i64, String)> = {
+        let conn = db.conn();
+
+        let total_memories: i64 = conn
+            .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
+            .map_err(|e| format!("Failed to count memories: {}", e))?;
+
+        if total_memories == 0 {
+            return Ok(());
+        }
+
+        let embedded_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM memory_embeddings", [], |row| row.get(0))
+            .map_err(|e| format!("Failed to count embeddings: {}", e))?;
+
+        let coverage = embedded_count as f64 / total_memories as f64;
+        if coverage >= 0.5 {
+            log::info!(
+                "[Association] Embedding coverage {:.0}% ({}/{}), skipping auto-backfill",
+                coverage * 100.0, embedded_count, total_memories
+            );
+            return Ok(());
+        }
+
+        log::info!(
+            "[Association] Low embedding coverage {:.0}% ({}/{}), auto-backfilling...",
+            coverage * 100.0, embedded_count, total_memories
+        );
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT m.id, m.content FROM memories m
+                 LEFT JOIN memory_embeddings e ON e.memory_id = m.id
+                 WHERE e.memory_id IS NULL
+                 ORDER BY m.created_at DESC
+                 LIMIT 200",
+            )
+            .map_err(|e| format!("Failed to query memories for auto-backfill: {}", e))?;
+
+        stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+            .map_err(|e| format!("Failed to read memories: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect()
+    };
+
+    let mut generated = 0;
+    for (memory_id, content) in &memories {
+        match embedding_generator.generate(content).await {
+            Ok(embedding) => {
+                let dims = embedding.len() as i32;
+                if let Err(e) = db.upsert_memory_embedding(*memory_id, &embedding, "auto_backfill", dims) {
+                    log::warn!("Failed to store embedding for memory {}: {}", memory_id, e);
+                    continue;
+                }
+                generated += 1;
+            }
+            Err(e) => {
+                // If the embedding server is unreachable, stop trying
+                log::warn!("[Association] Embedding generation failed, stopping auto-backfill: {}", e);
+                break;
+            }
+        }
+        // Rate limit
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+
+    if generated > 0 {
+        log::info!("[Association] Auto-backfill generated {} embeddings", generated);
+    }
+
+    Ok(())
 }
 
 /// Execute a single association discovery pass.
@@ -541,6 +633,18 @@ pub async fn run_association_pass(
         total_created += supersedes_created;
     }
 
+    // 9. Create metadata-based associations (entity_name, category, log_date)
+    //    These work without embeddings and provide edges even when the embedding server is unavailable.
+    match create_metadata_based_associations(db, &all_metas, config.max_associations_per_memory) {
+        Ok(meta_counts) => {
+            for (assoc_type, count) in &meta_counts {
+                *type_counts.entry(assoc_type).or_insert(0) += count;
+                total_created += count;
+            }
+        }
+        Err(e) => log::warn!("Metadata-based association creation failed: {}", e),
+    }
+
     // Log type breakdown
     if !type_counts.is_empty() {
         let breakdown: Vec<String> = type_counts
@@ -666,6 +770,96 @@ fn create_supersedes_from_column(db: &Database) -> Result<usize, String> {
     }
 
     Ok(created)
+}
+
+/// Create associations from shared metadata (entity_name, category, log_date).
+/// Works without embeddings — purely heuristic-based.
+fn create_metadata_based_associations(
+    db: &Database,
+    metas: &[MemoryMeta],
+    max_per_memory: usize,
+) -> Result<HashMap<&'static str, usize>, String> {
+    let mut type_counts: HashMap<&str, usize> = HashMap::new();
+
+    // Build indexes: group memory IDs by entity_name, category, log_date
+    let mut by_entity: HashMap<String, Vec<i64>> = HashMap::new();
+    let mut by_category: HashMap<String, Vec<i64>> = HashMap::new();
+    let mut by_date: HashMap<String, Vec<i64>> = HashMap::new();
+
+    for m in metas {
+        if let Some(ref entity) = m.entity_name {
+            let key = entity.to_lowercase();
+            if !key.is_empty() {
+                by_entity.entry(key).or_default().push(m.id);
+            }
+        }
+        if let Some(ref cat) = m.category {
+            let key = cat.to_lowercase();
+            if !key.is_empty() {
+                by_category.entry(key).or_default().push(m.id);
+            }
+        }
+        if let Some(ref date) = m.log_date {
+            if !date.is_empty() {
+                by_date.entry(date.clone()).or_default().push(m.id);
+            }
+        }
+    }
+
+    // Helper: create edges for pairs within a group, respecting max_per_memory
+    let mut assoc_counts: HashMap<i64, usize> = HashMap::new();
+
+    let mut try_create = |id_a: i64, id_b: i64, assoc_type: &'static str, strength: f32| -> Result<(), String> {
+        let count_a = assoc_counts.get(&id_a).copied().unwrap_or(0);
+        let count_b = assoc_counts.get(&id_b).copied().unwrap_or(0);
+        if count_a >= max_per_memory || count_b >= max_per_memory {
+            return Ok(());
+        }
+        if association_exists(db, id_a, id_b)? {
+            return Ok(());
+        }
+        create_association(db, id_a, id_b, assoc_type, strength)?;
+        *assoc_counts.entry(id_a).or_insert(0) += 1;
+        *assoc_counts.entry(id_b).or_insert(0) += 1;
+        *type_counts.entry(assoc_type).or_insert(0) += 1;
+        Ok(())
+    };
+
+    // Same entity_name → "references" (high priority, strength 0.8)
+    for ids in by_entity.values() {
+        if ids.len() < 2 || ids.len() > 100 { continue; } // skip huge groups
+        for i in 0..ids.len() {
+            for j in (i + 1)..ids.len() {
+                let _ = try_create(ids[i], ids[j], "references", 0.8);
+            }
+        }
+    }
+
+    // Same category → "part_of" (medium priority, strength 0.5)
+    // Only connect recent pairs to avoid O(n^2) explosion
+    for ids in by_category.values() {
+        if ids.len() < 2 { continue; }
+        let window = ids.len().min(20); // last 20 per category
+        let start = ids.len().saturating_sub(window);
+        for i in start..ids.len() {
+            for j in (i + 1)..ids.len() {
+                let _ = try_create(ids[i], ids[j], "part_of", 0.5);
+            }
+        }
+    }
+
+    // Same log_date → "temporal" (lower priority, strength 0.4)
+    // Only connect within the same day, limit pairs
+    for ids in by_date.values() {
+        if ids.len() < 2 || ids.len() > 50 { continue; }
+        for i in 0..ids.len() {
+            for j in (i + 1)..ids.len() {
+                let _ = try_create(ids[i], ids[j], "temporal", 0.4);
+            }
+        }
+    }
+
+    Ok(type_counts)
 }
 
 /// Load metadata for all memories (used for association type classification).

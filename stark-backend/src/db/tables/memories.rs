@@ -98,6 +98,13 @@ impl Database {
         rows.collect()
     }
 
+    /// Clear all memories for restore (cascades to embeddings + associations via FK)
+    pub fn clear_memories_for_restore(&self) -> Result<usize, rusqlite::Error> {
+        let conn = self.conn();
+        let deleted = conn.execute("DELETE FROM memories", [])?;
+        Ok(deleted)
+    }
+
     /// Count total memories in the table.
     pub fn count_memories(&self) -> Result<i64, rusqlite::Error> {
         let conn = self.conn();
