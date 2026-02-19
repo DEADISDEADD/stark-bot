@@ -98,9 +98,13 @@ impl Database {
         rows.collect()
     }
 
-    /// Clear all memories for restore (cascades to embeddings + associations via FK)
+    /// Clear all memories for restore.
+    /// Explicitly deletes embeddings + associations first because SQLite FK
+    /// cascading requires `PRAGMA foreign_keys = ON` (which is not always set).
     pub fn clear_memories_for_restore(&self) -> Result<usize, rusqlite::Error> {
         let conn = self.conn();
+        conn.execute("DELETE FROM memory_embeddings", [])?;
+        conn.execute("DELETE FROM memory_associations", [])?;
         let deleted = conn.execute("DELETE FROM memories", [])?;
         Ok(deleted)
     }

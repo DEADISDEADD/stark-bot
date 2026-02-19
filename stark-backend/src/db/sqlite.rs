@@ -49,7 +49,8 @@ impl Database {
                      PRAGMA cache_size=-64000;
                      PRAGMA mmap_size=268435456;
                      PRAGMA temp_store=memory;
-                     PRAGMA synchronous=NORMAL;"
+                     PRAGMA synchronous=NORMAL;
+                     PRAGMA foreign_keys=ON;"
                 )
             });
 
