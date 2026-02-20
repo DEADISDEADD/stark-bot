@@ -84,6 +84,9 @@ pub struct BackupData {
     /// Tool config directories (e.g. gog CLI auth tokens)
     /// Maps a logical name (e.g. "gogcli") to a list of files with base64-encoded contents.
     pub tool_configs: HashMap<String, Vec<ToolConfigFileEntry>>,
+    /// Notes (markdown files from the notes directory)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<NoteFileEntry>,
 }
 
 /// Manual Default because DateTime<Utc> doesn't derive Default
@@ -115,6 +118,7 @@ impl Default for BackupData {
             special_roles: Vec::new(),
             special_role_assignments: Vec::new(),
             tool_configs: HashMap::new(),
+            notes: Vec::new(),
         }
     }
 }
@@ -158,6 +162,7 @@ impl BackupData {
             + self.agent_subtypes.len()
             + self.special_roles.len()
             + self.special_role_assignments.len()
+            + self.notes.len()
     }
 }
 
@@ -442,6 +447,16 @@ pub struct SpecialRoleAssignmentEntry {
     pub user_id: String,
     pub special_role_name: String,
     pub label: Option<String>,
+}
+
+/// Note file entry in backup (markdown file from notes directory)
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NoteFileEntry {
+    /// Relative path within the notes directory (e.g. "my-note.md" or "ideas/note.md")
+    pub relative_path: String,
+    /// Full file content (markdown with frontmatter)
+    pub content: String,
 }
 
 /// A file from a tool's config directory, stored as base64
@@ -834,6 +849,33 @@ pub async fn collect_backup_data(
                 label: a.label.clone(),
             })
             .collect();
+    }
+
+    // Notes (markdown files from notes directory)
+    {
+        let notes_dir = std::path::PathBuf::from(crate::config::notes_dir());
+        if notes_dir.exists() {
+            if let Ok(files) = crate::notes::file_ops::list_notes(&notes_dir) {
+                for file_path in files {
+                    if let Some(rel_path) = crate::notes::file_ops::relative_path(&notes_dir, &file_path) {
+                        if let Ok(content) = std::fs::read_to_string(&file_path) {
+                            // Skip files larger than 1MB
+                            if content.len() <= 1_048_576 {
+                                backup.notes.push(NoteFileEntry {
+                                    relative_path: rel_path,
+                                    content,
+                                });
+                            } else {
+                                log::warn!("[Backup] Skipping large note file: {} ({} bytes)", rel_path, content.len());
+                            }
+                        }
+                    }
+                }
+                if !backup.notes.is_empty() {
+                    log::info!("[Backup] Collected {} note files", backup.notes.len());
+                }
+            }
+        }
     }
 
     // Tool config directories (gog CLI tokens, etc.)

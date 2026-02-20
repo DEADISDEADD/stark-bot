@@ -99,6 +99,43 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
+    /// Insert a memory with a specific created_at timestamp (for restore).
+    /// Preserves the original creation date from the backup.
+    pub fn insert_memory_with_created_at(
+        &self,
+        memory_type: &str,
+        content: &str,
+        category: Option<&str>,
+        tags: Option<&str>,
+        importance: i64,
+        identity_id: Option<&str>,
+        session_id: Option<i64>,
+        entity_type: Option<&str>,
+        entity_name: Option<&str>,
+        source_type: Option<&str>,
+        log_date: Option<&str>,
+        created_at: &str,
+    ) -> Result<i64, rusqlite::Error> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO memories (
+                memory_type, content, category, tags, importance,
+                identity_id, session_id, entity_type, entity_name,
+                source_type, log_date, created_at, updated_at, last_accessed
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5,
+                ?6, ?7, ?8, ?9,
+                ?10, ?11, ?12, datetime('now'), datetime('now')
+            )",
+            rusqlite::params![
+                memory_type, content, category, tags, importance,
+                identity_id, session_id, entity_type, entity_name,
+                source_type, log_date, created_at,
+            ],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
     /// List all memories (for backup export).
     /// Returns lightweight rows without embeddings or associations.
     pub fn list_all_memories(&self) -> Result<Vec<MemoryRow>, rusqlite::Error> {

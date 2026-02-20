@@ -265,6 +265,8 @@ struct RestoreResult {
     special_roles: usize,
     special_role_assignments: usize,
     x402_limits: usize,
+    memories: usize,
+    notes: usize,
     bot_settings: bool,
     heartbeat_config: bool,
     soul_document: bool,
@@ -286,6 +288,8 @@ impl RestoreResult {
         if self.special_roles > 0 { parts.push(format!("{} special roles", self.special_roles)); }
         if self.special_role_assignments > 0 { parts.push(format!("{} role assignments", self.special_role_assignments)); }
         if self.x402_limits > 0 { parts.push(format!("{} x402 payment limits", self.x402_limits)); }
+        if self.memories > 0 { parts.push(format!("{} memories", self.memories)); }
+        if self.notes > 0 { parts.push(format!("{} notes", self.notes)); }
         if self.bot_settings { parts.push("bot settings".to_string()); }
         if self.heartbeat_config { parts.push("heartbeat config".to_string()); }
         if self.soul_document { parts.push("soul document".to_string()); }
@@ -877,6 +881,90 @@ async fn restore_backup_data(
     }
     if result.special_role_assignments > 0 {
         log::info!("[Keystore] Restored {} special role assignments", result.special_role_assignments);
+    }
+
+    // Restore notes (markdown files to notes directory)
+    if !backup_data.notes.is_empty() {
+        let notes_dir = std::path::PathBuf::from(config::notes_dir());
+        std::fs::create_dir_all(&notes_dir).ok();
+        let mut restored_notes = 0;
+
+        for note in &backup_data.notes {
+            // Security: reject paths with ".." to prevent directory traversal
+            if note.relative_path.contains("..") {
+                log::warn!("[Keystore] Skipping suspicious note path: {}", note.relative_path);
+                continue;
+            }
+
+            let target = notes_dir.join(&note.relative_path);
+            if let Some(parent) = target.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+
+            match std::fs::write(&target, &note.content) {
+                Ok(_) => restored_notes += 1,
+                Err(e) => log::warn!("[Keystore] Failed to restore note '{}': {}", note.relative_path, e),
+            }
+        }
+
+        if restored_notes > 0 {
+            result.notes = restored_notes;
+            log::info!("[Keystore] Restored {} notes (FTS reindex will happen on dispatcher init)", restored_notes);
+        }
+    }
+
+    // Restore memories
+    if let Some(ref memories) = backup_data.memories {
+        match db.clear_memories_for_restore() {
+            Ok(deleted) => {
+                if deleted > 0 {
+                    log::info!("[Keystore] Cleared {} memories for restore", deleted);
+                }
+            }
+            Err(e) => log::warn!("[Keystore] Failed to clear memories for restore: {}", e),
+        }
+
+        let mut restored_memories = 0;
+        for mem in memories {
+            let insert_result = if !mem.created_at.is_empty() {
+                db.insert_memory_with_created_at(
+                    &mem.memory_type,
+                    &mem.content,
+                    mem.category.as_deref(),
+                    mem.tags.as_deref(),
+                    mem.importance.unwrap_or(5) as i64,
+                    mem.identity_id.as_deref(),
+                    None,
+                    mem.entity_type.as_deref(),
+                    mem.entity_name.as_deref(),
+                    mem.source_type.as_deref(),
+                    mem.log_date.as_deref(),
+                    &mem.created_at,
+                )
+            } else {
+                db.insert_memory(
+                    &mem.memory_type,
+                    &mem.content,
+                    mem.category.as_deref(),
+                    mem.tags.as_deref(),
+                    mem.importance.unwrap_or(5) as i64,
+                    mem.identity_id.as_deref(),
+                    None,
+                    mem.entity_type.as_deref(),
+                    mem.entity_name.as_deref(),
+                    mem.source_type.as_deref(),
+                    mem.log_date.as_deref(),
+                )
+            };
+            match insert_result {
+                Ok(_) => restored_memories += 1,
+                Err(e) => log::warn!("[Keystore] Failed to restore memory: {}", e),
+            }
+        }
+        if restored_memories > 0 {
+            result.memories = restored_memories;
+            log::info!("[Keystore] Restored {} memories (embeddings + associations will be recomputed)", restored_memories);
+        }
     }
 
     // Restore tool config directories (gog CLI tokens, etc.)

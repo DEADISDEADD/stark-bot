@@ -134,7 +134,15 @@ impl Database {
             ],
         )?;
 
-        Ok(conn.last_insert_rowid())
+        // Use SELECT to get the actual ID — last_insert_rowid() is unreliable
+        // when ON CONFLICT DO UPDATE fires (it returns the previous insert's rowid)
+        let skill_id: i64 = conn.query_row(
+            "SELECT id FROM skills WHERE name = ?1",
+            [&skill.name],
+            |row| row.get(0),
+        )?;
+
+        Ok(skill_id)
     }
 
     /// Get a skill by name
