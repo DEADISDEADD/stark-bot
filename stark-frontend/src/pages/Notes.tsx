@@ -12,15 +12,19 @@ import {
   Tag,
   X,
   Download,
+  List,
+  Hash,
 } from 'lucide-react';
 import {
   listNotes,
   readNoteFile,
   searchNotes,
   getNotesTags,
+  getNotesByTag,
   exportNotesZip,
   NoteEntry,
   TagItem,
+  NotesByTagGroup,
 } from '@/lib/api';
 
 interface TreeNode {
@@ -32,6 +36,22 @@ interface TreeNode {
   children?: TreeNode[];
   expanded?: boolean;
   loaded?: boolean;
+}
+
+/** Deterministic tag-to-color: hashes the tag name to pick a hue, returns soft pastel colors */
+function tagColor(tag: string): { bg: string; text: string; border: string } {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) {
+    hash = tag.charCodeAt(i) + ((hash << 5) - hash);
+    hash = hash & hash;
+  }
+  const hue = ((hash % 360) + 360) % 360;
+  // Pastel palette: low-saturation tinted bg, soft muted text, subtle border
+  return {
+    bg: `hsla(${hue}, 40%, 20%, 0.35)`,
+    text: `hsl(${hue}, 55%, 80%)`,
+    border: `hsla(${hue}, 35%, 45%, 0.4)`,
+  };
 }
 
 export default function Notes() {
@@ -59,6 +79,12 @@ export default function Notes() {
   // Tag filter
   const [tags, setTags] = useState<TagItem[]>([]);
   const [activeTag, setActiveTag] = useState<string | null>(null);
+
+  // View mode: files or tags
+  const [viewMode, setViewMode] = useState<'files' | 'tags'>('files');
+  const [tagGroups, setTagGroups] = useState<NotesByTagGroup[]>([]);
+  const [expandedTags, setExpandedTags] = useState<Set<string>>(new Set());
+  const [isLoadingTags, setIsLoadingTags] = useState(false);
 
   // Export
   const [isExporting, setIsExporting] = useState(false);
@@ -89,6 +115,20 @@ export default function Notes() {
       setError(err instanceof Error ? err.message : 'Failed to load notes');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadTagGroups = async () => {
+    setIsLoadingTags(true);
+    try {
+      const res = await getNotesByTag();
+      if (res.success) {
+        setTagGroups(res.groups);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsLoadingTags(false);
     }
   };
 
@@ -232,12 +272,34 @@ export default function Notes() {
     }
   };
 
+  const toggleTagGroup = (tag: string) => {
+    setExpandedTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(tag)) {
+        next.delete(tag);
+      } else {
+        next.add(tag);
+      }
+      return next;
+    });
+  };
+
   useEffect(() => {
     loadRoot();
   }, []);
 
+  // Load tag groups when switching to tags view
+  useEffect(() => {
+    if (viewMode === 'tags' && tagGroups.length === 0) {
+      loadTagGroups();
+    }
+  }, [viewMode]);
+
   const refresh = () => {
     loadRoot();
+    if (viewMode === 'tags') {
+      loadTagGroups();
+    }
     setSelectedFile(null);
     setFileContent(null);
     setFileMeta(null);
@@ -296,6 +358,113 @@ export default function Notes() {
         )}
       </div>
     ));
+  };
+
+  const renderTagGroups = (): JSX.Element => {
+    if (isLoadingTags) {
+      return (
+        <div className="flex items-center justify-center h-32">
+          <RefreshCw className="w-6 h-6 text-slate-400 animate-spin" />
+        </div>
+      );
+    }
+
+    if (tagGroups.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-32 text-slate-400">
+          <Tag className="w-8 h-8 mb-2" />
+          <span className="text-sm">No tagged notes yet</span>
+          <span className="text-xs mt-1">
+            Tags will appear when notes have tags
+          </span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="py-1">
+        {tagGroups.map((group) => {
+          const colors = tagColor(group.tag);
+          const isExpanded = expandedTags.has(group.tag);
+          return (
+            <div key={group.tag}>
+              <button
+                onClick={() => toggleTagGroup(group.tag)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-slate-700/50"
+              >
+                {isExpanded ? (
+                  <ChevronDown className="w-4 h-4 flex-shrink-0 text-slate-500" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 flex-shrink-0 text-slate-500" />
+                )}
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border"
+                  style={{
+                    backgroundColor: colors.bg,
+                    color: colors.text,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Hash className="w-3 h-3" />
+                  {group.tag}
+                </span>
+                <span className="text-xs text-slate-500">
+                  {group.count} note{group.count !== 1 ? 's' : ''}
+                </span>
+              </button>
+              {isExpanded && (
+                <div>
+                  {group.notes.map((note) => (
+                    <button
+                      key={`${group.tag}-${note.file_path}`}
+                      onClick={() => loadFile(note.file_path)}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-slate-700/50 ${
+                        selectedFile === note.file_path
+                          ? 'bg-stark-500/20 text-stark-400'
+                          : 'text-slate-300'
+                      }`}
+                      style={{ paddingLeft: '44px' }}
+                    >
+                      <FileText className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm truncate">
+                          {note.title || note.file_path}
+                        </div>
+                        {note.tags && (
+                          <div className="flex flex-wrap gap-1 mt-0.5">
+                            {note.tags
+                              .split(',')
+                              .map((t) => t.trim())
+                              .filter((t) => t && t !== group.tag)
+                              .slice(0, 3)
+                              .map((t) => {
+                                const c = tagColor(t);
+                                return (
+                                  <span
+                                    key={t}
+                                    className="text-[10px] px-1.5 py-0 rounded border"
+                                    style={{
+                                      backgroundColor: c.bg,
+                                      color: c.text,
+                                      borderColor: c.border,
+                                    }}
+                                  >
+                                    {t}
+                                  </span>
+                                );
+                              })}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   // Strip frontmatter from display content
@@ -376,31 +545,73 @@ export default function Notes() {
           </button>
         </div>
 
-        {/* Tag pills */}
-        {tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {tags.slice(0, 15).map((t) => (
-              <button
-                key={t.tag}
-                onClick={() => handleTagFilter(t.tag)}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs transition-colors ${
-                  activeTag === t.tag
-                    ? 'bg-stark-600 text-white'
-                    : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
-                }`}
-              >
-                <Tag className="w-3 h-3" />
-                {t.tag}
-                <span className="text-slate-500 ml-0.5">{t.count}</span>
-              </button>
-            ))}
+        {/* View toggle + Tag pills */}
+        <div className="flex items-center gap-3 mt-3">
+          {/* Files / Tags toggle */}
+          <div className="flex bg-slate-800 rounded-lg p-0.5 flex-shrink-0">
+            <button
+              onClick={() => setViewMode('files')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                viewMode === 'files'
+                  ? 'bg-slate-600 text-white'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              <List className="w-3.5 h-3.5" />
+              Files
+            </button>
+            <button
+              onClick={() => setViewMode('tags')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                viewMode === 'tags'
+                  ? 'bg-slate-600 text-white'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              <Tag className="w-3.5 h-3.5" />
+              Tags
+            </button>
           </div>
-        )}
+
+          {/* Tag pills (scrollable) */}
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 min-w-0">
+              {tags.slice(0, 15).map((t) => {
+                const colors = tagColor(t.tag);
+                const isActive = activeTag === t.tag;
+                return (
+                  <button
+                    key={t.tag}
+                    onClick={() => handleTagFilter(t.tag)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs transition-colors border"
+                    style={
+                      isActive
+                        ? {
+                            backgroundColor: colors.bg,
+                            color: colors.text,
+                            borderColor: colors.text,
+                          }
+                        : {
+                            backgroundColor: colors.bg,
+                            color: colors.text,
+                            borderColor: colors.border,
+                          }
+                    }
+                  >
+                    <Hash className="w-3 h-3" />
+                    {t.tag}
+                    <span style={{ opacity: 0.6 }}>{t.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left panel: Tree or Search Results */}
+        {/* Left panel: Tree, Tags, or Search Results */}
         <div
           className={`w-full md:w-80 border-r border-slate-700 overflow-y-auto ${
             mobileView === 'preview' ? 'hidden md:block' : ''
@@ -435,8 +646,27 @@ export default function Notes() {
                       {r.file_path}
                     </div>
                     {r.tags && (
-                      <div className="text-xs text-stark-400 mt-1">
-                        {r.tags}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {r.tags
+                          .split(',')
+                          .map((t) => t.trim())
+                          .filter(Boolean)
+                          .map((t) => {
+                            const c = tagColor(t);
+                            return (
+                              <span
+                                key={t}
+                                className="text-[10px] px-1.5 py-0 rounded border"
+                                style={{
+                                  backgroundColor: c.bg,
+                                  color: c.text,
+                                  borderColor: c.border,
+                                }}
+                              >
+                                {t}
+                              </span>
+                            );
+                          })}
                       </div>
                     )}
                     {r.snippet && (
@@ -450,6 +680,8 @@ export default function Notes() {
                 ))
               )}
             </div>
+          ) : viewMode === 'tags' ? (
+            renderTagGroups()
           ) : isLoading ? (
             <div className="flex items-center justify-center h-32">
               <RefreshCw className="w-6 h-6 text-slate-400 animate-spin" />
@@ -503,20 +735,28 @@ export default function Notes() {
                       {fileMeta.title}
                     </h2>
                   )}
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
                     {fileMeta.note_type && fileMeta.note_type !== 'note' && (
                       <span className="text-xs px-2 py-0.5 bg-stark-600/30 text-stark-400 rounded">
                         {fileMeta.note_type}
                       </span>
                     )}
-                    {fileMeta.tags?.map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-xs px-2 py-0.5 bg-slate-700 text-slate-400 rounded"
-                      >
-                        #{tag}
-                      </span>
-                    ))}
+                    {fileMeta.tags?.map((tag) => {
+                      const colors = tagColor(tag);
+                      return (
+                        <span
+                          key={tag}
+                          className="text-xs px-2 py-0.5 rounded border"
+                          style={{
+                            backgroundColor: colors.bg,
+                            color: colors.text,
+                            borderColor: colors.border,
+                          }}
+                        >
+                          #{tag}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               )}

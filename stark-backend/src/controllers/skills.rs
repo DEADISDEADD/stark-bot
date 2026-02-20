@@ -181,12 +181,84 @@ pub struct ScriptsListResponse {
     pub error: Option<String>,
 }
 
+// --- Skill Graph types ---
+
+#[derive(Serialize)]
+pub struct SkillGraphNode {
+    pub id: i64,
+    pub name: String,
+    pub description: String,
+    pub tags: Vec<String>,
+    pub enabled: bool,
+}
+
+#[derive(Serialize)]
+pub struct SkillGraphEdge {
+    pub source: i64,
+    pub target: i64,
+    pub association_type: String,
+    pub strength: f64,
+}
+
+#[derive(Serialize)]
+pub struct SkillGraphResponse {
+    pub success: bool,
+    pub nodes: Vec<SkillGraphNode>,
+    pub edges: Vec<SkillGraphEdge>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct SkillSearchResult {
+    pub skill_id: i64,
+    pub name: String,
+    pub description: String,
+    pub similarity: f32,
+}
+
+#[derive(Serialize)]
+pub struct SkillSearchResponse {
+    pub success: bool,
+    pub results: Vec<SkillSearchResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct SkillEmbeddingStatsResponse {
+    pub success: bool,
+    pub total_skills: i64,
+    pub skills_with_embeddings: i64,
+    pub coverage_percent: f64,
+}
+
+#[derive(Deserialize)]
+pub struct SkillSearchQuery {
+    pub query: String,
+    pub limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+pub struct CreateAssociationRequest {
+    pub source_skill_id: i64,
+    pub target_skill_id: i64,
+    pub association_type: Option<String>,
+    pub strength: Option<f64>,
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/skills")
             .route("", web::get().to(list_skills))
             .route("/upload", web::post().to(upload_skill))
             .route("/reload", web::post().to(reload_skills))
+            .route("/graph", web::get().to(get_skill_graph))
+            .route("/graph/search", web::get().to(search_skills_by_embedding))
+            .route("/embeddings/stats", web::get().to(get_skill_embedding_stats))
+            .route("/embeddings/backfill", web::post().to(backfill_skill_embeddings))
+            .route("/associations", web::post().to(create_skill_association))
+            .route("/associations/rebuild", web::post().to(rebuild_skill_associations))
             .route("/{name}", web::get().to(get_skill))
             .route("/{name}", web::put().to(update_skill))
             .route("/{name}", web::delete().to(delete_skill))
@@ -430,6 +502,26 @@ async fn upload_skill(
 
     match result {
         Ok(db_skill) => {
+            // Auto-generate embedding for the new skill
+            if let Some(skill_id) = db_skill.id {
+                if let Some(ref engine) = state.hybrid_search {
+                    let emb_gen = engine.embedding_generator().clone();
+                    let db = state.db.clone();
+                    let skill_name = db_skill.name.clone();
+                    let emb_text = crate::skills::embeddings::build_skill_embedding_text(&db_skill);
+                    tokio::spawn(async move {
+                        if let Ok(embedding) = emb_gen.generate(&emb_text).await {
+                            let dims = embedding.len() as i32;
+                            if let Err(e) = db.upsert_skill_embedding(skill_id, &embedding, "remote", dims) {
+                                log::warn!("[SKILL-EMB] Failed to auto-embed skill '{}': {}", skill_name, e);
+                            } else {
+                                log::info!("[SKILL-EMB] Auto-embedded skill '{}'", skill_name);
+                            }
+                        }
+                    });
+                }
+            }
+
             let skill = db_skill.into_skill();
             HttpResponse::Ok().json(UploadResponse {
                 success: true,
@@ -502,6 +594,26 @@ async fn update_skill(
             skill: None,
             error: Some(format!("Failed to update skill: {}", e)),
         });
+    }
+
+    // Auto-regenerate embedding for the updated skill
+    if let Some(ref engine) = state.hybrid_search {
+        if let Ok(Some(updated)) = state.db.get_skill(&name) {
+            if let Some(skill_id) = updated.id {
+                let emb_gen = engine.embedding_generator().clone();
+                let db = state.db.clone();
+                let skill_name = name.clone();
+                tokio::spawn(async move {
+                    let text = crate::skills::embeddings::build_skill_embedding_text(&updated);
+                    if let Ok(embedding) = emb_gen.generate(&text).await {
+                        let dims = embedding.len() as i32;
+                        if let Err(e) = db.upsert_skill_embedding(skill_id, &embedding, "remote", dims) {
+                            log::warn!("[SKILL-EMB] Failed to re-embed skill '{}': {}", skill_name, e);
+                        }
+                    }
+                });
+            }
+        }
     }
 
     // Re-fetch the updated skill
@@ -598,4 +710,242 @@ async fn get_skill_scripts(
         scripts: Some(script_infos),
         error: None,
     })
+}
+
+// --- Skill Graph Endpoints ---
+
+async fn get_skill_graph(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    let skills = match state.db.list_skills() {
+        Ok(s) => s,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(SkillGraphResponse {
+                success: false,
+                nodes: vec![],
+                edges: vec![],
+                error: Some(format!("Failed to list skills: {}", e)),
+            });
+        }
+    };
+
+    let nodes: Vec<SkillGraphNode> = skills
+        .iter()
+        .filter_map(|s| {
+            s.id.map(|id| SkillGraphNode {
+                id,
+                name: s.name.clone(),
+                description: s.description.clone(),
+                tags: s.tags.clone(),
+                enabled: s.enabled,
+            })
+        })
+        .collect();
+
+    let edges = match state.db.list_all_skill_associations() {
+        Ok(assocs) => assocs
+            .into_iter()
+            .map(|a| SkillGraphEdge {
+                source: a.source_skill_id,
+                target: a.target_skill_id,
+                association_type: a.association_type,
+                strength: a.strength,
+            })
+            .collect(),
+        Err(_) => vec![],
+    };
+
+    HttpResponse::Ok().json(SkillGraphResponse {
+        success: true,
+        nodes,
+        edges,
+        error: None,
+    })
+}
+
+async fn search_skills_by_embedding(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    query: web::Query<SkillSearchQuery>,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    let engine = match &state.hybrid_search {
+        Some(e) => e,
+        None => {
+            return HttpResponse::ServiceUnavailable().json(SkillSearchResponse {
+                success: false,
+                results: vec![],
+                error: Some("Embedding engine not configured".to_string()),
+            });
+        }
+    };
+
+    let emb_gen = engine.embedding_generator().clone();
+    let limit = query.limit.unwrap_or(5);
+
+    match crate::skills::embeddings::search_skills(&state.db, &emb_gen, &query.query, limit, 0.20).await {
+        Ok(matches) => {
+            let results: Vec<SkillSearchResult> = matches
+                .into_iter()
+                .map(|(skill, sim)| SkillSearchResult {
+                    skill_id: skill.id.unwrap_or(0),
+                    name: skill.name,
+                    description: skill.description,
+                    similarity: sim,
+                })
+                .collect();
+            HttpResponse::Ok().json(SkillSearchResponse {
+                success: true,
+                results,
+                error: None,
+            })
+        }
+        Err(e) => HttpResponse::InternalServerError().json(SkillSearchResponse {
+            success: false,
+            results: vec![],
+            error: Some(e),
+        }),
+    }
+}
+
+async fn get_skill_embedding_stats(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    let total_skills = state.db.list_enabled_skills()
+        .map(|s| s.len() as i64)
+        .unwrap_or(0);
+    let skills_with_embeddings = state.db.count_skill_embeddings().unwrap_or(0);
+    let coverage = if total_skills > 0 {
+        (skills_with_embeddings as f64 / total_skills as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    HttpResponse::Ok().json(SkillEmbeddingStatsResponse {
+        success: true,
+        total_skills,
+        skills_with_embeddings,
+        coverage_percent: coverage,
+    })
+}
+
+async fn backfill_skill_embeddings(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    let engine = match &state.hybrid_search {
+        Some(e) => e,
+        None => {
+            return HttpResponse::ServiceUnavailable().json(OperationResponse {
+                success: false,
+                message: None,
+                error: Some("Embedding engine not configured".to_string()),
+                count: None,
+            });
+        }
+    };
+
+    let emb_gen = engine.embedding_generator().clone();
+
+    match crate::skills::embeddings::backfill_skill_embeddings(&state.db, &emb_gen).await {
+        Ok(count) => HttpResponse::Ok().json(OperationResponse {
+            success: true,
+            message: Some(format!("Generated {} skill embeddings", count)),
+            error: None,
+            count: Some(count),
+        }),
+        Err(e) => HttpResponse::InternalServerError().json(OperationResponse {
+            success: false,
+            message: None,
+            error: Some(e),
+            count: None,
+        }),
+    }
+}
+
+async fn create_skill_association(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    body: web::Json<CreateAssociationRequest>,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    let assoc_type = body.association_type.as_deref().unwrap_or("related");
+    let strength = body.strength.unwrap_or(0.5);
+
+    match state.db.create_skill_association(
+        body.source_skill_id,
+        body.target_skill_id,
+        assoc_type,
+        strength,
+        None,
+    ) {
+        Ok(id) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "id": id,
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(OperationResponse {
+            success: false,
+            message: None,
+            error: Some(format!("Failed to create association: {}", e)),
+            count: None,
+        }),
+    }
+}
+
+async fn rebuild_skill_associations(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    let engine = match &state.hybrid_search {
+        Some(e) => e,
+        None => {
+            return HttpResponse::ServiceUnavailable().json(OperationResponse {
+                success: false,
+                message: None,
+                error: Some("Embedding engine not configured".to_string()),
+                count: None,
+            });
+        }
+    };
+
+    let emb_gen = engine.embedding_generator().clone();
+
+    match crate::skills::embeddings::rebuild_skill_associations(&state.db, &emb_gen, 0.30).await {
+        Ok(count) => HttpResponse::Ok().json(OperationResponse {
+            success: true,
+            message: Some(format!("Rebuilt {} skill associations", count)),
+            error: None,
+            count: Some(count),
+        }),
+        Err(e) => HttpResponse::InternalServerError().json(OperationResponse {
+            success: false,
+            message: None,
+            error: Some(e),
+            count: None,
+        }),
+    }
 }

@@ -275,6 +275,49 @@ export interface CortexBulletin {
   topics: string[];
 }
 
+// Skill Graph types
+export interface SkillGraphNode {
+  id: number;
+  name: string;
+  description: string;
+  tags: string[];
+  enabled: boolean;
+}
+
+export interface SkillGraphEdge {
+  source: number;
+  target: number;
+  association_type: string;
+  strength: number;
+}
+
+export interface SkillGraphResponse {
+  success: boolean;
+  nodes: SkillGraphNode[];
+  edges: SkillGraphEdge[];
+  error?: string;
+}
+
+export interface SkillSearchResult {
+  skill_id: number;
+  name: string;
+  description: string;
+  similarity: number;
+}
+
+export interface SkillSearchResponse {
+  success: boolean;
+  results: SkillSearchResult[];
+  error?: string;
+}
+
+export interface SkillEmbeddingStatsResponse {
+  success: boolean;
+  total_skills: number;
+  skills_with_embeddings: number;
+  coverage_percent: number;
+}
+
 export type MemoryType = 'daily_log' | 'long_term' | 'session_summary' | 'compaction';
 
 export interface Memory {

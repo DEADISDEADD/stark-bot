@@ -751,6 +751,45 @@ impl Database {
             [],
         )?;
 
+        // Skill embeddings (vector search for skill discovery)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS skill_embeddings (
+                skill_id INTEGER PRIMARY KEY,
+                embedding BLOB NOT NULL,
+                model TEXT NOT NULL,
+                dimensions INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT,
+                FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Skill associations (knowledge graph for skill relationships)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS skill_associations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_skill_id INTEGER NOT NULL,
+                target_skill_id INTEGER NOT NULL,
+                association_type TEXT NOT NULL DEFAULT 'related',
+                strength REAL NOT NULL DEFAULT 0.5,
+                metadata TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (source_skill_id) REFERENCES skills(id) ON DELETE CASCADE,
+                FOREIGN KEY (target_skill_id) REFERENCES skills(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_skill_associations_source ON skill_associations(source_skill_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_skill_associations_target ON skill_associations(target_skill_id)",
+            [],
+        )?;
+
         // Tool execution audit log
         conn.execute(
             "CREATE TABLE IF NOT EXISTS tool_executions (

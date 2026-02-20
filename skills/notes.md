@@ -161,7 +161,7 @@ List all wikilinks in a note:
 ## Best Practices
 
 1. **Use descriptive titles** — the filename is auto-slugified from the title
-2. **Add tags** — they're indexed for fast filtering
+2. **ALWAYS add tags** — include 2-4 relevant tags on every note you create. Use a mix of broad category tags (`design`, `todo`, `bug`, `idea`, `research`) and specific topic tags (`auth`, `wallet`, `x402`). Tags are critical for organization and discovery.
 3. **Use [[wikilinks]]** — cross-reference notes to build a knowledge graph
 4. **Choose the right type** — helps organize and filter later
 5. **Use subdirectories** — keep related notes together
@@ -178,7 +178,7 @@ When the user invokes this skill:
 ### Example Interactions
 
 **User:** "Make a note about the new API design"
---> Create a note with type=note, suggest relevant tags
+--> Create a note with type=note, always include relevant tags like "design, api, architecture"
 
 **User:** "What notes do I have about authentication?"
 --> Search for "authentication" and show results

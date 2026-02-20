@@ -96,12 +96,12 @@ impl Database {
 }
 
 /// Convert f32 slice to bytes for SQLite BLOB storage (little-endian)
-fn embedding_to_blob(embedding: &[f32]) -> Vec<u8> {
+pub(crate) fn embedding_to_blob(embedding: &[f32]) -> Vec<u8> {
     embedding.iter().flat_map(|f| f.to_le_bytes()).collect()
 }
 
 /// Convert bytes from SQLite BLOB back to f32 vector
-fn blob_to_embedding(blob: &[u8]) -> Vec<f32> {
+pub(crate) fn blob_to_embedding(blob: &[u8]) -> Vec<f32> {
     blob.chunks_exact(4)
         .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
         .collect()

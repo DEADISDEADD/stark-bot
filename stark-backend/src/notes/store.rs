@@ -172,6 +172,47 @@ impl NoteStore {
         Ok(results)
     }
 
+    /// Get all notes grouped by tag
+    pub fn notes_by_tag(&self) -> SqliteResult<Vec<(String, Vec<NoteSearchResult>)>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn.prepare("SELECT file_path, title, tags FROM notes_fts")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(NoteSearchResult {
+                file_path: row.get(0)?,
+                title: row.get(1)?,
+                tags: row.get(2)?,
+                snippet: String::new(),
+                score: 0.0,
+            })
+        })?;
+
+        let mut tag_notes: std::collections::HashMap<String, Vec<NoteSearchResult>> =
+            std::collections::HashMap::new();
+
+        for row in rows {
+            if let Ok(note) = row {
+                let tags_str = note.tags.clone();
+                for tag in tags_str.split(',') {
+                    let tag = tag.trim().to_lowercase();
+                    if !tag.is_empty() {
+                        tag_notes.entry(tag).or_default().push(NoteSearchResult {
+                            file_path: note.file_path.clone(),
+                            title: note.title.clone(),
+                            tags: note.tags.clone(),
+                            snippet: String::new(),
+                            score: 0.0,
+                        });
+                    }
+                }
+            }
+        }
+
+        let mut groups: Vec<(String, Vec<NoteSearchResult>)> = tag_notes.into_iter().collect();
+        groups.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(&b.0)));
+        Ok(groups)
+    }
+
     /// List all unique tags across all notes
     pub fn list_tags(&self) -> SqliteResult<Vec<(String, usize)>> {
         let conn = self.conn.lock().unwrap();

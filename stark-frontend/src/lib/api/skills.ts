@@ -1,4 +1,5 @@
 import { API_BASE, apiFetch } from './core';
+import type { SkillGraphResponse, SkillSearchResponse, SkillEmbeddingStatsResponse } from '@/types';
 
 // Skills API
 export interface SkillInfo {
@@ -82,4 +83,26 @@ export async function setSkillEnabled(name: string, enabled: boolean): Promise<v
     method: 'PUT',
     body: JSON.stringify({ enabled }),
   });
+}
+
+// Skill Graph & Embedding API
+
+export async function getSkillGraph(): Promise<SkillGraphResponse> {
+  return apiFetch('/skills/graph');
+}
+
+export async function searchSkillsByEmbedding(query: string, limit = 5): Promise<SkillSearchResponse> {
+  return apiFetch(`/skills/graph/search?query=${encodeURIComponent(query)}&limit=${limit}`);
+}
+
+export async function getSkillEmbeddingStats(): Promise<SkillEmbeddingStatsResponse> {
+  return apiFetch('/skills/embeddings/stats');
+}
+
+export async function backfillSkillEmbeddings(): Promise<{ success: boolean; message: string }> {
+  return apiFetch('/skills/embeddings/backfill', { method: 'POST' });
+}
+
+export async function rebuildSkillAssociations(): Promise<{ success: boolean; message: string }> {
+  return apiFetch('/skills/associations/rebuild', { method: 'POST' });
 }

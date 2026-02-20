@@ -1,10 +1,15 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Zap, Upload, Trash2, ExternalLink, Code, X, Save, Edit2 } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
+import { Zap, Upload, Trash2, ExternalLink, Code, X, Save, Edit2, Network, List } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { getSkills, uploadSkill, deleteSkill, setSkillEnabled, getSkillDetail, updateSkillBody, SkillInfo, SkillDetail } from '@/lib/api';
 
+const SkillsGraph = lazy(() => import('./SkillsGraph'));
+
+type ViewMode = 'list' | 'graph';
+
 export default function Skills() {
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
@@ -169,9 +174,35 @@ export default function Skills() {
   return (
     <div className="p-4 sm:p-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white mb-1 sm:mb-2">Skills</h1>
-          <p className="text-sm sm:text-base text-slate-400">Extend your agent with custom skills</p>
+        <div className="flex items-center gap-4">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-white mb-1 sm:mb-2">Skills</h1>
+            <p className="text-sm sm:text-base text-slate-400">Extend your agent with custom skills</p>
+          </div>
+          <div className="flex bg-slate-800 rounded-lg p-0.5">
+            <button
+              onClick={() => setViewMode('list')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                viewMode === 'list'
+                  ? 'bg-slate-700 text-white'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              <List className="w-4 h-4" />
+              <span className="hidden sm:inline">List</span>
+            </button>
+            <button
+              onClick={() => setViewMode('graph')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                viewMode === 'graph'
+                  ? 'bg-slate-700 text-white'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              <Network className="w-4 h-4" />
+              <span className="hidden sm:inline">Graph</span>
+            </button>
+          </div>
         </div>
         <div>
           <input
@@ -198,6 +229,21 @@ export default function Skills() {
         </div>
       )}
 
+      {viewMode === 'graph' ? (
+        <Suspense fallback={
+          <div className="flex items-center justify-center h-96">
+            <div className="flex items-center gap-3">
+              <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-slate-400">Loading graph...</span>
+            </div>
+          </div>
+        }>
+          <div className="h-[calc(100vh-200px)]">
+            <SkillsGraph />
+          </div>
+        </Suspense>
+      ) : (
+      <>
       {/* Filter Pills */}
       <div className="flex flex-wrap gap-2 mb-6">
         {Object.keys(FILTER_CATEGORIES).map((category) => (
@@ -404,6 +450,8 @@ export default function Skills() {
             )}
           </CardContent>
         </Card>
+      )}
+      </>
       )}
     </div>
   );

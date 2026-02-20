@@ -94,7 +94,7 @@ impl NotesTool {
             PropertySchema {
                 schema_type: "string".to_string(),
                 description:
-                    "Comma-separated tags (for create/tag actions). E.g. 'crypto, payments, protocol'."
+                    "Comma-separated tags (for create/tag actions). Always add 2-4 descriptive tags when creating notes. E.g. 'crypto, payments, protocol'. Use broad category tags (design, todo, bug) plus specific topic tags."
                         .to_string(),
                 default: None,
                 items: None,
@@ -160,7 +160,7 @@ impl NotesTool {
         Self {
             definition: ToolDefinition {
                 name: "notes".to_string(),
-                description: "Create, edit, read, and search Obsidian-compatible markdown notes. Notes have YAML frontmatter, support [[wikilinks]] and #tags, and are full-text indexed.".to_string(),
+                description: "Create, edit, read, and search Obsidian-compatible markdown notes. Notes have YAML frontmatter, support [[wikilinks]] and #tags, and are full-text indexed. IMPORTANT: When creating notes, always include 2-4 relevant tags to keep the knowledge base well-organized and discoverable (e.g. 'design, api' or 'todo, auth, urgent').".to_string(),
                 input_schema: ToolInputSchema {
                     schema_type: "object".to_string(),
                     properties,

@@ -840,7 +840,7 @@ impl MessageDispatcher {
         );
 
         // Build context from memories, tools, skills, and session history
-        let system_prompt = self.build_system_prompt(&message, &identity.identity_id, &tool_config, is_safe_mode, special_role_grants.as_ref());
+        let system_prompt = self.build_system_prompt(&message, &identity.identity_id, &tool_config, is_safe_mode, special_role_grants.as_ref()).await;
 
         // Debug: Log full system prompt
         log::debug!("[DISPATCH] System prompt:\n{}", system_prompt);

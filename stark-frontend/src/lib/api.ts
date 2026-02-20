@@ -1593,6 +1593,22 @@ export async function getNotesTags(): Promise<TagsResponse> {
   return apiFetch('/notes/tags');
 }
 
+export interface NotesByTagGroup {
+  tag: string;
+  count: number;
+  notes: { file_path: string; title: string; tags: string }[];
+}
+
+export interface NotesByTagResponse {
+  success: boolean;
+  groups: NotesByTagGroup[];
+  error?: string;
+}
+
+export async function getNotesByTag(): Promise<NotesByTagResponse> {
+  return apiFetch('/notes/by-tag');
+}
+
 export async function exportNotesZip(): Promise<Blob> {
   const token = localStorage.getItem('stark_token');
   const headers: HeadersInit = {};

@@ -546,6 +546,78 @@ async fn list_tags(data: web::Data<AppState>, req: HttpRequest) -> impl Responde
     }
 }
 
+// --- Notes grouped by tag ---
+
+#[derive(Debug, Serialize)]
+struct NotesByTagGroup {
+    tag: String,
+    count: usize,
+    notes: Vec<NotesByTagItem>,
+}
+
+#[derive(Debug, Serialize)]
+struct NotesByTagItem {
+    file_path: String,
+    title: String,
+    tags: String,
+}
+
+#[derive(Debug, Serialize)]
+struct NotesByTagResponse {
+    success: bool,
+    groups: Vec<NotesByTagGroup>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+async fn notes_by_tag(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&data, &req) {
+        return resp;
+    }
+
+    let notes_store = match data.dispatcher.notes_store() {
+        Some(store) => store,
+        None => {
+            return HttpResponse::ServiceUnavailable().json(NotesByTagResponse {
+                success: false,
+                groups: vec![],
+                error: Some("Notes store not initialized".to_string()),
+            });
+        }
+    };
+
+    match notes_store.notes_by_tag() {
+        Ok(groups) => {
+            let items: Vec<NotesByTagGroup> = groups
+                .into_iter()
+                .map(|(tag, notes)| NotesByTagGroup {
+                    count: notes.len(),
+                    tag,
+                    notes: notes
+                        .into_iter()
+                        .map(|n| NotesByTagItem {
+                            file_path: n.file_path,
+                            title: n.title,
+                            tags: n.tags,
+                        })
+                        .collect(),
+                })
+                .collect();
+
+            HttpResponse::Ok().json(NotesByTagResponse {
+                success: true,
+                groups: items,
+                error: None,
+            })
+        }
+        Err(e) => HttpResponse::InternalServerError().json(NotesByTagResponse {
+            success: false,
+            groups: vec![],
+            error: Some(format!("Failed to group notes by tag: {}", e)),
+        }),
+    }
+}
+
 // --- Export all notes as ZIP ---
 
 async fn export_notes(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
@@ -621,6 +693,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("/search", web::get().to(search_notes))
             .route("/info", web::get().to(notes_info))
             .route("/tags", web::get().to(list_tags))
+            .route("/by-tag", web::get().to(notes_by_tag))
             .route("/export", web::get().to(export_notes)),
     );
 }

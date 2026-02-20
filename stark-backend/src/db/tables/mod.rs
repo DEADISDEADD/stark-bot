@@ -29,3 +29,5 @@ pub mod special_roles;   // special_roles, special_role_assignments (enriched sa
 pub mod memories;            // memories (unified memory system)
 pub mod memory_embeddings; // memory_embeddings (vector search)
 pub mod memory_associations; // memory_associations (knowledge graph)
+pub mod skill_embeddings;  // skill_embeddings (vector search for skill discovery)
+pub mod skill_associations; // skill_associations (skill relationship graph)

@@ -47,7 +47,7 @@ impl MessageDispatcher {
 
     /// Build the base system prompt with context from memories and user info
     /// Note: Tool-related instructions are added by the archetype's enhance_system_prompt
-    pub(crate) fn build_system_prompt(
+    pub(crate) async fn build_system_prompt(
         &self,
         message: &NormalizedMessage,
         identity_id: &str,
@@ -228,6 +228,35 @@ impl MessageDispatcher {
                                 }
                                 prompt.push('\n');
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Semantic skill discovery: inject relevant skills based on user query
+        if !is_safe_mode {
+            let user_query = &message.text;
+            if !user_query.trim().is_empty() {
+                if let Some(ref hybrid) = self.hybrid_search {
+                    let emb_gen = hybrid.embedding_generator().clone();
+                    if let Ok(matches) = crate::skills::embeddings::search_skills(
+                        &self.db, &emb_gen, user_query, 5, 0.30,
+                    ).await {
+                        if !matches.is_empty() {
+                            prompt.push_str("## Relevant Skills\n");
+                            prompt.push_str("These skills may help with this request. Use `use_skill` to activate one.\n\n");
+                            let mut chars = 0;
+                            for (skill, sim) in &matches {
+                                if chars > 1500 { break; }
+                                let line = format!(
+                                    "- **{}** ({:.0}% match): {}\n",
+                                    skill.name, sim * 100.0, skill.description
+                                );
+                                chars += line.len();
+                                prompt.push_str(&line);
+                            }
+                            prompt.push('\n');
                         }
                     }
                 }
