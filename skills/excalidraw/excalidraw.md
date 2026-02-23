@@ -1,7 +1,7 @@
 ---
 name: excalidraw
 description: "Generate architecture diagrams as .excalidraw files from codebase analysis, with optional PNG/SVG export. Use when asked to create architecture diagrams, system diagrams, visualize codebase structure, or generate excalidraw files."
-version: 1.2.0
+version: 1.3.0
 author: starkbot
 metadata: '{"clawdbot":{"emoji":"📐"}}'
 tags: [diagram, architecture, excalidraw, visualization, codebase, svg, png]
