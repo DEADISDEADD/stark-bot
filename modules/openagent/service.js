@@ -8,7 +8,7 @@
  * Usage: deno run --allow-net --allow-env --allow-read --allow-write service.js
  */
 
-import { Client } from "npm:@xmtp/node-sdk@^1.0.2";
+import { Client, IdentifierKind } from "npm:@xmtp/node-sdk@^5.3.0";
 import { createProxySigner } from "./lib/signer-proxy.js";
 import * as gatewayBridge from "./lib/gateway-bridge.js";
 
@@ -38,7 +38,8 @@ async function initXmtpClient() {
   const hashBuf = await crypto.subtle.digest("SHA-256", enc.encode(`starkbot-xmtp-db-${clientAddress}`));
   const encryptionKey = new Uint8Array(hashBuf);
 
-  xmtpClient = await Client.create(signer, encryptionKey, {
+  xmtpClient = await Client.create(signer, {
+    dbEncryptionKey: encryptionKey,
     env: XMTP_ENV,
     dbPath,
   });
@@ -70,7 +71,7 @@ async function startMessageListener() {
 
         const conversation = await xmtpClient.conversations.getConversationById(message.conversationId);
         if (conversation) {
-          await conversation.send(response);
+          await conversation.sendText(response);
           console.log(`[openagent] Replied to ${senderAddress}: ${response.slice(0, 100)}${response.length > 100 ? "..." : ""}`);
         }
       } catch (err) {
@@ -122,8 +123,11 @@ async function handleSendMessage({ recipient, message }) {
   if (!recipient || !message) return json({ error: "recipient and message are required" }, 400);
 
   try {
-    const conversation = await xmtpClient.conversations.newDm(recipient);
-    await conversation.send(message);
+    const conversation = await xmtpClient.conversations.createDmWithIdentifier({
+      identifier: recipient,
+      identifierKind: IdentifierKind.Ethereum,
+    });
+    await conversation.sendText(message);
     return json({ success: true, conversation_id: conversation.id, recipient });
   } catch (err) {
     console.error("[openagent] send_message error:", err.message);
@@ -186,8 +190,11 @@ async function handleSendTask({ agent_address, method, params, timeout_ms = 3000
       params: typeof params === "string" ? JSON.parse(params) : params,
     };
 
-    const conversation = await xmtpClient.conversations.newDm(agent_address);
-    await conversation.send(JSON.stringify(rpcRequest));
+    const conversation = await xmtpClient.conversations.createDmWithIdentifier({
+      identifier: agent_address,
+      identifierKind: IdentifierKind.Ethereum,
+    });
+    await conversation.sendText(JSON.stringify(rpcRequest));
 
     const response = await waitForResponse(conversation, rpcRequest.id, timeout_ms);
     return json({ success: true, result: response });

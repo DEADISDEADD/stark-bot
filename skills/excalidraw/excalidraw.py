@@ -203,55 +203,51 @@ def export(data: dict) -> dict:
     else:
         output_path = os.path.join(os.path.dirname(file_path) or ".", out_name)
 
-    # Build a small Node.js script to do the export
-    node_script = f"""
-const fs = require('fs');
-const {{ exportToSvg, exportToBlob }} = require('@excalidraw/utils');
+    # Build a Deno script to do the export
+    deno_script = f"""
+import {{ exportToSvg, exportToBlob }} from "npm:@excalidraw/utils";
 
-(async () => {{
-  const data = JSON.parse(fs.readFileSync({json.dumps(os.path.realpath(file_path))}, 'utf-8'));
-  const elements = data.elements || [];
-  const appState = data.appState || {{}};
-  const files = data.files || {{}};
+const data = JSON.parse(await Deno.readTextFile({json.dumps(os.path.realpath(file_path))}));
+const elements = data.elements || [];
+const appState = data.appState || {{}};
+const files = data.files || {{}};
 
-  if ({json.dumps(fmt)} === 'svg') {{
-    const svg = await exportToSvg({{ elements, appState, files }});
-    fs.writeFileSync({json.dumps(os.path.realpath(output_path))}, svg.outerHTML || svg.toString());
-  }} else {{
-    const blob = await exportToBlob({{ elements, appState, files, mimeType: 'image/png' }});
-    const buf = Buffer.from(await blob.arrayBuffer());
-    fs.writeFileSync({json.dumps(os.path.realpath(output_path))}, buf);
-  }}
-  console.log('OK');
-}})();
+if ({json.dumps(fmt)} === 'svg') {{
+  const svg = await exportToSvg({{ elements, appState, files }});
+  await Deno.writeTextFile({json.dumps(os.path.realpath(output_path))}, svg.outerHTML || svg.toString());
+}} else {{
+  const blob = await exportToBlob({{ elements, appState, files, mimeType: 'image/png' }});
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  await Deno.writeFile({json.dumps(os.path.realpath(output_path))}, buf);
+}}
+console.log('OK');
 """
 
-    # Write temp script and run
+    # Write temp script and run with Deno
     with tempfile.NamedTemporaryFile(mode="w", suffix=".mjs", delete=False) as tmp:
-        tmp.write(node_script)
+        tmp.write(deno_script)
         tmp_path = tmp.name
 
     try:
         result = subprocess.run(
-            ["node", tmp_path],
+            ["deno", "run", "--allow-read", "--allow-write", "--allow-env", "--allow-net", tmp_path],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
         if result.returncode != 0:
             stderr = result.stderr.strip()
-            # Common issue: @excalidraw/utils not installed
-            if "Cannot find module" in stderr:
+            if "Module not found" in stderr or "not found" in stderr.lower():
                 return {
                     "success": False,
-                    "error": "Node.js module @excalidraw/utils not found. Install with: npm install @excalidraw/utils",
+                    "error": "Deno failed to fetch @excalidraw/utils. Check network access.",
                     "details": stderr,
                 }
             return {"success": False, "error": stderr or "Export failed"}
     except FileNotFoundError:
-        return {"success": False, "error": "Node.js not found in PATH"}
+        return {"success": False, "error": "Deno not found in PATH"}
     except subprocess.TimeoutExpired:
-        return {"success": False, "error": "Export timed out after 30 seconds"}
+        return {"success": False, "error": "Export timed out after 60 seconds"}
     finally:
         os.unlink(tmp_path)
 
@@ -331,8 +327,10 @@ def main():
         result = validate(args)
     elif action == "export":
         result = export(args)
+    elif action == "link":
+        result = link(args)
     else:
-        result = {"error": f"Unknown action: {action}. Use 'validate' or 'export'."}
+        result = {"error": f"Unknown action: {action}. Use 'validate', 'export', or 'link'."}
 
     print(json.dumps(result, indent=2))
 

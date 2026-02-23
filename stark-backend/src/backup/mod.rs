@@ -10,6 +10,8 @@
 //! - **Unknown fields** from newer backups are silently ignored (serde default behavior)
 //! This means you can freely add/remove fields without breaking existing backups.
 
+pub mod restore;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

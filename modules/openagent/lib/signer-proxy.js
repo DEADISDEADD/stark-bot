@@ -3,6 +3,8 @@
  * internal wallet API. No private key ever crosses process boundaries.
  */
 
+import { IdentifierKind } from "npm:@xmtp/node-sdk@^5.3.0";
+
 const SELF_URL = Deno.env.get("STARKBOT_SELF_URL") || "http://localhost:3000";
 const TOKEN = Deno.env.get("STARKBOT_INTERNAL_TOKEN");
 
@@ -95,7 +97,7 @@ export async function createProxySigner() {
     type: "EOA",
     getIdentifier: () => ({
       identifier: address.toLowerCase(),
-      identifierKind: "Eoa",
+      identifierKind: IdentifierKind.Ethereum,
     }),
     signMessage: async (msg) => await signMessage(msg),
   };

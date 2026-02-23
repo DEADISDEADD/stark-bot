@@ -1,7 +1,7 @@
 ---
 name: excalidraw
 description: "Generate architecture diagrams as .excalidraw files from codebase analysis, with optional PNG/SVG export. Use when asked to create architecture diagrams, system diagrams, visualize codebase structure, or generate excalidraw files."
-version: 1.1.0
+version: 1.2.0
 author: starkbot
 metadata: '{"clawdbot":{"emoji":"📐"}}'
 tags: [diagram, architecture, excalidraw, visualization, codebase, svg, png]
@@ -212,9 +212,27 @@ If validation returns errors, fix them and re-validate before proceeding.
 
 **Validation checklist:** See `references/validation.md`
 
-### Step 7: Export to PNG/SVG and Share
+### Step 7: Generate a Shareable Link (Preferred)
 
-If the user requests `{{export_format}}` (png, svg, or both), export using the bundled script. Use `save_public: true` to make the image accessible via the web UI:
+After writing the `.excalidraw` file, **always generate a viewable link** using the `link` action. This encodes the drawing into a Kroki.io URL that renders it as SVG or PNG directly in the browser — no upload or server needed:
+
+```tool:run_skill_script
+script: excalidraw.py
+action: link
+args: {"file": "{{output}}/diagram.excalidraw", "format": "svg"}
+```
+
+The script returns a `url` field. Share it with the user so they can view the diagram:
+
+```tool:say_to_user
+message: "Here's your diagram: <url from link result>"
+```
+
+You can also generate a PNG link by setting `"format": "png"`.
+
+### Step 8: Export to Local File (Optional)
+
+If the user specifically requests a local PNG/SVG file, or if `{{export_format}}` is set, export using the bundled script. Use `save_public: true` to make the image accessible via the web UI:
 
 ```tool:run_skill_script
 script: excalidraw.py
@@ -227,8 +245,6 @@ The script returns a `public_url` (e.g., `/public/diagram.png`). Share it with t
 ```tool:say_to_user
 message: "Here's the architecture diagram: /public/diagram.png"
 ```
-
-Alternatively, export using the exec tool with a Node.js script leveraging `@excalidraw/utils`.
 
 **Full export procedure:** See `references/export.md`
 
