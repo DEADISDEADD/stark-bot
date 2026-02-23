@@ -86,6 +86,8 @@ pub struct AppState {
     pub hybrid_search: Option<Arc<memory::HybridSearchEngine>>,
     /// Concrete remote embedding generator for live URL updates
     pub remote_embedding_generator: Option<Arc<memory::embeddings::RemoteEmbeddingGenerator>>,
+    /// Bearer token for internal module-to-backend API calls (e.g. wallet signing proxy)
+    pub internal_token: String,
 }
 
 /// Auto-retrieve backup from keystore on fresh instance
@@ -1120,9 +1122,15 @@ fn start_module_services(db: &Database) {
             continue;
         }
 
-        // Pass relevant API keys + port to child services
+        // Pass relevant API keys + port + internal signing token to child services
         let mut envs: Vec<(String, String)> = api_key_envs.clone();
         envs.push(("MODULE_PORT".to_string(), port.to_string()));
+        // Internal token for module→backend API calls (wallet signing proxy)
+        if let Ok(token) = std::env::var("STARKBOT_INTERNAL_TOKEN") {
+            envs.push(("STARKBOT_INTERNAL_TOKEN".to_string(), token));
+        }
+        // Self URL so modules can call back to the backend
+        envs.push(("STARKBOT_SELF_URL".to_string(), config::self_url()));
         if let Some(ref port_var) = svc.port_env_var {
             envs.push((port_var.clone(), port.to_string()));
         }
@@ -1908,6 +1916,14 @@ async fn main() -> std::io::Result<()> {
     let hybrid_search_engine = hybrid_search_engine.clone();
     let frontend_dist = frontend_dist.to_string();
     let dev_mode = dev_mode;
+    // Internal token for module-to-backend API calls (wallet signing proxy, etc.)
+    let internal_token = std::env::var("STARKBOT_INTERNAL_TOKEN").unwrap_or_else(|_| {
+        use rand::Rng;
+        let token = hex::encode(rand::thread_rng().gen::<[u8; 32]>());
+        // SAFETY: Called during single-threaded startup.
+        unsafe { std::env::set_var("STARKBOT_INTERNAL_TOKEN", &token); }
+        token
+    });
 
     let server = HttpServer::new(move || {
         let cors = Cors::default()
@@ -1939,6 +1955,7 @@ async fn main() -> std::io::Result<()> {
                 resource_manager: Arc::new(telemetry::ResourceManager::new(Arc::clone(&db))),
                 hybrid_search: hybrid_search_engine.clone(),
                 remote_embedding_generator: Some(Arc::clone(&remote_embedding_generator)),
+                internal_token: internal_token.clone(),
             }))
             .app_data(web::Data::new(Arc::clone(&sched)))
             // WebSocket data for /ws route
@@ -1981,6 +1998,7 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::agent_subtypes::config)
             .configure(controllers::special_roles::config)
             .configure(controllers::external_channel::config)
+            .configure(controllers::internal_wallet::config)
             .configure(controllers::transcribe::config)
             // Public ext proxy — must be before the SPA catch-all
             .configure(controllers::ext::config)
