@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Excalidraw validation and export utility.
+"""Excalidraw validation, export, and link utility.
 
 Usage:
     python3 excalidraw.py validate '{"file": "path.excalidraw"}'
     python3 excalidraw.py export  '{"file": "path.excalidraw", "format": "png", "save_public": true}'
+    python3 excalidraw.py link    '{"file": "path.excalidraw", "format": "svg"}'
 """
 
+import base64
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import zlib
 
 # Allowed base directories for file access (workspace and CWD)
 _ALLOWED_ROOTS = None
@@ -262,9 +265,55 @@ const {{ exportToSvg, exportToBlob }} = require('@excalidraw/utils');
     return response
 
 
+def link(data: dict) -> dict:
+    """Generate a Kroki.io URL that renders the excalidraw drawing as SVG or PNG.
+
+    No upload needed — the entire drawing is deflate-compressed and base64-encoded in the URL.
+    """
+    file_path = data.get("file", "")
+    fmt = data.get("format", "svg").lower()
+
+    if fmt not in ("svg", "png"):
+        return {"success": False, "error": f"Unsupported format: {fmt}. Use 'svg' or 'png'."}
+
+    if not file_path:
+        return {"success": False, "error": "file parameter is required"}
+
+    try:
+        file_path = _safe_resolve(file_path)
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+
+    if not os.path.isfile(file_path):
+        return {"success": False, "error": "File not found"}
+
+    try:
+        with open(file_path, "r") as f:
+            content = f.read()
+        # Validate it's valid JSON
+        json.loads(content)
+    except json.JSONDecodeError as e:
+        return {"success": False, "error": f"Invalid JSON: {e}"}
+    except OSError as e:
+        return {"success": False, "error": f"Cannot read file: {e}"}
+
+    # Encode: deflate compress → base64 URL-safe
+    compressed = zlib.compress(content.encode("utf-8"), 9)
+    encoded = base64.urlsafe_b64encode(compressed).decode("ascii")
+
+    url = f"https://kroki.io/excalidraw/{fmt}/{encoded}"
+
+    return {
+        "success": True,
+        "url": url,
+        "format": fmt,
+        "url_length": len(url),
+    }
+
+
 def main():
     if len(sys.argv) < 3:
-        print(json.dumps({"error": "Usage: excalidraw.py <validate|export> '<json_args>'"}))
+        print(json.dumps({"error": "Usage: excalidraw.py <validate|export|link> '<json_args>'"}))
         sys.exit(1)
 
     action = sys.argv[1]

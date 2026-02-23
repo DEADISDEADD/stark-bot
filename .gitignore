@@ -12,6 +12,7 @@ soul/
 stark-backend/memory/
 stark-backend/memory.migrated/
 stark-backend/agents/
+stark-backend/modules/
 stark-backend/skills/
 stark-backend/workspace
 /test_output
