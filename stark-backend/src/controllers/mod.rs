@@ -14,6 +14,7 @@ pub mod external_channel;
 pub mod files;
 pub mod gmail;
 pub mod health;
+pub mod hooks_api;
 pub mod identity;
 pub mod internal_wallet;
 pub mod intrinsic;

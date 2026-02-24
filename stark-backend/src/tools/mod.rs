@@ -91,6 +91,8 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::Erc8128FetchTool::new()));
     // SIWA/SIWE authentication (Sign In With Agent/Ethereum)
     registry.register(Arc::new(builtin::SiwaAuthTool::new()));
+    // Sign-only tool for raw EIP-1559 transactions (hidden — used by auto_trader via additional_tools)
+    registry.register(Arc::new(builtin::SignRawTxTool::new()));
 
     // Filesystem tools (read-only, shared)
     registry.register(Arc::new(builtin::ReadFileTool::new()));

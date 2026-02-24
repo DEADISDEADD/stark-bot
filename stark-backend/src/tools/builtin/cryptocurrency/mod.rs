@@ -23,9 +23,11 @@ mod x402_agent_invoke;
 mod x402_preset_fetch;
 mod swap_token;
 mod x402_post;
+mod sign_raw_tx;
 mod x402_rpc;
 
 pub use erc8128_fetch::Erc8128FetchTool;
+pub use sign_raw_tx::SignRawTxTool;
 pub use siwa_auth::SiwaAuthTool;
 pub use bridge_usdc::BridgeUsdcTool;
 pub use broadcast_web3_tx::BroadcastWeb3TxTool;

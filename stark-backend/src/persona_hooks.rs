@@ -11,6 +11,7 @@
 //! - `telegram_message`    — Telegram message
 //! - `telegram_mention`    — Bot is @mentioned or replied-to in Telegram
 //! - `heartbeat`           — Fired each heartbeat tick for every agent with the hook
+//! - (custom)              — Any event name fired via `fire_custom_hooks()` / internal API
 
 use crate::ai::multi_agent::types::{all_subtype_configs_unfiltered, AgentSubtypeConfig, PersonaHook};
 use crate::channels::dispatcher::MessageDispatcher;
@@ -383,6 +384,52 @@ pub async fn fire_heartbeat_hooks(
             prompt,
             format!("hook:{}:heartbeat:{}", config.key, now.timestamp()),
             format!("hb-{}", now.timestamp()),
+            dispatcher,
+        );
+    }
+}
+
+// =====================================================
+// custom (generic)
+// =====================================================
+
+/// Fire hooks for an arbitrary event name.
+///
+/// Template variables: `{event}`, `{data}`, `{timestamp}`, `{goals}`
+///
+/// This is the generic entry-point used by the internal hooks API
+/// (`POST /api/internal/hooks/fire`) and by module background workers.
+/// Any agent with a matching hook file (e.g. `hooks/auto_trader_pulse.md`)
+/// will be triggered.
+pub async fn fire_custom_hooks(
+    event: &str,
+    data: serde_json::Value,
+    dispatcher: &Arc<MessageDispatcher>,
+) {
+    let hooks = get_hooks_for_event(event);
+    if hooks.is_empty() {
+        log::debug!("[PERSONA_HOOK] No hooks found for custom event '{}'", event);
+        return;
+    }
+
+    let now = chrono::Utc::now();
+    let timestamp = now.to_rfc3339();
+    let data_str = serde_json::to_string_pretty(&data).unwrap_or_default();
+
+    for (config, hook) in hooks {
+        let mut vars: HashMap<&str, String> = HashMap::new();
+        vars.insert("event", event.to_string());
+        vars.insert("data", data_str.clone());
+        vars.insert("timestamp", timestamp.clone());
+        vars.insert("goals", read_agent_goals(&config.key));
+
+        let prompt = render_template(&hook.prompt_template, &vars);
+        spawn_hook_session(
+            &config,
+            event,
+            prompt,
+            format!("hook:{}:custom:{}:{}", config.key, event, now.timestamp()),
+            format!("custom-{}-{}", event, now.timestamp()),
             dispatcher,
         );
     }

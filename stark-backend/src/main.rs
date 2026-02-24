@@ -1238,6 +1238,7 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::external_channel::config)
             .configure(controllers::internal_wallet::config)
             .configure(controllers::transcribe::config)
+            .configure(controllers::hooks_api::config)
             // Public ext proxy — must be before the SPA catch-all
             .configure(controllers::ext::config)
             .configure(controllers::public_files::config)
