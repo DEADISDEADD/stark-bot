@@ -1,7 +1,7 @@
 ---
 name: linear
 description: "Query and manage Linear issues, projects, and team workflows."
-version: 1.0.0
+version: 1.1.0
 author: starkbot
 homepage: https://linear.app
 metadata: {"clawdbot":{"emoji":"📊","requires":{"env":["LINEAR_API_KEY"]}}}

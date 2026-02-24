@@ -65,30 +65,50 @@ arg() {
   echo "$ARGS" | jq -r ".${1} // empty"
 }
 
+# Portable replacement for `column -t -s$'\t'` (not available in all containers)
+tab_align() {
+  awk -F'\t' '{
+    for (i = 1; i <= NF; i++) {
+      if (length($i) > max[i]) max[i] = length($i)
+    }
+    lines[NR] = $0; cols[NR] = NF
+  }
+  END {
+    for (n = 1; n <= NR; n++) {
+      split(lines[n], f, "\t")
+      for (i = 1; i <= cols[n]; i++) {
+        if (i < cols[n]) printf "%-" max[i] + 2 "s", f[i]
+        else printf "%s", f[i]
+      }
+      print ""
+    }
+  }'
+}
+
 # ── commands ─────────────────────────────────────────────────────────────────
 
 cmd_teams() {
   local resp
   resp=$(gql '{ teams { nodes { id key name } } }')
-  echo "$resp" | jq -r '.data.teams.nodes[] | "\(.key)\t\(.name)\t\(.id)"' | column -t -s$'\t'
+  echo "$resp" | jq -r '.data.teams.nodes[] | "\(.key)\t\(.name)\t\(.id)"' | tab_align
 }
 
 cmd_my_issues() {
   local resp
   resp=$(gql '{ viewer { assignedIssues(orderBy: updatedAt, first: 50, filter: { state: { type: { nin: ["completed","canceled"] } } }) { nodes { identifier title priority state { name } project { name } } } } }')
-  echo "$resp" | jq -r '.data.viewer.assignedIssues.nodes[] | "\(.identifier)\t[\(.state.name)]\tP\(.priority)\t\(.title)\t\(.project.name // "-")"' | column -t -s$'\t'
+  echo "$resp" | jq -r '.data.viewer.assignedIssues.nodes[] | "\(.identifier)\t[\(.state.name)]\tP\(.priority)\t\(.title)\t\(.project.name // "-")"' | tab_align
 }
 
 cmd_my_todos() {
   local resp
   resp=$(gql '{ viewer { assignedIssues(orderBy: updatedAt, first: 50, filter: { state: { name: { in: ["Todo","Backlog"] } } }) { nodes { identifier title priority state { name } } } } }')
-  echo "$resp" | jq -r '.data.viewer.assignedIssues.nodes[] | "\(.identifier)\t[\(.state.name)]\tP\(.priority)\t\(.title)"' | column -t -s$'\t'
+  echo "$resp" | jq -r '.data.viewer.assignedIssues.nodes[] | "\(.identifier)\t[\(.state.name)]\tP\(.priority)\t\(.title)"' | tab_align
 }
 
 cmd_urgent() {
   local resp
   resp=$(gql '{ issues(orderBy: updatedAt, first: 50, filter: { priority: { in: [1,2] }, state: { type: { nin: ["completed","canceled"] } } }) { nodes { identifier title priority assignee { name } state { name } } } }')
-  echo "$resp" | jq -r '.data.issues.nodes[] | "\(.identifier)\tP\(.priority)\t[\(.state.name)]\t\(.assignee.name // "unassigned")\t\(.title)"' | column -t -s$'\t'
+  echo "$resp" | jq -r '.data.issues.nodes[] | "\(.identifier)\tP\(.priority)\t[\(.state.name)]\t\(.assignee.name // "unassigned")\t\(.title)"' | tab_align
 }
 
 cmd_team() {
@@ -105,7 +125,7 @@ cmd_team() {
   vars=$(jq -n --arg t "$team" '{teamKey: $t}')
   local resp
   resp=$(gql 'query($teamKey: String!) { teams(filter: { key: { eq: $teamKey } }) { nodes { issues(orderBy: updatedAt, first: 50, filter: { state: { type: { nin: ["completed","canceled"] } } }) { nodes { identifier title priority assignee { name } state { name } } } } } }' "$vars")
-  echo "$resp" | jq -r '.data.teams.nodes[0].issues.nodes[] | "\(.identifier)\t[\(.state.name)]\tP\(.priority)\t\(.assignee.name // "unassigned")\t\(.title)"' | column -t -s$'\t'
+  echo "$resp" | jq -r '.data.teams.nodes[0].issues.nodes[] | "\(.identifier)\t[\(.state.name)]\tP\(.priority)\t\(.assignee.name // "unassigned")\t\(.title)"' | tab_align
 }
 
 cmd_project() {
@@ -123,7 +143,7 @@ cmd_project() {
   project_name=$(echo "$resp" | jq -r '.data.projects.nodes[0].name // "Not found"')
   echo "Project: $project_name"
   echo "---"
-  echo "$resp" | jq -r '.data.projects.nodes[0].issues.nodes[] // empty | "\(.identifier)\t[\(.state.name)]\tP\(.priority)\t\(.assignee.name // "unassigned")\t\(.title)"' | column -t -s$'\t'
+  echo "$resp" | jq -r '.data.projects.nodes[0].issues.nodes[] // empty | "\(.identifier)\t[\(.state.name)]\tP\(.priority)\t\(.assignee.name // "unassigned")\t\(.title)"' | tab_align
 }
 
 cmd_issue() {
@@ -402,7 +422,7 @@ cmd_standup() {
 cmd_projects() {
   local resp
   resp=$(gql '{ projects(first: 50, orderBy: updatedAt) { nodes { name state progress teams { nodes { key } } lead { name } issues { nodes { id } } } } }')
-  echo "$resp" | jq -r '.data.projects.nodes[] | "\(.name)\t\(.state)\t\((.progress * 100) | floor)%\t\(.lead.name // "-")\t\(.issues.nodes | length) issues\t\([.teams.nodes[].key] | join(","))"' | column -t -s$'\t'
+  echo "$resp" | jq -r '.data.projects.nodes[] | "\(.name)\t\(.state)\t\((.progress * 100) | floor)%\t\(.lead.name // "-")\t\(.issues.nodes | length) issues\t\([.teams.nodes[].key] | join(","))"' | tab_align
 }
 
 cmd_help() {
