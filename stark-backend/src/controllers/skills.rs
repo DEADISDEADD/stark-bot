@@ -247,6 +247,264 @@ pub struct CreateAssociationRequest {
     pub strength: Option<f64>,
 }
 
+// --- StarkHub integration ---
+
+#[derive(Deserialize)]
+struct InstallFromHubRequest {
+    username: String,
+    slug: String,
+}
+
+/// GET /api/skills/featured_remote — get featured skills from StarkHub
+async fn featured_remote(
+    state: web::Data<AppState>,
+    _req: HttpRequest,
+) -> impl Responder {
+    let client = crate::integrations::starkhub_client::StarkHubClient::new();
+    let featured = match client.get_featured_skills().await {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[SKILLS] Failed to fetch featured skills from StarkHub: {}", e);
+            return HttpResponse::BadGateway().json(serde_json::json!({
+                "error": format!("Failed to fetch from StarkHub: {}", e)
+            }));
+        }
+    };
+
+    // Filter out already-installed skills
+    let installed: std::collections::HashSet<String> = state
+        .skill_registry
+        .list()
+        .iter()
+        .map(|s| s.metadata.name.clone())
+        .collect();
+
+    let filtered: Vec<_> = featured
+        .into_iter()
+        .filter(|s| {
+            let slug_underscore = s.slug.replace('-', "_");
+            !installed.contains(&s.slug)
+                && !installed.contains(&slug_underscore)
+                && !installed.contains(&s.name)
+        })
+        .collect();
+
+    HttpResponse::Ok().json(filtered)
+}
+
+/// POST /api/skills/install_from_hub — install a skill from StarkHub (with file downloads)
+async fn install_from_hub(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    body: web::Json<InstallFromHubRequest>,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    let client = crate::integrations::starkhub_client::StarkHubClient::new();
+
+    // Get skill detail (includes raw_markdown)
+    let skill_detail = match client.get_skill(&body.username, &body.slug).await {
+        Ok(d) => d,
+        Err(e) => {
+            return HttpResponse::BadGateway().json(serde_json::json!({
+                "error": format!("Failed to fetch skill from StarkHub: {}", e)
+            }));
+        }
+    };
+
+    let raw_markdown = match skill_detail.get("raw_markdown").and_then(|v| v.as_str()) {
+        Some(md) => md.to_string(),
+        None => {
+            return HttpResponse::BadGateway().json(serde_json::json!({
+                "error": "Skill response missing raw_markdown field"
+            }));
+        }
+    };
+
+    // Parse skill name from markdown to check for conflicts
+    let already_exists = match crate::skills::zip_parser::parse_skill_md(&raw_markdown) {
+        Ok((meta, _)) => state.skill_registry.has_skill(&meta.name),
+        Err(_) => false,
+    };
+
+    // Install skill via registry (create_skill_from_markdown handles upsert)
+    let db_skill = match state.skill_registry.create_skill_from_markdown(&raw_markdown) {
+        Ok(s) => s,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Failed to install skill: {}", e)
+            }));
+        }
+    };
+
+    let skill_name = db_skill.name.clone();
+
+    // Download additional files
+    let mut downloaded_files = Vec::new();
+    if let Ok(files) = client
+        .list_skill_files(&body.username, &body.slug)
+        .await
+    {
+        if !files.is_empty() {
+            let skills_dir = std::path::PathBuf::from(crate::config::runtime_skills_dir());
+            let skill_folder = skills_dir.join(&skill_name);
+            let _ = std::fs::create_dir_all(&skill_folder);
+
+            for file_summary in &files {
+                if let Ok(file_detail) = client
+                    .get_skill_file(&body.username, &body.slug, &file_summary.file_name)
+                    .await
+                {
+                    let file_path = skill_folder.join(&file_detail.file_name);
+                    if let Err(e) = std::fs::write(&file_path, &file_detail.content) {
+                        log::warn!("[SKILLS] Failed to write file '{}': {}", file_detail.file_name, e);
+                    } else {
+                        downloaded_files.push(file_detail.file_name);
+                    }
+                }
+            }
+        }
+    }
+
+    let action = if already_exists { "updated" } else { "installed" };
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "skill_name": skill_name,
+        "already_existed": already_exists,
+        "files": downloaded_files,
+        "message": format!("{} skill '{}' from @{}/{}",
+            if already_exists { "Updated" } else { "Installed" },
+            skill_name, body.username, body.slug),
+    }))
+}
+
+/// POST /api/skills/publish/{name} — publish a skill to StarkHub (with file uploads)
+async fn publish_to_hub(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    let auth_token = match req
+        .headers()
+        .get("X-StarkHub-Token")
+        .and_then(|h| h.to_str().ok())
+    {
+        Some(t) => t.to_string(),
+        None => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": "X-StarkHub-Token header required for publishing"
+            }));
+        }
+    };
+
+    let name = path.into_inner();
+    let skills_dir = std::path::PathBuf::from(crate::config::runtime_skills_dir());
+    let skill_folder = skills_dir.join(&name);
+
+    if !skill_folder.is_dir() {
+        return HttpResponse::NotFound().json(serde_json::json!({
+            "error": format!("Skill '{}' not found on disk", name)
+        }));
+    }
+
+    // Find the main .md file (SKILL.md or {name}.md)
+    let skill_md_path = skill_folder.join("SKILL.md");
+    let named_md_path = skill_folder.join(format!("{}.md", &name));
+    let md_path = if skill_md_path.exists() {
+        skill_md_path.clone()
+    } else if named_md_path.exists() {
+        named_md_path.clone()
+    } else {
+        return HttpResponse::NotFound().json(serde_json::json!({
+            "error": format!("No SKILL.md or {}.md found in skill folder", name)
+        }));
+    };
+
+    let raw_markdown = match std::fs::read_to_string(&md_path) {
+        Ok(content) => content,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Failed to read skill markdown: {}", e)
+            }));
+        }
+    };
+
+    let client = crate::integrations::starkhub_client::StarkHubClient::new();
+
+    // Publish skill markdown
+    let result = match client.publish_skill(&raw_markdown, &auth_token).await {
+        Ok(r) => r,
+        Err(e) => {
+            return HttpResponse::BadGateway().json(serde_json::json!({
+                "error": format!("Failed to publish to StarkHub: {}", e)
+            }));
+        }
+    };
+
+    let username = result["username"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_string();
+    let slug = result["slug"]
+        .as_str()
+        .unwrap_or(&name)
+        .to_string();
+
+    // Determine the main md filename to skip during file upload
+    let main_md_name = md_path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    // Upload additional files (everything except the main .md file)
+    let mut uploaded_files = Vec::new();
+    let mut skipped_files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&skill_folder) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name == main_md_name || !entry.path().is_file() {
+                continue;
+            }
+            match std::fs::read_to_string(entry.path()) {
+                Ok(content) => {
+                    match client
+                        .upload_skill_file(&username, &slug, &file_name, &content, &auth_token)
+                        .await
+                    {
+                        Ok(_) => uploaded_files.push(file_name),
+                        Err(e) => {
+                            log::warn!("[SKILLS] Failed to upload file '{}': {}", file_name, e);
+                            skipped_files.push(file_name);
+                        }
+                    }
+                }
+                Err(_) => {
+                    log::warn!("[SKILLS] Skipping binary file '{}' (not UTF-8)", file_name);
+                    skipped_files.push(file_name);
+                }
+            }
+        }
+    }
+
+    let mut resp = serde_json::json!({
+        "success": true,
+        "slug": slug,
+        "username": username,
+        "uploaded_files": uploaded_files,
+        "message": result.get("message").and_then(|m| m.as_str()).unwrap_or("Published"),
+    });
+    if !skipped_files.is_empty() {
+        resp["skipped_files"] = serde_json::json!(skipped_files);
+    }
+    HttpResponse::Ok().json(resp)
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/skills")
@@ -261,6 +519,9 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("/associations/rebuild", web::post().to(rebuild_skill_associations))
             .route("/bundled/available", web::get().to(list_bundled_available))
             .route("/bundled/restore/{name}", web::post().to(restore_bundled_skill))
+            .route("/featured_remote", web::get().to(featured_remote))
+            .route("/install_from_hub", web::post().to(install_from_hub))
+            .route("/publish/{name}", web::post().to(publish_to_hub))
             .route("/{name}", web::get().to(get_skill))
             .route("/{name}", web::put().to(update_skill))
             .route("/{name}", web::delete().to(delete_skill))

@@ -599,33 +599,45 @@ async fn publish_to_hub(
 
     // Upload additional files (everything except agent.md)
     let mut uploaded_files = Vec::new();
+    let mut skipped_files = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&agent_folder) {
         for entry in entries.flatten() {
             let file_name = entry.file_name().to_string_lossy().to_string();
             if file_name == "agent.md" || !entry.path().is_file() {
                 continue;
             }
-            if let Ok(content) = std::fs::read_to_string(entry.path()) {
-                match client
-                    .upload_agent_subtype_file(&username, &slug, &file_name, &content, &auth_token)
-                    .await
-                {
-                    Ok(_) => uploaded_files.push(file_name),
-                    Err(e) => {
-                        log::warn!("Failed to upload file '{}': {}", file_name, e);
+            match std::fs::read_to_string(entry.path()) {
+                Ok(content) => {
+                    match client
+                        .upload_agent_subtype_file(&username, &slug, &file_name, &content, &auth_token)
+                        .await
+                    {
+                        Ok(_) => uploaded_files.push(file_name),
+                        Err(e) => {
+                            log::warn!("[AGENTS] Failed to upload file '{}': {}", file_name, e);
+                            skipped_files.push(file_name);
+                        }
                     }
+                }
+                Err(_) => {
+                    log::warn!("[AGENTS] Skipping binary file '{}' (not UTF-8)", file_name);
+                    skipped_files.push(file_name);
                 }
             }
         }
     }
 
-    HttpResponse::Ok().json(serde_json::json!({
+    let mut resp = serde_json::json!({
         "success": true,
         "slug": slug,
         "username": username,
         "uploaded_files": uploaded_files,
         "message": result.get("message").and_then(|m| m.as_str()).unwrap_or("Published"),
-    }))
+    });
+    if !skipped_files.is_empty() {
+        resp["skipped_files"] = serde_json::json!(skipped_files);
+    }
+    HttpResponse::Ok().json(resp)
 }
 
 /// POST /api/agent-subtypes/install — install an agent subtype from StarkHub

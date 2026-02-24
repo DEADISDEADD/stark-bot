@@ -58,6 +58,13 @@ pub struct PlatformBinary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModuleFileSummary {
+    pub file_name: String,
+    pub file_size: i64,
+    pub sha256_checksum: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadInfo {
     pub download_url: String,
     pub sha256_checksum: String,
@@ -130,6 +137,37 @@ pub struct AgentSubtypeFileSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentSubtypeFileDetail {
+    pub file_name: String,
+    pub content: String,
+    pub file_size: i64,
+    pub sha256_checksum: String,
+}
+
+// --- Skill types ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillSummary {
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub author_username: Option<String>,
+    pub author_address: String,
+    pub install_count: i32,
+    pub featured: Option<bool>,
+    pub tags: Vec<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillFileSummary {
+    pub file_name: String,
+    pub file_size: i64,
+    pub sha256_checksum: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillFileDetail {
     pub file_name: String,
     pub content: String,
     pub file_size: i64,
@@ -255,6 +293,75 @@ impl StarkHubClient {
             .await
             .map(|b| b.to_vec())
             .map_err(|e| format!("Failed to read binary data: {}", e))
+    }
+
+    /// List files available for a module on StarkHub.
+    pub async fn list_module_files(
+        &self,
+        username: &str,
+        slug: &str,
+    ) -> Result<Vec<ModuleFileSummary>, String> {
+        let url = format!(
+            "{}/modules/@{}/{}/files",
+            self.base_url, username, slug
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to list module files: {}", e))?;
+
+        if !resp.status().is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Failed to list files: {}", body));
+        }
+
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse file list: {}", e))?;
+
+        let files = json
+            .get("files")
+            .and_then(|v| serde_json::from_value::<Vec<ModuleFileSummary>>(v.clone()).ok())
+            .unwrap_or_default();
+
+        Ok(files)
+    }
+
+    /// Download a single file from a module on StarkHub.
+    pub async fn download_module_file(
+        &self,
+        username: &str,
+        slug: &str,
+        file_name: &str,
+    ) -> Result<String, String> {
+        let url = format!(
+            "{}/modules/@{}/{}/files/{}",
+            self.base_url, username, slug, file_name
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to download file '{}': {}", file_name, e))?;
+
+        if !resp.status().is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Failed to download '{}': {}", file_name, body));
+        }
+
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse file response: {}", e))?;
+
+        json.get("content")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| format!("File '{}' response missing content field", file_name))
     }
 
     // --- Agent Subtype methods ---
@@ -467,7 +574,7 @@ impl StarkHubClient {
         &self,
         manifest_toml: &str,
         auth_token: &str,
-    ) -> Result<String, String> {
+    ) -> Result<serde_json::Value, String> {
         let url = format!("{}/modules", self.base_url);
         let resp = self
             .http
@@ -484,16 +591,238 @@ impl StarkHubClient {
             return Err(format!("Publish failed: {}", body));
         }
 
+        resp.json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))
+    }
+
+    /// Upload a file for a module on StarkHub.
+    pub async fn upload_module_file(
+        &self,
+        username: &str,
+        slug: &str,
+        file_name: &str,
+        content: &str,
+        auth_token: &str,
+    ) -> Result<serde_json::Value, String> {
+        let url = format!(
+            "{}/modules/@{}/{}/files",
+            self.base_url, username, slug
+        );
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", auth_token))
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "file_name": file_name,
+                "content": content,
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to connect to StarkHub: {}", e))?;
+
+        if !resp.status().is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("File upload failed: {}", body));
+        }
+
+        resp.json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))
+    }
+
+    // --- Skill methods ---
+
+    /// Get featured skills from StarkHub.
+    pub async fn get_featured_skills(&self) -> Result<Vec<SkillSummary>, String> {
+        let url = format!("{}/skills/featured", self.base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to connect to StarkHub: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("StarkHub returned HTTP {}", resp.status()));
+        }
+
+        resp.json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))
+    }
+
+    /// Search skills on StarkHub.
+    pub async fn search_skills(&self, query: &str) -> Result<Vec<SkillSummary>, String> {
+        let url = format!("{}/search", self.base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .query(&[("q", query)])
+            .send()
+            .await
+            .map_err(|e| format!("Failed to connect to StarkHub: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("StarkHub returned HTTP {}", resp.status()));
+        }
+
+        let paginated: PaginatedResponse<SkillSummary> = resp
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+        Ok(paginated.data)
+    }
+
+    /// Get skill detail by @username/slug.
+    pub async fn get_skill(
+        &self,
+        username: &str,
+        slug: &str,
+    ) -> Result<serde_json::Value, String> {
+        let url = format!("{}/skills/@{}/{}", self.base_url, username, slug);
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to connect to StarkHub: {}", e))?;
+
+        if resp.status().as_u16() == 404 {
+            return Err(format!("Skill @{}/{} not found on StarkHub", username, slug));
+        }
+        if !resp.status().is_success() {
+            return Err(format!("StarkHub returned HTTP {}", resp.status()));
+        }
+
+        resp.json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))
+    }
+
+    /// Publish a skill to StarkHub.
+    pub async fn publish_skill(
+        &self,
+        raw_markdown: &str,
+        auth_token: &str,
+    ) -> Result<serde_json::Value, String> {
+        let url = format!("{}/submit", self.base_url);
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", auth_token))
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({ "raw_markdown": raw_markdown }))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to connect to StarkHub: {}", e))?;
+
+        if !resp.status().is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Publish failed: {}", body));
+        }
+
+        resp.json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))
+    }
+
+    /// List files for a skill on StarkHub.
+    pub async fn list_skill_files(
+        &self,
+        username: &str,
+        slug: &str,
+    ) -> Result<Vec<SkillFileSummary>, String> {
+        let url = format!(
+            "{}/skills/@{}/{}/files",
+            self.base_url, username, slug
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to connect to StarkHub: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("StarkHub returned HTTP {}", resp.status()));
+        }
+
         let result: serde_json::Value = resp
             .json()
             .await
             .map_err(|e| format!("Failed to parse response: {}", e))?;
 
-        Ok(result
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string())
+        let files: Vec<SkillFileSummary> =
+            serde_json::from_value(result["files"].clone()).unwrap_or_default();
+
+        Ok(files)
+    }
+
+    /// Get a single file's content for a skill on StarkHub.
+    pub async fn get_skill_file(
+        &self,
+        username: &str,
+        slug: &str,
+        filename: &str,
+    ) -> Result<SkillFileDetail, String> {
+        let url = format!(
+            "{}/skills/@{}/{}/files/{}",
+            self.base_url, username, slug, filename
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to connect to StarkHub: {}", e))?;
+
+        if !resp.status().is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Failed to get file: {}", body));
+        }
+
+        resp.json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))
+    }
+
+    /// Upload a file for a skill on StarkHub.
+    pub async fn upload_skill_file(
+        &self,
+        username: &str,
+        slug: &str,
+        file_name: &str,
+        content: &str,
+        auth_token: &str,
+    ) -> Result<serde_json::Value, String> {
+        let url = format!(
+            "{}/skills/@{}/{}/files",
+            self.base_url, username, slug
+        );
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", auth_token))
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "file_name": file_name,
+                "content": content,
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to connect to StarkHub: {}", e))?;
+
+        if !resp.status().is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("File upload failed: {}", body));
+        }
+
+        resp.json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))
     }
 }
 

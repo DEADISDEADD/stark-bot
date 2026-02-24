@@ -775,17 +775,47 @@ async fn fetch_remote(
                         }));
                     }
 
+                    // Download individual module files (service.py, skill.md, etc.)
+                    match client.list_module_files(username, slug).await {
+                        Ok(files) => {
+                            for file_info in &files {
+                                match client.download_module_file(username, slug, &file_info.file_name).await {
+                                    Ok(content) => {
+                                        let file_path = module_dir.join(&file_info.file_name);
+                                        if let Err(e) = std::fs::write(&file_path, &content) {
+                                            log::error!("[MODULE] Failed to write file '{}': {}", file_info.file_name, e);
+                                        } else {
+                                            log::info!("[MODULE] Downloaded file: {}", file_info.file_name);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::warn!("[MODULE] Failed to download file '{}': {}", file_info.file_name, e);
+                                    }
+                                }
+                            }
+                            if !files.is_empty() {
+                                log::info!("[MODULE] Downloaded {} file(s) for {}", files.len(), name_underscore);
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("[MODULE] Could not list module files (module may be manifest-only): {}", e);
+                        }
+                    }
+
                     let author_str = module_info.author.username
                         .as_deref()
                         .map(|u| format!("@{}", u))
                         .unwrap_or_else(|| module_info.author.wallet_address.clone());
+
+                    // Parse has_dashboard from manifest
+                    let has_dashboard = manifest_toml.contains("has_dashboard = true");
 
                     match data.db.install_module_full(
                         &name_underscore,
                         &module_info.description,
                         &module_info.version,
                         !module_info.tools_provided.is_empty(),
-                        false,
+                        has_dashboard,
                         "starkhub",
                         Some(&manifest_path.to_string_lossy()),
                         None,
@@ -798,8 +828,7 @@ async fn fetch_remote(
                                 "status": "installed",
                                 "module": name_underscore,
                                 "version": module_info.version,
-                                "manifest_only": true,
-                                "message": format!("Module '{}' installed from StarkHub (manifest-only — tools registered but service files not included, service may not start).", name_underscore)
+                                "message": format!("Module '{}' installed from StarkHub.", name_underscore)
                             }));
                         }
                         Err(e) => {
@@ -1039,6 +1068,147 @@ async fn upload_module(
     }
 }
 
+fn validate_session(
+    data: &web::Data<AppState>,
+    req: &HttpRequest,
+) -> Result<(), HttpResponse> {
+    let token = req
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.trim_start_matches("Bearer ").to_string());
+
+    let token = match token {
+        Some(t) => t,
+        None => {
+            return Err(HttpResponse::Unauthorized().json(serde_json::json!({
+                "error": "No authorization token provided"
+            })));
+        }
+    };
+
+    match data.db.validate_session(&token) {
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => Err(HttpResponse::Unauthorized().json(serde_json::json!({
+            "error": "Invalid or expired session"
+        }))),
+        Err(e) => {
+            log::error!("Session validation error: {}", e);
+            Err(HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": "Internal server error"
+            })))
+        }
+    }
+}
+
+/// POST /api/modules/publish/{name} — publish a module to StarkHub (with file uploads)
+async fn publish_to_hub(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    name: web::Path<String>,
+) -> HttpResponse {
+    if let Err(resp) = validate_session(&data, &req) {
+        return resp;
+    }
+
+    let auth_token = match req
+        .headers()
+        .get("X-StarkHub-Token")
+        .and_then(|h| h.to_str().ok())
+    {
+        Some(t) => t.to_string(),
+        None => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": "X-StarkHub-Token header required for publishing"
+            }));
+        }
+    };
+
+    let name = name.into_inner();
+    let modules_dir = crate::config::runtime_modules_dir();
+    let module_dir = modules_dir.join(&name);
+
+    if !module_dir.is_dir() {
+        return HttpResponse::NotFound().json(serde_json::json!({
+            "error": format!("Module '{}' not found on disk", name)
+        }));
+    }
+
+    // Read module.toml
+    let manifest_path = module_dir.join("module.toml");
+    let manifest_toml = match std::fs::read_to_string(&manifest_path) {
+        Ok(content) => content,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Failed to read module.toml: {}", e)
+            }));
+        }
+    };
+
+    let client = crate::integrations::starkhub_client::StarkHubClient::new();
+
+    // Publish manifest
+    let result = match client.publish_module(&manifest_toml, &auth_token).await {
+        Ok(r) => r,
+        Err(e) => {
+            return HttpResponse::BadGateway().json(serde_json::json!({
+                "error": format!("Failed to publish to StarkHub: {}", e)
+            }));
+        }
+    };
+
+    let username = result["username"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_string();
+    let slug = result["slug"]
+        .as_str()
+        .unwrap_or(&name)
+        .to_string();
+
+    // Upload additional files (everything except module.toml)
+    let mut uploaded_files = Vec::new();
+    let mut skipped_files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&module_dir) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name == "module.toml" || !entry.path().is_file() {
+                continue;
+            }
+            match std::fs::read_to_string(entry.path()) {
+                Ok(content) => {
+                    match client
+                        .upload_module_file(&username, &slug, &file_name, &content, &auth_token)
+                        .await
+                    {
+                        Ok(_) => uploaded_files.push(file_name),
+                        Err(e) => {
+                            log::warn!("[MODULE] Failed to upload file '{}': {}", file_name, e);
+                            skipped_files.push(file_name);
+                        }
+                    }
+                }
+                Err(_) => {
+                    log::warn!("[MODULE] Skipping binary file '{}' (not UTF-8)", file_name);
+                    skipped_files.push(file_name);
+                }
+            }
+        }
+    }
+
+    let mut resp = serde_json::json!({
+        "success": true,
+        "slug": slug,
+        "username": username,
+        "uploaded_files": uploaded_files,
+        "message": result.get("message").and_then(|m| m.as_str()).unwrap_or("Published"),
+    });
+    if !skipped_files.is_empty() {
+        resp["skipped_files"] = serde_json::json!(skipped_files);
+    }
+    HttpResponse::Ok().json(resp)
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/modules")
@@ -1047,6 +1217,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("/reload", web::post().to(reload_modules))
             .route("/featured_remote", web::get().to(featured_remote))
             .route("/fetch_remote", web::post().to(fetch_remote))
+            .route("/publish/{name}", web::post().to(publish_to_hub))
             .route("/{name}/dashboard", web::get().to(module_dashboard))
             .route("/{name}/status", web::get().to(module_status))
             .route("/{name}/proxy/{path:.*}", web::get().to(module_proxy))

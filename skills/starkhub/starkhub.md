@@ -1,7 +1,7 @@
 ---
 name: starkhub
 description: "Browse, search, install, and submit skills and modules on StarkHub (hub.starkbot.ai) — the decentralized skills & modules directory for StarkBot agents."
-version: 2.9.0
+version: 3.0.0
 author: starkbot
 homepage: https://hub.starkbot.ai
 metadata: {"clawdbot":{"emoji":"🌐"}}
@@ -62,7 +62,8 @@ Before doing any work, call `define_tasks` based on the requested action.
 {"tool": "define_tasks", "tasks": [
   "TASK 1 — Download: fetch skill markdown from StarkHub via erc8128_fetch /download endpoint. Save the FULL response text — you need it for the next step.",
   "TASK 2 — Install to database: call manage_skills with action 'install' and pass the FULL markdown from Task 1 in the 'markdown' parameter. This saves the skill to the database so it appears on the skills page. Do NOT skip this step. If the skill already exists locally, use action 'update' instead.",
-  "TASK 3 — Confirm: tell the user the skill was installed. Mention any requirements (API keys, config, binaries) as next steps."
+  "TASK 3 — Download additional files: check for additional files via web_fetch GET /api/skills/@{username}/{slug}/files. If files exist, download each via web_fetch GET /api/skills/@{username}/{slug}/files/{file_name} and save to the skill folder.",
+  "TASK 4 — Confirm: tell the user the skill was installed. Mention any requirements (API keys, config, binaries) as next steps."
 ]}
 ```
 
@@ -73,7 +74,8 @@ Before doing any work, call `define_tasks` based on the requested action.
   "TASK 1 — Ensure username: use erc8128_fetch to GET /api/auth/me. If no username, read identity via import_identity (no params) and PUT /api/authors/me/username via erc8128_fetch. See starkhub skill 'Ensure Username'.",
   "TASK 2 — Prepare: read the local skill's full raw markdown via read_skill tool (returns complete SKILL.md with frontmatter, ready for submission).",
   "TASK 3 — Submit: POST the skill markdown to StarkHub via erc8128_fetch.",
-  "TASK 4 — Confirm: say_to_user summarizing whether the skill was or was not successfully submitted. Mention it will need to be reviewed before it goes fully live."
+  "TASK 4 — Upload files: if the skill folder contains additional files (scripts, ABIs, configs — anything besides the main .md), upload each via erc8128_fetch POST /api/skills/@{username}/{slug}/files with {file_name, content} body.",
+  "TASK 5 — Confirm: say_to_user summarizing whether the skill was or was not successfully submitted. Mention it will need to be reviewed before it goes fully live."
 ]}
 ```
 
@@ -335,21 +337,24 @@ Only the original author can update their skill.
 
 1. Download: `erc8128_fetch GET /api/skills/@{username}/{slug}/download` (chain_id: 8453)
 2. **Install to DB** (REQUIRED): `manage_skills` → `install` with the full markdown from step 1. This is what makes it show on the skills page.
-3. Verify: `manage_skills` → `get` with the skill name to confirm it's in the database
+3. Download additional files: `web_fetch GET /api/skills/@{username}/{slug}/files` — if files exist, download each and save to the skill folder.
+4. Verify: `manage_skills` → `get` with the skill name to confirm it's in the database
 
 ### "Publish my skill to StarkHub"
 
 1. `erc8128_fetch GET /api/auth/me` — if no username, read identity via `import_identity` (no params) and `erc8128_fetch PUT /api/authors/me/username`
 2. Read the local skill markdown via `read_skill` (returns full SKILL.md with frontmatter)
 3. `erc8128_fetch POST /api/submit` with `raw_markdown` in body
-4. Confirm pending status to user
+4. Upload additional files: if skill folder has extra files, `erc8128_fetch POST /api/skills/@{username}/{slug}/files` with `{file_name, content}` for each
+5. Confirm pending status to user
 
 ### "Publish my module to StarkHub"
 
 1. `erc8128_fetch GET /api/auth/me` — if no username, read identity via `import_identity` (no params) and `erc8128_fetch PUT /api/authors/me/username`
 2. Export the module manifest via `manage_modules(action="export", name="module_name")`
 3. `erc8128_fetch POST /api/modules/submit` with `manifest_toml` in body
-4. Confirm pending status to user
+4. Upload additional files: if module folder has extra files (service.py, skill.md, etc.), `erc8128_fetch POST /api/modules/@{username}/{slug}/files` with `{file_name, content}` for each
+5. Confirm pending status to user
 
 ### "What categories exist?"
 
@@ -432,7 +437,8 @@ Module search and install are handled by the `manage_modules` tool:
   "TASK 1 — Ensure username: use erc8128_fetch to GET /api/auth/me. If no username, read identity via import_identity (no params) and PUT /api/authors/me/username via erc8128_fetch. See starkhub skill 'Ensure Username'.",
   "TASK 2 — Export: get the module manifest via manage_modules(action='export', name='module_name').",
   "TASK 3 — Submit: POST the module manifest to StarkHub via erc8128_fetch.",
-  "TASK 4 — Confirm: say_to_user summarizing whether the module was or was not successfully submitted."
+  "TASK 4 — Upload files: if the module folder contains additional files (service.py, skill.md, configs — anything besides module.toml), upload each via erc8128_fetch POST /api/modules/@{username}/{slug}/files with {file_name, content} body.",
+  "TASK 5 — Confirm: say_to_user summarizing whether the module was or was not successfully submitted."
 ]}
 ```
 
