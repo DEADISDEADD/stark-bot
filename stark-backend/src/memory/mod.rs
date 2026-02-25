@@ -2,6 +2,7 @@ pub mod associations;
 pub mod association_loop;
 pub mod decay;
 pub mod embeddings;
+pub mod fts_utils;
 pub mod hybrid_search;
 pub mod redaction;
 pub mod vector_search;

@@ -15,4 +15,6 @@ stark-backend/agents/
 stark-backend/modules/
 stark-backend/skills/
 stark-backend/workspace
+stark-backend/notes/
 /test_output
+notes/

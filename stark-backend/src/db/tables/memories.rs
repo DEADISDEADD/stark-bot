@@ -330,18 +330,10 @@ impl Database {
         identity_id: Option<&str>,
         limit: i32,
     ) -> Result<Vec<(MemoryRow, f64)>, rusqlite::Error> {
-        let tokens: Vec<String> = query
-            .split_whitespace()
-            .filter(|t| !t.is_empty())
-            .map(|token| {
-                let escaped = token.replace('"', "\"\"");
-                format!("\"{}\"", escaped)
-            })
-            .collect();
-        if tokens.is_empty() {
+        let sanitized = crate::memory::fts_utils::normalize_fts_query(query);
+        if sanitized.is_empty() {
             return Ok(Vec::new());
         }
-        let sanitized = tokens.join(" OR ");
         self.search_memories_fts(&sanitized, identity_id, limit)
     }
 

@@ -448,15 +448,7 @@ impl SubAgentManager {
 
         // Search for memories relevant to this task and inject into system prompt
         let relevant_memories_hint = {
-            let stop_words = stop_words::get(stop_words::LANGUAGE::English);
-            let fts_query: String = context.task
-                .split_whitespace()
-                .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
-                .filter(|w| w.len() >= 2 && !stop_words.contains(&w.as_str()))
-                .take(8)
-                .map(|w| format!("{}*", w)) // prefix match for plurals/conjugations
-                .collect::<Vec<_>>()
-                .join(" OR ");
+            let fts_query = crate::memory::fts_utils::normalize_fts_query(&context.task);
 
             if fts_query.is_empty() {
                 String::new()

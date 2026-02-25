@@ -221,20 +221,10 @@ impl HybridSearchEngine {
         Ok(merged)
     }
 
-    /// Escape a query string for safe use with FTS5 MATCH by quoting each token.
-    /// This prevents FTS5 operators (AND, OR, NOT, NEAR, *, etc.) from being
-    /// interpreted as syntax.
+    /// Normalize a query string for FTS5 MATCH using shared stemming + stop-word
+    /// filtering. Produces a prefix-wildcard OR query for broad matching.
     fn sanitize_fts5_query(query: &str) -> String {
-        query
-            .split_whitespace()
-            .filter(|token| !token.is_empty())
-            .map(|token| {
-                // Double-quote each token, escaping any internal double-quotes
-                let escaped = token.replace('"', "\"\"");
-                format!("\"{}\"", escaped)
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
+        super::fts_utils::normalize_fts_query(query)
     }
 
     /// Perform FTS5 full-text search against the memories_fts table.

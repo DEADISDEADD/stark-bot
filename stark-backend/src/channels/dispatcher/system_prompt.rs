@@ -200,34 +200,50 @@ impl MessageDispatcher {
                     }
                 }
 
-                // Active retrieval: FTS search using the user's message for relevant memories
+                // Active retrieval: search for relevant memories using the user's message
                 let user_query = &message.text;
                 if !user_query.trim().is_empty() {
-                    // Build FTS query from significant words, filtering out stop words
-                    let stop_words = stop_words::get(stop_words::LANGUAGE::English);
-                    let fts_query: String = user_query
-                        .split_whitespace()
-                        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
-                        .filter(|w| w.len() >= 2 && !stop_words.contains(&w.as_str()))
-                        .take(8)
-                        .map(|w| format!("{}*", w)) // prefix match for plurals/conjugations
-                        .collect::<Vec<_>>()
-                        .join(" OR ");
-                    if !fts_query.is_empty() {
-                        if let Ok(results) = self.db.search_memories_fts(&fts_query, mem_identity, 15) {
+                    // Prefer hybrid search (FTS + vector + graph) when available
+                    let mut found_memories = false;
+                    if let Some(ref hybrid) = self.hybrid_search {
+                        if let Ok(results) = hybrid.search_fast(user_query, 15, None).await {
                             if !results.is_empty() {
+                                found_memories = true;
                                 prompt.push_str("## Relevant Memories\n");
                                 prompt.push_str("The following memories may be relevant to this conversation.\n");
                                 prompt.push_str("Use memory_read/memory_search tools to dig deeper if needed.\n\n");
-                                for (i, (mem, _rank)) in results.iter().enumerate() {
-                                    let snippet: String = mem.content.chars().take(200).collect();
+                                for (i, result) in results.iter().enumerate() {
+                                    let snippet: String = result.content.chars().take(200).collect();
                                     prompt.push_str(&format!(
                                         "[{}] (#{}, {}, importance: {}) {}\n",
-                                        i + 1, mem.id, mem.memory_type, mem.importance,
+                                        i + 1, result.memory_id, result.memory_type, result.importance,
                                         snippet.replace('\n', " ")
                                     ));
                                 }
                                 prompt.push('\n');
+                            }
+                        }
+                    }
+
+                    // Fallback: FTS search with stemming if hybrid search unavailable or empty
+                    if !found_memories {
+                        let fts_query = crate::memory::fts_utils::normalize_fts_query(user_query);
+                        if !fts_query.is_empty() {
+                            if let Ok(results) = self.db.search_memories_fts(&fts_query, mem_identity, 15) {
+                                if !results.is_empty() {
+                                    prompt.push_str("## Relevant Memories\n");
+                                    prompt.push_str("The following memories may be relevant to this conversation.\n");
+                                    prompt.push_str("Use memory_read/memory_search tools to dig deeper if needed.\n\n");
+                                    for (i, (mem, _rank)) in results.iter().enumerate() {
+                                        let snippet: String = mem.content.chars().take(200).collect();
+                                        prompt.push_str(&format!(
+                                            "[{}] (#{}, {}, importance: {}) {}\n",
+                                            i + 1, mem.id, mem.memory_type, mem.importance,
+                                            snippet.replace('\n', " ")
+                                        ));
+                                    }
+                                    prompt.push('\n');
+                                }
                             }
                         }
                     }
@@ -236,30 +252,45 @@ impl MessageDispatcher {
         }
 
         // Semantic skill discovery: inject relevant skills based on user query
+        // Primary: vector similarity via embeddings. Fallback: text matching with stemming.
         if !is_safe_mode {
             let user_query = &message.text;
             if !user_query.trim().is_empty() {
+                let mut skill_matches: Vec<(crate::skills::types::DbSkill, f32)> = Vec::new();
+
+                // Try vector search first (requires hybrid search engine + embeddings)
                 if let Some(ref hybrid) = self.hybrid_search {
                     let emb_gen = hybrid.embedding_generator().clone();
                     if let Ok(matches) = crate::skills::embeddings::search_skills(
                         &self.db, &emb_gen, user_query, 5, 0.30,
                     ).await {
-                        if !matches.is_empty() {
-                            prompt.push_str("## Relevant Skills\n");
-                            prompt.push_str("These skills may help with this request. Use `use_skill` to activate one.\n\n");
-                            let mut chars = 0;
-                            for (skill, sim) in &matches {
-                                if chars > 1500 { break; }
-                                let line = format!(
-                                    "- **{}** ({:.0}% match): {}\n",
-                                    skill.name, sim * 100.0, skill.description
-                                );
-                                chars += line.len();
-                                prompt.push_str(&line);
-                            }
-                            prompt.push('\n');
-                        }
+                        skill_matches = matches;
                     }
+                }
+
+                // Fallback: text-based search with stemming if vector returned nothing
+                if skill_matches.is_empty() {
+                    if let Ok(matches) = crate::skills::embeddings::search_skills_text(
+                        &self.db, user_query, 5,
+                    ) {
+                        skill_matches = matches;
+                    }
+                }
+
+                if !skill_matches.is_empty() {
+                    prompt.push_str("## Relevant Skills\n");
+                    prompt.push_str("These skills may help with this request. Use `use_skill` to activate one.\n\n");
+                    let mut chars = 0;
+                    for (skill, sim) in &skill_matches {
+                        if chars > 1500 { break; }
+                        let line = format!(
+                            "- **{}** ({:.0}% match): {}\n",
+                            skill.name, sim * 100.0, skill.description
+                        );
+                        chars += line.len();
+                        prompt.push_str(&line);
+                    }
+                    prompt.push('\n');
                 }
             }
         }
@@ -311,3 +342,4 @@ fn truncate_tail_chars(s: &str, max_chars: usize) -> String {
     let truncated: String = s.chars().skip(skip).collect();
     format!("...\n{}", truncated)
 }
+

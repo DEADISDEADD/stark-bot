@@ -164,18 +164,30 @@ pub async fn search_skills(
 }
 
 /// Simple text-based skill search (fallback when embeddings are unavailable).
-/// Matches against skill name, description, and tags using case-insensitive substring matching.
+/// Matches against skill name, description, and tags using case-insensitive
+/// substring matching with stemming so "hackathons" matches "hackathon", etc.
 /// Returns matching skills sorted by a simple relevance score.
 pub fn search_skills_text(
     db: &Arc<Database>,
     query: &str,
     limit: usize,
 ) -> Result<Vec<(DbSkill, f32)>, String> {
+    use crate::memory::fts_utils::simple_stem;
+
     let skills = db.list_enabled_skills()
         .map_err(|e| format!("Failed to list skills: {}", e))?;
 
     let query_lower = query.to_lowercase();
-    let query_terms: Vec<&str> = query_lower.split_whitespace().collect();
+    // Build (original, stem) pairs for each query term
+    let query_terms: Vec<(String, String)> = query_lower
+        .split_whitespace()
+        .map(|t| {
+            let term = t.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
+            let stemmed = simple_stem(&term);
+            (term, stemmed)
+        })
+        .filter(|(t, _)| t.len() >= 2)
+        .collect();
 
     if query_terms.is_empty() {
         return Ok(vec![]);
@@ -191,21 +203,26 @@ pub fn search_skills_text(
 
             let mut score: f32 = 0.0;
 
-            for term in &query_terms {
+            for (term, stemmed) in &query_terms {
+                // Check both original term and its stem against each field
+                let term_matches = |haystack: &str| -> bool {
+                    haystack.contains(term.as_str()) || (stemmed != term && haystack.contains(stemmed.as_str()))
+                };
+
                 // Exact name match is strongest
-                if name_lower == *term {
+                if name_lower == *term || (stemmed != term && name_lower == *stemmed) {
                     score += 0.5;
-                } else if name_lower.contains(term) {
+                } else if term_matches(&name_lower) {
                     score += 0.3;
                 }
                 // Tag match
-                if tags_lower.iter().any(|t| t == term) {
+                if tags_lower.iter().any(|t| t == term || (stemmed != term && t == stemmed)) {
                     score += 0.25;
-                } else if tags_joined.contains(term) {
+                } else if term_matches(&tags_joined) {
                     score += 0.15;
                 }
                 // Description match
-                if desc_lower.contains(term) {
+                if term_matches(&desc_lower) {
                     score += 0.1;
                 }
             }
