@@ -698,7 +698,7 @@ impl SkillRegistry {
     pub fn disable_module_skill(&self, module_name: &str) {
         let registry = crate::modules::ModuleRegistry::new();
         if let Some(module) = registry.get(module_name) {
-            if let Some(skill_name) = Self::resolve_module_skill_name(module.as_ref()) {
+            if let Some(skill_name) = Self::resolve_module_skill_name(module) {
                 self.set_enabled(&skill_name, false);
             }
         }
@@ -708,7 +708,7 @@ impl SkillRegistry {
     pub fn delete_module_skill(&self, module_name: &str) {
         let registry = crate::modules::ModuleRegistry::new();
         if let Some(module) = registry.get(module_name) {
-            if let Some(skill_name) = Self::resolve_module_skill_name(module.as_ref()) {
+            if let Some(skill_name) = Self::resolve_module_skill_name(module) {
                 let _ = self.delete_skill(&skill_name);
             }
         }
