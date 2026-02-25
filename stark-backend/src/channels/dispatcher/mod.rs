@@ -510,7 +510,8 @@ impl MessageDispatcher {
         let channel_type_lower = message.channel_type.to_lowercase();
         let is_gateway_channel = channel_type_lower == "discord"
             || channel_type_lower == "telegram"
-            || channel_type_lower == "web";
+            || channel_type_lower == "web"
+            || channel_type_lower == "external_channel";
 
         // Collect previous session messages for gateway channels (max 10)
         let previous_gateway_messages: Vec<crate::models::SessionMessage> = if is_gateway_channel {
