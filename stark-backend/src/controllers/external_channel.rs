@@ -255,7 +255,7 @@ async fn gateway_chat(
     let chat_id = body
         .session_id
         .clone()
-        .unwrap_or_else(|| "default".to_string());
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let user_name = body
         .user_name
         .clone()
@@ -391,7 +391,7 @@ async fn gateway_chat_stream(
     let chat_id = body
         .session_id
         .clone()
-        .unwrap_or_else(|| "default".to_string());
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let user_name = body
         .user_name
         .clone()

@@ -717,6 +717,11 @@ export default function Sessions() {
                         <span className="hidden sm:inline text-xs font-mono px-2 py-0.5 bg-slate-700/50 text-slate-300 rounded">
                           {session.id.toString(16).padStart(8, '0')}
                         </span>
+                        {session.platform_chat_id && (
+                          <span className="hidden sm:inline text-xs font-mono px-1.5 py-0.5 bg-indigo-500/20 text-indigo-400 rounded truncate max-w-[160px]" title={session.platform_chat_id}>
+                            {session.platform_chat_id}
+                          </span>
+                        )}
                         {isValidStatus(session.completion_status) && (() => {
                           const config = statusConfig[session.completion_status];
                           const StatusIcon = config.icon;
