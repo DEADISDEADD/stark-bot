@@ -94,9 +94,6 @@ zip = "0.6"
 # Module manifest parsing
 toml = "0.8"
 
-# Interactive CLI TUI (starkbot binary)
-crossterm = "0.28"
-
 # Module archive extraction (for StarkHub remote install)
 flate2 = "1"
 tar = "0.4"
@@ -109,10 +106,6 @@ stop-words = "0.9.0"
 [[bin]]
 name = "agent_test"
 path = "src/bin/agent_test.rs"
-
-[[bin]]
-name = "starkbot"
-path = "src/bin/starkbot.rs"
 
 [dev-dependencies]
 tempfile = "3"
