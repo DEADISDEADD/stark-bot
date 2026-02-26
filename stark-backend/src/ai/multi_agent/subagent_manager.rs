@@ -7,7 +7,7 @@
 //! - Real-time event broadcasting for sub-agent lifecycle
 
 use crate::ai::archetypes::minimax::strip_think_blocks;
-use crate::ai::multi_agent::types::{SubAgentConfig, SubAgentContext, SubAgentStatus};
+use crate::ai::multi_agent::types::{SubAgentConfig, SubAgentContext, SubAgentStatus, TaskQueue};
 use crate::ai::{AiClient, Message, MessageRole, ToolHistoryEntry};
 use crate::db::Database;
 use crate::gateway::events::EventBroadcaster;
@@ -618,10 +618,14 @@ impl SubAgentManager {
 
         // Filter out SubAgent tools — sub-agents don't get spawn_subagents
         // (recursion is controlled by which subtypes include the SubAgent tool group)
-        let tools: Vec<ToolDefinition> = tools
+        let mut tools: Vec<ToolDefinition> = tools
             .into_iter()
             .filter(|t| t.group != crate::tools::ToolGroup::SubAgent)
             .collect();
+
+        // Task queue state for multi-task skills (e.g. swap)
+        let mut task_queue: Option<TaskQueue> = None;
+        let mut _skill_required_tools: Vec<String> = Vec::new();
 
         // Execute the AI with tool loop
         let max_iterations = 90; // Matches default subtype config
@@ -728,6 +732,7 @@ impl SubAgentManager {
             // Execute tool calls
             let mut tool_responses = Vec::new();
             let mut task_completed = false;
+            let mut tasks_defined_this_batch = false;
             for tool_call in &response.tool_calls {
                 log::info!(
                     "[SUBAGENT] {} calling tool: {}",
@@ -810,12 +815,56 @@ impl SubAgentManager {
                     last_say_to_user_content = result.content.clone();
                 }
 
-                // Check if task_fully_completed was called - stop the loop
+                // Handle use_skill: refresh tool list to include skill-required tools
+                if tool_call.name == "use_skill" && result.success {
+                    if let Some(ref metadata) = result.metadata {
+                        if let Some(requires) = metadata.get("requires_tools").and_then(|v| v.as_array()) {
+                            let required_tools: Vec<String> = requires.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect();
+                            let subtype_key = context.agent_subtype.as_deref().unwrap_or("finance");
+                            tools = tool_registry
+                                .get_tool_definitions_for_subtype_with_required(&tool_config, subtype_key, &required_tools);
+                            tools.retain(|t| t.group != crate::tools::ToolGroup::SubAgent);
+                            log::info!(
+                                "[SUBAGENT] {} refreshed toolset after use_skill: {} tools (requires {:?})",
+                                context.id, tools.len(), required_tools
+                            );
+                            _skill_required_tools = required_tools;
+                        }
+                    }
+                }
+
+                // Check metadata for define_tasks and task_fully_completed
                 if let Some(ref metadata) = result.metadata {
+                    // Handle define_tasks: build task queue from skill's task list
+                    if metadata.get("define_tasks").and_then(|v| v.as_bool()).unwrap_or(false) {
+                        if let Some(tasks) = metadata.get("tasks").and_then(|v| v.as_array()) {
+                            let descriptions: Vec<String> = tasks.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect();
+                            if !descriptions.is_empty() {
+                                let tool_names: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
+                                task_queue = Some(TaskQueue::from_descriptions_with_tool_matching(
+                                    descriptions.clone(), &tool_names,
+                                ));
+                                // Start the first task
+                                if let Some(ref mut q) = task_queue {
+                                    q.pop_next();
+                                }
+                                log::info!(
+                                    "[SUBAGENT] {} define_tasks: created queue with {} tasks",
+                                    context.id, descriptions.len()
+                                );
+                                tasks_defined_this_batch = true;
+                            }
+                        }
+                    }
+
+                    // Handle task_fully_completed: advance queue or exit
                     if metadata.get("task_fully_completed").and_then(|v| v.as_bool()).unwrap_or(false) {
-                        log::info!("[SUBAGENT] {} task_fully_completed called, stopping loop", context.id);
-                        // Prefer say_to_user content (has the actual user-facing message, e.g. image URLs)
-                        // over the task_fully_completed summary (which is internal-only)
+                        log::info!("[SUBAGENT] {} task_fully_completed called", context.id);
+                        // Prefer say_to_user content over task_fully_completed summary
                         if !last_say_to_user_content.is_empty() {
                             log::info!("[SUBAGENT] {} using last_say_to_user_content as final response ({} chars)", context.id, last_say_to_user_content.len());
                             final_response = last_say_to_user_content.clone();
@@ -824,7 +873,27 @@ impl SubAgentManager {
                         } else if !result.content.is_empty() {
                             final_response = result.content.clone();
                         }
-                        task_completed = true;
+
+                        if let Some(ref mut q) = task_queue {
+                            if !tasks_defined_this_batch {
+                                q.complete_current();
+                                if q.pop_next().is_some() {
+                                    // More tasks — continue the loop
+                                    log::info!(
+                                        "[SUBAGENT] {} advanced to next task ({}/{})",
+                                        context.id, q.completed_count(), q.total()
+                                    );
+                                } else {
+                                    // All tasks done
+                                    log::info!("[SUBAGENT] {} all tasks complete", context.id);
+                                    task_completed = true;
+                                }
+                            }
+                            // If tasks_defined_this_batch, suppress (same as dispatcher BatchState)
+                        } else {
+                            // No task queue — original behavior: exit immediately
+                            task_completed = true;
+                        }
                     }
                 }
 
@@ -845,6 +914,26 @@ impl SubAgentManager {
                 response.tool_calls,
                 tool_responses,
             ));
+
+            // Inject current task context so the AI knows which task to work on next
+            if let Some(ref q) = task_queue {
+                if let Some(current) = q.current_task() {
+                    let auto_complete_hint = if let Some(ref tool_name) = current.auto_complete_tool {
+                        format!(
+                            "\n\n**Note:** This task will auto-complete when `{}` succeeds. \
+                             You do NOT need to call `task_fully_completed` for this task.",
+                            tool_name
+                        )
+                    } else {
+                        String::new()
+                    };
+                    let task_hint = format!(
+                        ">>> CURRENT TASK ({}/{}) <<<\n{}{}\n\nComplete ONLY this task. When done, call task_fully_completed.",
+                        q.completed_count() + 1, q.total(), current.description, auto_complete_hint
+                    );
+                    tool_history.push(crate::ai::types::create_system_hint(&task_hint));
+                }
+            }
 
             // If there was content with the tool calls, save it
             if !response.content.is_empty() {

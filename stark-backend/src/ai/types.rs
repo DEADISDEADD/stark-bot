@@ -245,6 +245,24 @@ pub fn handle_context_overflow(
     )
 }
 
+/// Create a synthetic tool history entry that injects a system hint into the conversation.
+/// Used to tell the AI about task context (e.g., which task to work on next).
+pub fn create_system_hint(hint: &str) -> ToolHistoryEntry {
+    let hint_id = format!("system_hint_{}", chrono::Utc::now().timestamp_millis());
+    ToolHistoryEntry::new(
+        vec![ToolCall {
+            id: hint_id.clone(),
+            name: "system_feedback".to_string(),
+            arguments: serde_json::json!({"type": "task_context"}),
+        }],
+        vec![ToolResponse {
+            tool_call_id: hint_id,
+            content: hint.to_string(),
+            is_error: false,
+        }],
+    )
+}
+
 /// Create a simple error feedback entry for non-context-overflow errors
 pub fn create_error_feedback(
     error: &AiError,
