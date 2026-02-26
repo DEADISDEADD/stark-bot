@@ -502,6 +502,7 @@ async fn process_slack_message(
         selected_network: None,
         force_safe_mode,
         platform_role_ids: vec![],
+        chat_context: None,
     };
 
     // Subscribe to events for real-time tool call forwarding

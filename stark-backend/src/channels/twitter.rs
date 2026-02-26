@@ -1066,6 +1066,7 @@ async fn process_mention(
         selected_network: None,
         force_safe_mode,
         platform_role_ids: vec![],
+        chat_context: None,
     };
 
     // Subscribe to events to capture say_to_user messages.

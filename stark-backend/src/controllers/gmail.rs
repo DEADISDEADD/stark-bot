@@ -234,6 +234,7 @@ async fn dispatch_email(
         selected_network: None,
         force_safe_mode: false,
         platform_role_ids: vec![],
+        chat_context: None,
     };
 
     // Broadcast event

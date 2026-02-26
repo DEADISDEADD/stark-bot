@@ -29,6 +29,9 @@ pub fn get_hooks_for_event(event: &str) -> Vec<(AgentSubtypeConfig, PersonaHook)
     let configs = all_subtype_configs_unfiltered();
     let mut results = Vec::new();
     for config in configs {
+        if !config.enabled {
+            continue;
+        }
         for hook in &config.hooks {
             if hook.event == event && !hook.prompt_template.is_empty() {
                 results.push((config.clone(), hook.clone()));
@@ -77,6 +80,7 @@ fn spawn_hook_session(
         selected_network: None,
         force_safe_mode: safe_mode,
         platform_role_ids: vec![],
+        chat_context: None,
     };
 
     log::info!(

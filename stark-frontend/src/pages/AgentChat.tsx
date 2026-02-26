@@ -1200,16 +1200,12 @@ export default function AgentChat() {
     },
     [Command.New]: async () => {
       try {
-        // Create a new session on the backend
-        const newSession = await createNewWebSession();
-        if (newSession) {
-          const newSessionId = `session-${newSession.session_id}`;
-          setDbSessionId(newSession.session_id);
-          setSessionId(newSessionId);
-          localStorage.setItem(STORAGE_KEY_SESSION_ID, newSessionId);
-          console.log('[Session] Created new session:', newSession.session_id);
-
-          // Clear local state
+        const ok = await createNewWebSession();
+        if (ok) {
+          // Clear local state — dispatcher will assign a new session on next message
+          setDbSessionId(null);
+          setSessionId('');
+          localStorage.removeItem(STORAGE_KEY_SESSION_ID);
           conversationHistory.current = [];
           localStorage.removeItem(STORAGE_KEY_HISTORY);
           localStorage.removeItem(STORAGE_KEY_MODE);
@@ -1218,13 +1214,12 @@ export default function AgentChat() {
           setAgentSubtype(null);
           setSubagents([]);
 
-          // Clear all messages and show welcome
           setMessages([{
             id: crypto.randomUUID(),
             role: 'system' as MessageRole,
             content: 'Conversation cleared. Starting fresh.',
             timestamp: new Date(),
-            sessionId: newSessionId,
+            sessionId: '',
           }]);
         }
       } catch (err) {
@@ -1234,13 +1229,11 @@ export default function AgentChat() {
     },
     [Command.Reset]: async () => {
       try {
-        const newSession = await createNewWebSession();
-        if (newSession) {
-          const newSessionId = `session-${newSession.session_id}`;
-          setDbSessionId(newSession.session_id);
-          setSessionId(newSessionId);
-          localStorage.setItem(STORAGE_KEY_SESSION_ID, newSessionId);
-
+        const ok = await createNewWebSession();
+        if (ok) {
+          setDbSessionId(null);
+          setSessionId('');
+          localStorage.removeItem(STORAGE_KEY_SESSION_ID);
           conversationHistory.current = [];
           localStorage.removeItem(STORAGE_KEY_HISTORY);
           localStorage.removeItem(STORAGE_KEY_MODE);
@@ -1254,7 +1247,7 @@ export default function AgentChat() {
             role: 'system' as MessageRole,
             content: 'Conversation reset.',
             timestamp: new Date(),
-            sessionId: newSessionId,
+            sessionId: '',
           }]);
         }
       } catch (err) {
@@ -1264,13 +1257,11 @@ export default function AgentChat() {
     },
     [Command.Clear]: async () => {
       try {
-        const newSession = await createNewWebSession();
-        if (newSession) {
-          const newSessionId = `session-${newSession.session_id}`;
-          setDbSessionId(newSession.session_id);
-          setSessionId(newSessionId);
-          localStorage.setItem(STORAGE_KEY_SESSION_ID, newSessionId);
-
+        const ok = await createNewWebSession();
+        if (ok) {
+          setDbSessionId(null);
+          setSessionId('');
+          localStorage.removeItem(STORAGE_KEY_SESSION_ID);
           conversationHistory.current = [];
           localStorage.removeItem(STORAGE_KEY_HISTORY);
           localStorage.removeItem(STORAGE_KEY_MODE);
@@ -1873,13 +1864,11 @@ export default function AgentChat() {
               } else {
                 // Clear the chat and start new session on the backend
                 try {
-                  const newSession = await createNewWebSession();
-                  if (newSession) {
-                    const newSessionId = `session-${newSession.session_id}`;
-                    setDbSessionId(newSession.session_id);
-                    setSessionId(newSessionId);
-                    localStorage.setItem(STORAGE_KEY_SESSION_ID, newSessionId);
-
+                  const ok = await createNewWebSession();
+                  if (ok) {
+                    setDbSessionId(null);
+                    setSessionId('');
+                    localStorage.removeItem(STORAGE_KEY_SESSION_ID);
                     conversationHistory.current = [];
                     localStorage.removeItem(STORAGE_KEY_HISTORY);
                     localStorage.removeItem(STORAGE_KEY_MODE);

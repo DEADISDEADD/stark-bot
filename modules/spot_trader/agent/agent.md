@@ -80,7 +80,7 @@ When the pulse data contains `bankr_signals`, evaluate those signals instead of 
 ### Submit Decision
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/decision", method="POST", body={
+local_rpc(module="spot_trader", path="/rpc/decision", method="POST", body={
   "decision": "BUY" | "SELL" | "HOLD",
   "token_address": "0x...",
   "token_symbol": "SYMBOL",
@@ -95,7 +95,7 @@ Always submit a decision, even if HOLD. Include a clear reason.
 The `{data}` template variable contains the unsigned transaction fields. Use `sign_raw_tx` to sign it, then submit:
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/sign", method="POST", body={
+local_rpc(module="spot_trader", path="/rpc/sign", method="POST", body={
   "tx_id": <from data>,
   "signed_tx": "<hex from sign_raw_tx>"
 })

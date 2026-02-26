@@ -144,26 +144,17 @@ export async function getActiveWebSession(): Promise<WebSessionInfo | null> {
   return null;
 }
 
-// Create a new web session (resets the current one)
-export async function createNewWebSession(): Promise<WebSessionInfo | null> {
+// Clear the current web session (deactivates it on the backend).
+// The dispatcher will create a fresh gateway session when the next message arrives.
+// Returns true on success (session_id may or may not be present).
+export async function createNewWebSession(): Promise<boolean> {
   const response = await apiFetch<{
     success: boolean;
     session_id?: number;
-    completion_status?: string;
-    message_count?: number;
-    created_at?: string;
     error?: string;
   }>('/chat/session/new', { method: 'POST' });
 
-  if (response.success && response.session_id) {
-    return {
-      session_id: response.session_id,
-      completion_status: response.completion_status || 'active',
-      message_count: response.message_count ?? 0,
-      created_at: response.created_at || new Date().toISOString(),
-    };
-  }
-  return null;
+  return response.success;
 }
 
 // Legacy: Get the web chat session from sessions list (fallback)

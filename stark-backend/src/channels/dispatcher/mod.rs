@@ -643,6 +643,17 @@ impl MessageDispatcher {
         // Use clean text (with inline thinking directive removed) for storage
         let message_text = clean_text.as_deref().unwrap_or(&message.text);
 
+        // Store chat context (recent channel history) in the session so it's
+        // visible in the session transcript UI.
+        if let Some(ref ctx) = message.chat_context {
+            let _ = self.db.add_session_message(
+                session.id,
+                DbMessageRole::System,
+                ctx,
+                None, None, None, None,
+            );
+        }
+
         // Estimate tokens for the user message
         let user_tokens = estimate_tokens(message_text);
 
@@ -1058,6 +1069,16 @@ impl MessageDispatcher {
             messages.push(Message {
                 role,
                 content: msg.content.clone(),
+            });
+        }
+
+        // Add chat context (recent channel history) if provided.
+        // This is injected by web/Discord but NOT stored in the DB — it only
+        // appears in the AI prompt so the model has conversational awareness.
+        if let Some(ref ctx) = message.chat_context {
+            messages.push(Message {
+                role: MessageRole::System,
+                content: ctx.clone(),
             });
         }
 

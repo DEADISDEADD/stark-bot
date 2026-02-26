@@ -273,17 +273,12 @@ impl EventHandler for DiscordHandler {
                         ctx_str
                     };
 
-                    let text_with_hint = if recent_context.is_empty() {
-                        format!(
-                            "[DISCORD MESSAGE - Use discord_tipping skill for tips.]\n\n{}",
-                            forward.text
-                        )
-                    } else {
-                        format!(
-                            "[DISCORD MESSAGE - Use discord_tipping skill for tips.]\n\n{}[MESSAGE DIRECTED TO YOU:]\n{}",
-                            recent_context, forward.text
-                        )
-                    };
+                    let text_with_hint = format!(
+                        "[DISCORD MESSAGE - Use discord_tipping skill for tips.]\n\n{}",
+                        forward.text
+                    );
+
+                    let chat_context = if recent_context.is_empty() { None } else { Some(recent_context) };
 
                     // Get channel name for context
                     let channel_name = msg.channel_id.to_channel(&ctx.http).await.ok().and_then(|ch| {
@@ -303,6 +298,7 @@ impl EventHandler for DiscordHandler {
                         selected_network: None,
                         force_safe_mode: forward.force_safe_mode,
                         platform_role_ids: forward.platform_role_ids,
+                        chat_context,
                     };
 
                     self.dispatch_and_respond(&ctx, &msg, normalized, &user_name).await;

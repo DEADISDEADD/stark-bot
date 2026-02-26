@@ -8,6 +8,7 @@ pub mod dynamic_module;
 pub mod dynamic_tool;
 pub mod loader;
 pub mod manifest;
+pub mod port_registry;
 pub mod registry;
 pub mod service_logs;
 pub mod zip_parser;

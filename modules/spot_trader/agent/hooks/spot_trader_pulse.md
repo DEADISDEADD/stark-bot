@@ -32,7 +32,7 @@ Evaluate against your trading strategy (defined in your agent.md). The pulse dat
 Submit your decision via local_rpc:
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/decision", method="POST", body={
+local_rpc(module="spot_trader", path="/rpc/decision", method="POST", body={
   "decision": "BUY" | "SELL" | "HOLD",
   "token_address": "0x...",
   "token_symbol": "SYMBOL",

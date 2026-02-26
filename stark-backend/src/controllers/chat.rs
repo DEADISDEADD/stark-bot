@@ -2,7 +2,6 @@ use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 
 use crate::channels::NormalizedMessage;
-use crate::models::SessionScope;
 use crate::AppState;
 
 /// Web channel ID - a reserved ID for web-based chat
@@ -211,6 +210,37 @@ async fn chat(
     let user_id = body.user_id.clone()
         .unwrap_or_else(|| format!("web-{}", &token[..8.min(token.len())]));
 
+    // Fetch recent chat context from the current active web session (same as Discord
+    // fetching recent channel messages). This gives the AI awareness of the conversation
+    // history even though each gateway message creates a fresh session.
+    let recent_context = {
+        let mut ctx_str = String::new();
+        if let Ok(Some(prev_session)) = state.db.get_latest_session_for_channel(WEB_CHANNEL_TYPE, WEB_CHANNEL_ID) {
+            if let Ok(messages) = state.db.get_recent_session_messages(prev_session.id, 6) {
+                if !messages.is_empty() {
+                    ctx_str.push_str("[RECENT CHAT CONTEXT - recent messages in this web session:]\n");
+                    for m in &messages {
+                        let role_label = match m.role {
+                            crate::models::MessageRole::User => "User",
+                            crate::models::MessageRole::Assistant => "Assistant",
+                            _ => continue, // skip tool calls/results/system
+                        };
+                        let preview = if m.content.len() > 300 {
+                            format!("{}...", &m.content[..300])
+                        } else {
+                            m.content.clone()
+                        };
+                        ctx_str.push_str(&format!("{}: {}\n", role_label, preview));
+                    }
+                    ctx_str.push('\n');
+                }
+            }
+        }
+        ctx_str
+    };
+
+    let chat_context = if recent_context.is_empty() { None } else { Some(recent_context) };
+
     // Create a normalized message for the dispatcher
     // This makes web chat go through the same pipeline as Telegram/Slack
     let normalized = NormalizedMessage {
@@ -226,6 +256,7 @@ async fn chat(
         selected_network: body.network.clone(),
         force_safe_mode: false,
         platform_role_ids: vec![],
+        chat_context,
     };
 
     // Dispatch through the unified pipeline
@@ -667,19 +698,14 @@ async fn get_web_session(
         });
     }
 
-    // Get or create the web session
-    // Use token prefix as the platform_chat_id to tie session to the auth token
-    let chat_id = format!("web-{}", &token[..8.min(token.len())]);
-
-    match state.db.get_or_create_chat_session(
-        WEB_CHANNEL_TYPE,
-        WEB_CHANNEL_ID,
-        &chat_id,
-        SessionScope::Dm,
-        None,
-    ) {
-        Ok(session) => {
-            // Get message count
+    // Find the latest active web session (created by the dispatcher's gateway flow).
+    // IMPORTANT: We must NOT use get_or_create_chat_session here because it uses a
+    // different session key ("web:0:web-{token}") than the dispatcher's gateway sessions
+    // ("web:0:gateway-{timestamp}"). If we create/reactivate a session with the wrong key,
+    // it competes with the real gateway session and causes get_latest_session_for_channel
+    // to pick up the empty one — losing all previous conversation context.
+    match state.db.get_latest_session_for_channel(WEB_CHANNEL_TYPE, WEB_CHANNEL_ID) {
+        Ok(Some(session)) => {
             let message_count = state.db.count_session_messages(session.id).ok();
 
             HttpResponse::Ok().json(WebSessionResponse {
@@ -691,8 +717,20 @@ async fn get_web_session(
                 error: None,
             })
         }
+        Ok(None) => {
+            // No active session yet — return success with no session_id.
+            // The dispatcher will create one when the first message arrives.
+            HttpResponse::Ok().json(WebSessionResponse {
+                success: true,
+                session_id: None,
+                completion_status: None,
+                message_count: Some(0),
+                created_at: None,
+                error: None,
+            })
+        }
         Err(e) => {
-            log::error!("Failed to get or create web session: {}", e);
+            log::error!("Failed to get web session: {}", e);
             HttpResponse::InternalServerError().json(WebSessionResponse {
                 success: false,
                 session_id: None,
@@ -743,45 +781,38 @@ async fn new_web_session(
         });
     }
 
-    // First get the current session
-    let chat_id = format!("web-{}", &token[..8.min(token.len())]);
-
-    let current_session = state.db.get_or_create_chat_session(
-        WEB_CHANNEL_TYPE,
-        WEB_CHANNEL_ID,
-        &chat_id,
-        SessionScope::Dm,
-        None,
-    );
-
-    match current_session {
-        Ok(session) => {
-            // Reset the session (marks old as inactive, creates new)
-            match state.db.reset_chat_session(session.id) {
-                Ok(new_session) => {
-                    log::info!("[CHAT] Created new web session {} (replaced {})", new_session.id, session.id);
-
-                    HttpResponse::Ok().json(WebSessionResponse {
-                        success: true,
-                        session_id: Some(new_session.id),
-                        completion_status: Some(new_session.completion_status.as_str().to_string()),
-                        message_count: Some(0),
-                        created_at: Some(new_session.created_at.to_rfc3339()),
-                        error: None,
-                    })
-                }
-                Err(e) => {
-                    log::error!("Failed to reset web session: {}", e);
-                    HttpResponse::InternalServerError().json(WebSessionResponse {
-                        success: false,
-                        session_id: None,
-                        completion_status: None,
-                        message_count: None,
-                        created_at: None,
-                        error: Some(format!("Failed to create new session: {}", e)),
-                    })
-                }
+    // Find the current active gateway session and deactivate it.
+    // Use get_latest_session_for_channel (same as the dispatcher) so we target the
+    // real gateway session, not a stale session with a different key.
+    match state.db.get_latest_session_for_channel(WEB_CHANNEL_TYPE, WEB_CHANNEL_ID) {
+        Ok(Some(session)) => {
+            // Deactivate the current session so the dispatcher starts fresh
+            if let Err(e) = state.db.deactivate_session(session.id) {
+                log::warn!("[CHAT] Failed to deactivate web session {}: {}", session.id, e);
             }
+            log::info!("[CHAT] Deactivated web session {} for new-session request", session.id);
+
+            // Return success with no session_id — the dispatcher will create the
+            // next gateway session when the user sends a message.
+            HttpResponse::Ok().json(WebSessionResponse {
+                success: true,
+                session_id: None,
+                completion_status: None,
+                message_count: Some(0),
+                created_at: None,
+                error: None,
+            })
+        }
+        Ok(None) => {
+            // No active session to reset — already clean
+            HttpResponse::Ok().json(WebSessionResponse {
+                success: true,
+                session_id: None,
+                completion_status: None,
+                message_count: Some(0),
+                created_at: None,
+                error: None,
+            })
         }
         Err(e) => {
             log::error!("Failed to get current web session: {}", e);

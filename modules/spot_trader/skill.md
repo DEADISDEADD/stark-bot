@@ -9,14 +9,14 @@ requires_tools: [local_rpc, sign_raw_tx]
 # Spot Trader — RPC Reference
 
 The `spot_trader` module exposes these RPC endpoints via `local_rpc`.
-All endpoints are at `http://127.0.0.1:9104`.
+Use `module="spot_trader"` — the port is resolved automatically.
 
 ## Decision
 
 Submit a trading decision after evaluating the market.
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/decision", method="POST", body={
+local_rpc(module="spot_trader", path="/rpc/decision", method="POST", body={
   "decision": "BUY" | "SELL" | "HOLD",
   "token_address": "0x...",
   "token_symbol": "SYMBOL",
@@ -35,7 +35,7 @@ Response includes `decision_id` and, for BUY/SELL, the unsigned tx fields.
 After signing a transaction with `sign_raw_tx`, submit the signed hex:
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/sign", method="POST", body={
+local_rpc(module="spot_trader", path="/rpc/sign", method="POST", body={
   "tx_id": 123,
   "signed_tx": "0x..."
 })
@@ -48,7 +48,7 @@ Module broadcasts via `eth_sendRawTransaction`, polls for receipt, and updates s
 Query recent trade decisions:
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/history", method="POST", body={
+local_rpc(module="spot_trader", path="/rpc/history", method="POST", body={
   "limit": 20,
   "status": "executed"
 })
@@ -61,7 +61,7 @@ Optional filters: `limit` (default 20), `status` ("pending", "executed", "failed
 Aggregate trading statistics:
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/stats", method="GET")
+local_rpc(module="spot_trader", path="/rpc/stats", method="GET")
 ```
 
 Returns total decisions, buys, sells, holds, executed count, and failed count.
@@ -71,7 +71,7 @@ Returns total decisions, buys, sells, holds, executed count, and failed count.
 Get aggregate profit & loss summary:
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/pnl", method="GET")
+local_rpc(module="spot_trader", path="/rpc/pnl", method="GET")
 ```
 
 Returns:
@@ -87,7 +87,7 @@ Returns:
 Refresh portfolio prices from DexScreener and update unrealized P&L:
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/refresh", method="POST")
+local_rpc(module="spot_trader", path="/rpc/refresh", method="POST")
 ```
 
 Returns `eth_price_usd`, `positions_refreshed`, and updated `portfolio`.
@@ -97,7 +97,7 @@ Returns `eth_price_usd`, `positions_refreshed`, and updated `portfolio`.
 View closed and open trade records with realized P&L:
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/trade_history", method="GET")
+local_rpc(module="spot_trader", path="/rpc/trade_history", method="GET")
 ```
 
 Returns list of trade_history entries with token, side (BUY/SELL), value_usd, realized_pnl, tx_hash, and timestamp.
@@ -107,8 +107,8 @@ Returns list of trade_history entries with token, side (BUY/SELL), value_usd, re
 View or update trader configuration:
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/config", method="GET")
-local_rpc(url="http://127.0.0.1:9104/rpc/config", method="POST", body={
+local_rpc(module="spot_trader", path="/rpc/config", method="GET")
+local_rpc(module="spot_trader", path="/rpc/config", method="POST", body={
   "key": "pulse_interval",
   "value": "240"
 })
@@ -130,7 +130,7 @@ Config keys:
 Control the trading loop:
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/control", method="POST", body={
+local_rpc(module="spot_trader", path="/rpc/control", method="POST", body={
   "action": "start" | "stop" | "trigger"
 })
 ```
@@ -144,7 +144,7 @@ local_rpc(url="http://127.0.0.1:9104/rpc/control", method="POST", body={
 View current token holdings with P&L:
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/portfolio", method="GET")
+local_rpc(module="spot_trader", path="/rpc/portfolio", method="GET")
 ```
 
 Returns list of held tokens with addresses, symbols, amounts, cost basis (`total_cost_usd`), current price, unrealized P&L, and buy count.
@@ -154,7 +154,7 @@ Returns list of held tokens with addresses, symbols, amounts, cost basis (`total
 Export all data:
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/backup/export", method="POST")
+local_rpc(module="spot_trader", path="/rpc/backup/export", method="POST")
 ```
 
 Returns decisions, executions, config, portfolio, and trade_history.
@@ -162,7 +162,7 @@ Returns decisions, executions, config, portfolio, and trade_history.
 Restore from backup:
 
 ```
-local_rpc(url="http://127.0.0.1:9104/rpc/backup/restore", method="POST", body={
+local_rpc(module="spot_trader", path="/rpc/backup/restore", method="POST", body={
   "data": { ... }
 })
 ```

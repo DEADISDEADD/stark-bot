@@ -92,6 +92,11 @@ pub struct NormalizedMessage {
     /// Used for role-based special role resolution.
     #[serde(default)]
     pub platform_role_ids: Vec<String>,
+    /// Optional chat context prepended to the AI prompt but NOT stored in the DB.
+    /// Used by web/Discord to inject recent channel history without polluting the
+    /// stored user message.
+    #[serde(default)]
+    pub chat_context: Option<String>,
 }
 
 /// Handle to a running channel listener

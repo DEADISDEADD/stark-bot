@@ -191,6 +191,8 @@ impl Default for SetAgentSubtypeTool {
 
 #[derive(Debug, Deserialize)]
 struct SetAgentSubtypeParams {
+    /// The canonical parameter name.
+    #[serde(alias = "subtype")]
     agent_subtype: String,
 }
 

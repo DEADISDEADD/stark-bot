@@ -266,6 +266,7 @@ impl Scheduler {
             selected_network: None,
             force_safe_mode: false,
             platform_role_ids: vec![],
+            chat_context: None,
         };
 
         // Execute with 10-minute timeout (same as cron default)
@@ -425,6 +426,7 @@ impl Scheduler {
             selected_network: None,
             force_safe_mode: false,
             platform_role_ids: vec![],
+            chat_context: None,
         };
 
         // Execute the job with timeout

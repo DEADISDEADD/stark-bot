@@ -339,6 +339,7 @@ fn start_module_services(db: &Database) {
                 svc.name, svc.default_port
             );
             set_module_port_env(&svc, svc.default_port);
+            modules::port_registry::register(&svc.name, svc.default_port);
             continue;
         } else {
             // Find a free port from the OS
@@ -355,6 +356,7 @@ fn start_module_services(db: &Database) {
         if explicit_port.is_some() && std::net::TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
             log::info!("[MODULE] {} already running on port {} — skipping start", svc.name, port);
             set_module_port_env(&svc, port);
+            modules::port_registry::register(&svc.name, port);
             continue;
         }
 
@@ -384,6 +386,9 @@ fn start_module_services(db: &Database) {
         // Set env vars in parent process so manifest.service_url() resolves correctly
         // when DynamicModule makes RPC calls to this service.
         set_module_port_env(&svc, port);
+
+        // Register in the port registry so local_rpc can resolve module names to ports
+        modules::port_registry::register(&svc.name, port);
     }
 }
 
