@@ -1,0 +1,149 @@
+{
+  "name": "CryptoPunks",
+  "description": "CryptoPunks marketplace contract — non-ERC721, custom transfer/offer/bid interface",
+  "abi": [
+    {
+      "name": "punkIndexToAddress",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [{"name": "punkIndex", "type": "uint256"}],
+      "outputs": [{"name": "", "type": "address"}]
+    },
+    {
+      "name": "balanceOf",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [{"name": "owner", "type": "address"}],
+      "outputs": [{"name": "", "type": "uint256"}]
+    },
+    {
+      "name": "transferPunk",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        {"name": "to", "type": "address"},
+        {"name": "punkIndex", "type": "uint256"}
+      ],
+      "outputs": []
+    },
+    {
+      "name": "offerPunkForSale",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        {"name": "punkIndex", "type": "uint256"},
+        {"name": "minSalePriceInWei", "type": "uint256"}
+      ],
+      "outputs": []
+    },
+    {
+      "name": "offerPunkForSaleToAddress",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        {"name": "punkIndex", "type": "uint256"},
+        {"name": "minSalePriceInWei", "type": "uint256"},
+        {"name": "toAddress", "type": "address"}
+      ],
+      "outputs": []
+    },
+    {
+      "name": "buyPunk",
+      "type": "function",
+      "stateMutability": "payable",
+      "inputs": [{"name": "punkIndex", "type": "uint256"}],
+      "outputs": []
+    },
+    {
+      "name": "punkNoLongerForSale",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [{"name": "punkIndex", "type": "uint256"}],
+      "outputs": []
+    },
+    {
+      "name": "enterBidForPunk",
+      "type": "function",
+      "stateMutability": "payable",
+      "inputs": [{"name": "punkIndex", "type": "uint256"}],
+      "outputs": []
+    },
+    {
+      "name": "withdrawBidForPunk",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [{"name": "punkIndex", "type": "uint256"}],
+      "outputs": []
+    },
+    {
+      "name": "acceptBidForPunk",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        {"name": "punkIndex", "type": "uint256"},
+        {"name": "minPrice", "type": "uint256"}
+      ],
+      "outputs": []
+    },
+    {
+      "name": "withdraw",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [],
+      "outputs": []
+    },
+    {
+      "name": "punksOfferedForSale",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [{"name": "punkIndex", "type": "uint256"}],
+      "outputs": [
+        {"name": "isForSale", "type": "bool"},
+        {"name": "punkIndex", "type": "uint256"},
+        {"name": "seller", "type": "address"},
+        {"name": "minValue", "type": "uint256"},
+        {"name": "onlySellTo", "type": "address"}
+      ]
+    },
+    {
+      "name": "punkBids",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [{"name": "punkIndex", "type": "uint256"}],
+      "outputs": [
+        {"name": "hasBid", "type": "bool"},
+        {"name": "punkIndex", "type": "uint256"},
+        {"name": "bidder", "type": "address"},
+        {"name": "value", "type": "uint256"}
+      ]
+    },
+    {
+      "name": "pendingWithdrawals",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [{"name": "addr", "type": "address"}],
+      "outputs": [{"name": "", "type": "uint256"}]
+    },
+    {
+      "name": "totalSupply",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [],
+      "outputs": [{"name": "", "type": "uint256"}]
+    },
+    {
+      "name": "name",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [],
+      "outputs": [{"name": "", "type": "string"}]
+    },
+    {
+      "name": "symbol",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [],
+      "outputs": [{"name": "", "type": "string"}]
+    }
+  ]
+}

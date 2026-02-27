@@ -1,0 +1,157 @@
+// CryptoPunks presets — Ethereum mainnet only (0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB)
+{
+    "punk_owner": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "punkIndexToAddress",
+        params_registers: ["nft_token_id"],
+        value_register: None,
+        static_params: [],
+        description: "Get the owner of a specific CryptoPunk by index. Set nft_token_id register first.",
+    ),
+    "punk_balance": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "balanceOf",
+        params_registers: ["wallet_address"],
+        value_register: None,
+        static_params: [],
+        description: "Get the number of CryptoPunks owned by the wallet.",
+    ),
+    "punk_transfer": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "transferPunk",
+        params_registers: ["nft_recipient_address", "nft_token_id"],
+        value_register: None,
+        static_params: [],
+        description: "Transfer a CryptoPunk to another address. Set nft_recipient_address and nft_token_id registers first.",
+    ),
+    "punk_offer_for_sale": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "offerPunkForSale",
+        params_registers: ["nft_token_id", "punk_sale_price"],
+        value_register: None,
+        static_params: [],
+        description: "List a CryptoPunk for sale at a minimum price (in wei). Set nft_token_id and punk_sale_price registers first.",
+    ),
+    "punk_offer_for_sale_to_address": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "offerPunkForSaleToAddress",
+        params_registers: ["nft_token_id", "punk_sale_price", "nft_recipient_address"],
+        value_register: None,
+        static_params: [],
+        description: "List a CryptoPunk for sale to a specific address only. Set nft_token_id, punk_sale_price, and nft_recipient_address registers first.",
+    ),
+    "punk_buy": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "buyPunk",
+        params_registers: ["nft_token_id"],
+        value_register: Some("punk_buy_price"),
+        static_params: [],
+        description: "Buy a CryptoPunk that is offered for sale. Set nft_token_id and punk_buy_price (ETH value in wei) registers first.",
+    ),
+    "punk_no_longer_for_sale": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "punkNoLongerForSale",
+        params_registers: ["nft_token_id"],
+        value_register: None,
+        static_params: [],
+        description: "Delist a CryptoPunk from sale. Set nft_token_id register first.",
+    ),
+    "punk_enter_bid": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "enterBidForPunk",
+        params_registers: ["nft_token_id"],
+        value_register: Some("punk_bid_amount"),
+        static_params: [],
+        description: "Place a bid on a CryptoPunk (sends ETH). Set nft_token_id and punk_bid_amount (ETH value in wei) registers first.",
+    ),
+    "punk_withdraw_bid": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "withdrawBidForPunk",
+        params_registers: ["nft_token_id"],
+        value_register: None,
+        static_params: [],
+        description: "Withdraw your bid on a CryptoPunk. Set nft_token_id register first.",
+    ),
+    "punk_accept_bid": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "acceptBidForPunk",
+        params_registers: ["nft_token_id", "punk_min_bid_price"],
+        value_register: None,
+        static_params: [],
+        description: "Accept the highest bid on your CryptoPunk with a minimum price floor. Set nft_token_id and punk_min_bid_price registers first.",
+    ),
+    "punk_withdraw_earnings": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "withdraw",
+        params_registers: [],
+        value_register: None,
+        static_params: [],
+        description: "Withdraw pending ETH earnings from CryptoPunks sales.",
+    ),
+    "punk_check_offer": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "punksOfferedForSale",
+        params_registers: ["nft_token_id"],
+        value_register: None,
+        static_params: [],
+        description: "Check if a CryptoPunk is currently offered for sale and at what price. Set nft_token_id register first.",
+    ),
+    "punk_check_bid": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "punkBids",
+        params_registers: ["nft_token_id"],
+        value_register: None,
+        static_params: [],
+        description: "Check the current bid on a CryptoPunk. Set nft_token_id register first.",
+    ),
+    "punk_pending_withdrawals": (
+        abi: "cryptopunks",
+        contracts: {
+            "mainnet": "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBB",
+        },
+        function: "pendingWithdrawals",
+        params_registers: ["wallet_address"],
+        value_register: None,
+        static_params: [],
+        description: "Check pending ETH withdrawals for the wallet from CryptoPunks sales.",
+    ),
+}

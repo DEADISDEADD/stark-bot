@@ -30,6 +30,18 @@ Call `define_tasks` with all 5 tasks in order:
 
 ## Task 1: Create identity in DB
 
+### 1a. Ask for a name
+
+If the user did NOT already provide a name (via the `agent_name` argument or in their message), you MUST ask them before proceeding:
+
+```json
+{"tool": "say_to_user", "message": "What would you like to name your agent?"}
+```
+
+Wait for their response. Do NOT proceed until you have a name.
+
+### 1b. Register the identity
+
 Call `register_new_identity` with the user's chosen name, description, and optional image URL:
 
 ```json
