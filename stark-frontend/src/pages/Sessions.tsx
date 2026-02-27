@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
-import { Calendar, Trash2, MessageSquare, Download, ChevronLeft, User, Bot, Wrench, CheckCircle, XCircle, AlertCircle, Play, Pause, RefreshCw, Loader2, Terminal, Zap } from 'lucide-react';
+import { Calendar, Trash2, MessageSquare, Download, ChevronLeft, User, Bot, Wrench, CheckCircle, XCircle, AlertCircle, Play, Pause, RefreshCw, Terminal, Zap } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import { getSessions, getSession, deleteSession, deleteAllSessions, getSessionTranscript, SessionMessage, getCronJobs, CronJobInfo, stopSession, resumeSession } from '@/lib/api';
 
 type CompletionStatus = 'active' | 'complete' | 'cancelled' | 'failed';
@@ -383,7 +384,7 @@ export default function Sessions() {
     return (
       <div className="p-4 sm:p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
-          <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+          <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
           <span className="text-slate-400">Loading sessions...</span>
         </div>
       </div>
@@ -395,7 +396,7 @@ export default function Sessions() {
     return (
       <div className="p-4 sm:p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
-          <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+          <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
           <span className="text-slate-400">Loading session...</span>
         </div>
       </div>
@@ -533,7 +534,7 @@ export default function Sessions() {
         {isLoadingMessages ? (
           <div className="flex items-center justify-center py-12">
             <div className="flex items-center gap-3">
-              <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+              <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
               <span className="text-slate-400">Loading messages...</span>
             </div>
           </div>
@@ -606,7 +607,7 @@ export default function Sessions() {
           >
             {isDeletingAll ? (
               <>
-                <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin mr-2" />
+                <UnicodeSpinner animation="pulse" size="sm" className="text-red-400 mr-2" />
                 Deleting...
               </>
             ) : (
@@ -792,7 +793,7 @@ export default function Sessions() {
                   <div className="flex items-center gap-1 sm:gap-2 self-end sm:self-center shrink-0">
                     {/* Spinning indicator for active sessions */}
                     {session.completion_status === 'active' && (
-                      <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                      <UnicodeSpinner animation="sparkle" size="sm" className="text-blue-400" />
                     )}
                     {/* Play/Pause button - don't show for completed sessions */}
                     {session.completion_status !== 'complete' && (

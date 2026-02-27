@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'rea
 import { Zap, Upload, Trash2, ExternalLink, Code, X, Save, Edit2, Network, List, RotateCcw } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import { getSkills, uploadSkill, deleteSkill, setSkillEnabled, getSkillDetail, updateSkillBody, getBundledAvailableSkills, restoreBundledSkill, SkillInfo, SkillDetail, BundledSkillInfo } from '@/lib/api';
 
 const SkillsGraph = lazy(() => import('./SkillsGraph'));
@@ -185,7 +186,7 @@ export default function Skills() {
     return (
       <div className="p-4 sm:p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
-          <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+          <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
           <span className="text-slate-400">Loading skills...</span>
         </div>
       </div>
@@ -254,7 +255,7 @@ export default function Skills() {
         <Suspense fallback={
           <div className="flex items-center justify-center h-96">
             <div className="flex items-center gap-3">
-              <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+              <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
               <span className="text-slate-400">Loading graph...</span>
             </div>
           </div>

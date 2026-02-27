@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, ExternalLink, AlertCircle } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import { apiFetch } from '@/lib/api';
 
 const TuiDashboard = lazy(() => import('@/components/TuiDashboard'));
@@ -43,7 +44,7 @@ export default function ModuleDashboard() {
     return (
       <div className="p-8 flex items-center justify-center min-h-[400px]">
         <div className="flex items-center gap-3">
-          <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+          <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
           <span className="text-slate-400">Loading...</span>
         </div>
       </div>

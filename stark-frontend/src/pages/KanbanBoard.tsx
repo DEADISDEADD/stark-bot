@@ -12,6 +12,7 @@ import {
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 
 type KanbanStatus = 'ready' | 'in_progress' | 'complete';
 
@@ -151,7 +152,7 @@ export default function KanbanBoard() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-stark-500" />
+        <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
       </div>
     );
   }

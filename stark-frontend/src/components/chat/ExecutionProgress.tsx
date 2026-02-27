@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import clsx from 'clsx';
 import { useGateway } from '@/hooks/useGateway';
 import type { ExecutionTask, ExecutionEvent } from '@/types';
@@ -404,7 +405,7 @@ export default function ExecutionProgress({ className }: ExecutionProgressProps)
       {/* Running Tool Indicator */}
       {runningTool && (
         <div className="flex items-center gap-3 text-sm">
-          <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+          <UnicodeSpinner animation="sparkle" size="sm" className="text-cyan-400" />
           <span className="text-cyan-400 font-medium">Running:</span>
           <code className="text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded">
             {runningTool.name}

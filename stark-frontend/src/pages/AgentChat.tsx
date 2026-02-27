@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, RotateCcw, Copy, Check, Wallet, Bug, Square, Loader2, ChevronDown, CheckCircle, Circle, ExternalLink, Wrench, Mic, MicOff } from 'lucide-react';
+import { Send, RotateCcw, Copy, Check, Wallet, Bug, Square, ChevronDown, CheckCircle, Circle, ExternalLink, Wrench, Mic, MicOff } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import ChatMessage from '@/components/chat/ChatMessage';
 import TypingIndicator from '@/components/chat/TypingIndicator';
 import ExecutionProgress from '@/components/chat/ExecutionProgress';
@@ -1671,7 +1672,7 @@ export default function AgentChat() {
           {/* Wallet Info - always shown (no browser connection needed) */}
           {walletLoading ? (
             <div className="flex items-center gap-2 bg-slate-700/50 px-3 py-1.5 rounded-lg">
-              <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+              <UnicodeSpinner animation="pulse" size="sm" className="text-slate-400" />
               <span className="text-sm text-slate-400">Loading wallet...</span>
             </div>
           ) : walletConnected && address ? (
@@ -1887,7 +1888,7 @@ export default function AgentChat() {
           >
             {isStopping ? (
               <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                <UnicodeSpinner animation="orbit" size="sm" className="mr-2" />
                 Stopping...
               </>
             ) : (isLoading || cronExecutionActive || subagents.some(s => s.status === SubagentStatus.Running)) ? (
@@ -1952,7 +1953,7 @@ export default function AgentChat() {
                         <span className="flex items-center gap-1 text-xs text-cyan-400">
                           <Wrench className="w-3 h-3" />
                           <span className="truncate">{sub.current_tool}</span>
-                          <Loader2 className="w-3 h-3 animate-spin" />
+                          <UnicodeSpinner animation="sparkle" size="sm" className="text-cyan-400" />
                         </span>
                       ) : (
                         <span className="text-xs text-slate-500">waiting...</span>
@@ -2082,7 +2083,7 @@ export default function AgentChat() {
                             {task.status === 'completed' ? (
                               <CheckCircle className="w-4 h-4 text-green-400" />
                             ) : task.status === 'in_progress' ? (
-                              <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+                              <UnicodeSpinner animation="sparkle" size="sm" className="text-cyan-400" />
                             ) : (
                               <Circle className="w-4 h-4 text-slate-500" />
                             )}
@@ -2101,7 +2102,7 @@ export default function AgentChat() {
                     </div>
                   ) : (
                     <div className="flex items-center justify-center h-full text-slate-500 text-sm">
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      <UnicodeSpinner animation="sparkle" size="sm" className="mr-2" />
                       Processing...
                     </div>
                   )}
@@ -2136,7 +2137,7 @@ export default function AgentChat() {
                   title={isRecording ? 'Stop recording' : isTranscribing ? 'Transcribing...' : 'Voice input'}
                 >
                   {isTranscribing ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <UnicodeSpinner animation="orbit" size="sm" />
                   ) : isRecording ? (
                     <MicOff className="w-5 h-5" />
                   ) : (
@@ -2165,7 +2166,7 @@ export default function AgentChat() {
                   className="w-12 h-12 flex items-center justify-center rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isStopping ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <UnicodeSpinner animation="orbit" size="sm" />
                   ) : (
                     <Square className="w-5 h-5" />
                   )}

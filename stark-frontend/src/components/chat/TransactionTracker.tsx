@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { ExternalLink, Check, X, Loader2, Copy } from 'lucide-react';
+import { ExternalLink, Check, X, Copy } from 'lucide-react';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import clsx from 'clsx';
 import type { TrackedTransaction } from '@/types';
 
@@ -27,7 +28,7 @@ function TransactionCard({ tx }: { tx: TrackedTransaction }) {
   const statusIcon = () => {
     switch (tx.status) {
       case 'pending':
-        return <Loader2 className="w-4 h-4 animate-spin text-amber-400" />;
+        return <UnicodeSpinner animation="sparkle" size="sm" className="text-amber-400" />;
       case 'confirmed':
         return <Check className="w-4 h-4 text-green-400" />;
       case 'reverted':

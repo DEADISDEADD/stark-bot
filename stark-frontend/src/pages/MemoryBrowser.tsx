@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import { apiFetch } from '@/lib/api';
 
 // Lazy-load the graph visualization (heavy D3 dependency)
@@ -678,7 +679,7 @@ export default function MemoryBrowser() {
     return (
       <div className="p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
-          <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+          <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
           <span className="text-slate-400">Loading memories...</span>
         </div>
       </div>
@@ -727,7 +728,7 @@ export default function MemoryBrowser() {
         <div className="flex-1 min-h-0">
           <Suspense fallback={
             <div className="flex items-center justify-center h-64">
-              <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+              <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
             </div>
           }>
             <MemoryGraph />
@@ -959,7 +960,7 @@ export default function MemoryBrowser() {
               <CardContent>
                 {loadingContent ? (
                   <div className="flex items-center justify-center h-64">
-                    <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+                    <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
                   </div>
                 ) : selectedMemories.length > 0 ? (
                   <div>

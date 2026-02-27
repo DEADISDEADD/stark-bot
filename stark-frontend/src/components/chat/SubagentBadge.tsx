@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { Users, X, Loader2, ExternalLink, Wrench } from 'lucide-react';
+import { Users, X, ExternalLink, Wrench } from 'lucide-react';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import { cancelSubagent } from '@/lib/api';
 import { Subagent, SubagentStatus } from '@/lib/subagent-types';
 
@@ -105,7 +106,7 @@ export default function SubagentBadge({ subagents, onSubagentCancelled }: Subage
                       <div className="flex items-center gap-1.5 mt-1">
                         <Wrench className="w-3 h-3 text-cyan-400 flex-shrink-0" />
                         <span className="text-xs text-cyan-400 truncate">{subagent.current_tool}</span>
-                        <Loader2 className="w-3 h-3 text-cyan-400 animate-spin flex-shrink-0" />
+                        <UnicodeSpinner animation="sparkle" size="sm" className="text-cyan-400 flex-shrink-0" />
                       </div>
                     ) : (
                       <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">
@@ -138,7 +139,7 @@ export default function SubagentBadge({ subagents, onSubagentCancelled }: Subage
                     title="Cancel subagent"
                   >
                     {cancellingId === subagent.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <UnicodeSpinner animation="orbit" size="sm" />
                     ) : (
                       <X className="w-4 h-4" />
                     )}

@@ -3,6 +3,7 @@ import { Key, Trash2, Plus, Clock, ClipboardCopy, Check, AlertTriangle } from 'l
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import { getApiKeys, upsertApiKey, deleteApiKey, getApiKeyValue, getServiceConfigs, ApiKey, ServiceConfig } from '@/lib/api';
 
 function getServiceLabel(keyName: string, configs: ServiceConfig[]): string | null {
@@ -175,7 +176,7 @@ export default function ApiKeys() {
     return (
       <div className="p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
-          <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+          <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
           <span className="text-slate-400">Loading API keys...</span>
         </div>
       </div>
@@ -391,7 +392,7 @@ export default function ApiKeys() {
                             title={isCopied ? 'Copied!' : 'Copy key value'}
                           >
                             {isCopying ? (
-                              <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                              <UnicodeSpinner animation="pulse" size="sm" className="text-slate-400" />
                             ) : isCopied ? (
                               <Check className="w-4 h-4 text-green-400" />
                             ) : (
@@ -409,7 +410,7 @@ export default function ApiKeys() {
                             title="Delete key"
                           >
                             {isDeleting ? (
-                              <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                              <UnicodeSpinner animation="pulse" size="sm" className="text-red-400" />
                             ) : (
                               <Trash2 className="w-4 h-4" />
                             )}

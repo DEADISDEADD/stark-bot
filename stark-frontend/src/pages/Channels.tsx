@@ -3,6 +3,7 @@ import { MessageSquare, Hash, Plus, Play, Square, Trash2, Save, Pencil, Twitter,
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import {
   getChannels,
   createChannel,
@@ -454,7 +455,7 @@ export default function Channels() {
     return (
       <div className="p-4 sm:p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
-          <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+          <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
           <span className="text-slate-400">Loading channels...</span>
         </div>
       </div>
@@ -702,7 +703,7 @@ export default function Channels() {
                     <div className="space-y-4">
                       {editLoading ? (
                         <div className="flex items-center justify-center py-4">
-                          <div className="w-5 h-5 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+                          <UnicodeSpinner animation="rain" size="sm" className="text-stark-500" />
                           <span className="ml-2 text-slate-400">Loading...</span>
                         </div>
                       ) : (

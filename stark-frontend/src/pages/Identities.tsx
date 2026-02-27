@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, ChevronRight } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import { getIdentities } from '@/lib/api';
 
 interface Identity {
@@ -41,7 +42,7 @@ export default function Identities() {
     return (
       <div className="p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
-          <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+          <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
           <span className="text-slate-400">Loading identities...</span>
         </div>
       </div>

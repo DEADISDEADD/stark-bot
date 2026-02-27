@@ -3,6 +3,7 @@ import { Save, Settings, Ban, CreditCard, Coins, Globe, Info, ExternalLink } fro
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import { getAgentSettings, updateAgentSettings, getBotSettings, updateBotSettings, getAiEndpointPresets, AiEndpointPreset, getCreditBalance } from '@/lib/api';
 import { useWallet } from '@/hooks/useWallet';
 
@@ -238,7 +239,7 @@ export default function AgentSettings() {
     return (
       <div className="p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
-          <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+          <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
           <span className="text-slate-400">Loading settings...</span>
         </div>
       </div>

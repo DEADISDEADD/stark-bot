@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { AlertTriangle, Check, X, Loader2 } from 'lucide-react';
+import { AlertTriangle, Check, X } from 'lucide-react';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import Button from '../ui/Button';
 
 export interface PendingConfirmation {
@@ -140,7 +141,7 @@ export function ConfirmationPrompt({
           className="flex-1 bg-green-600 hover:bg-green-700 text-white"
         >
           {isLoading === 'confirm' ? (
-            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            <UnicodeSpinner animation="orbit" size="sm" className="mr-2" />
           ) : (
             <Check className="w-4 h-4 mr-2" />
           )}
@@ -153,7 +154,7 @@ export function ConfirmationPrompt({
           className="flex-1"
         >
           {isLoading === 'cancel' ? (
-            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            <UnicodeSpinner animation="orbit" size="sm" className="mr-2" />
           ) : (
             <X className="w-4 h-4 mr-2" />
           )}

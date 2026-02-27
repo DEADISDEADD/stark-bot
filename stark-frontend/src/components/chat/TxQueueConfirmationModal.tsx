@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
-import { AlertTriangle, Check, X, Loader2, ExternalLink, Code, FlaskConical, FileCode2, ChevronDown, ChevronRight } from 'lucide-react';
+import { AlertTriangle, Check, X, ExternalLink, Code, FlaskConical, FileCode2, ChevronDown, ChevronRight } from 'lucide-react';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import { getGateway } from '@/lib/gateway-client';
 import { decodeCalldata, DecodedFunction } from '@/lib/abi-decoder';
 
@@ -147,7 +148,7 @@ function BytesCalldataDisplay({ value }: { value: string }) {
         <div className="mb-1">
           {loading ? (
             <span className="text-slate-500 text-xs flex items-center gap-1">
-              <Loader2 className="w-3 h-3 animate-spin" /> Looking up function...
+              <UnicodeSpinner animation="sparkle" size="sm" className="text-slate-400" /> Looking up function...
             </span>
           ) : selectorName ? (
             <span className="text-purple-300 text-xs font-medium">
@@ -387,7 +388,7 @@ export default function TxQueueConfirmationModal({
               </div>
               {functionInfo?.loading ? (
                 <div className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                  <UnicodeSpinner animation="sparkle" size="sm" className="text-slate-400" />
                   <span className="text-slate-300 text-sm">Looking up function...</span>
                 </div>
               ) : functionInfo?.signature ? (
@@ -546,7 +547,7 @@ export default function TxQueueConfirmationModal({
             className="flex-1 bg-green-600 hover:bg-green-700"
           >
             {isLoading === 'confirm' ? (
-              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              <UnicodeSpinner animation="orbit" size="sm" className="mr-2" />
             ) : (
               <Check className="w-4 h-4 mr-2" />
             )}
@@ -559,7 +560,7 @@ export default function TxQueueConfirmationModal({
             className="flex-1 border border-red-600 text-red-400 hover:bg-red-900/20"
           >
             {isLoading === 'deny' ? (
-              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              <UnicodeSpinner animation="orbit" size="sm" className="mr-2" />
             ) : (
               <X className="w-4 h-4 mr-2" />
             )}

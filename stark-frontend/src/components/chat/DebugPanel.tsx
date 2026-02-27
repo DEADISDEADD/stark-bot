@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ChevronDown, ChevronRight, DollarSign, Cpu, Clock, Globe, Terminal, Wrench, Brain, CheckCircle, XCircle, Loader2, Zap, Database, ListTodo, FileJson } from 'lucide-react';
+import { ChevronDown, ChevronRight, DollarSign, Cpu, Clock, Globe, Terminal, Wrench, Brain, CheckCircle, XCircle, Zap, Database, ListTodo, FileJson } from 'lucide-react';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import clsx from 'clsx';
 import { useGateway } from '@/hooks/useGateway';
 import type { ExecutionEvent, X402PaymentEvent } from '@/types';
@@ -581,7 +582,7 @@ export default function DebugPanel({ className }: DebugPanelProps) {
         case 'pending':
           return <span className="text-slate-500">○</span>;
         case 'in_progress':
-          return <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin" />;
+          return <UnicodeSpinner animation="sparkle" size="sm" className="text-cyan-400" />;
         case 'completed':
           return <CheckCircle className="w-3.5 h-3.5 text-green-400" />;
         case 'error':
@@ -1103,7 +1104,7 @@ export default function DebugPanel({ className }: DebugPanelProps) {
                         case 'pending':
                           return <span className="text-slate-500">⏳</span>;
                         case 'in_progress':
-                          return <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />;
+                          return <UnicodeSpinner animation="sparkle" size="sm" className="text-cyan-400" />;
                         case 'completed':
                           return <CheckCircle className="w-4 h-4 text-green-400" />;
                         case 'failed':

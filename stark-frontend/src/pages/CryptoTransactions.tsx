@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Wallet, Clock, CheckCircle, XCircle, ExternalLink, AlertCircle, Loader2, History, ListTodo, Shield } from 'lucide-react';
+import { Wallet, Clock, CheckCircle, XCircle, ExternalLink, AlertCircle, History, ListTodo, Shield } from 'lucide-react';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { useApi } from '@/hooks/useApi';
@@ -173,7 +174,7 @@ export default function CryptoTransactions() {
       case 'broadcasting':
         return (
           <span className="flex items-center gap-1 px-2 py-1 bg-blue-500/20 text-blue-400 rounded text-xs">
-            <Loader2 className="w-3 h-3 animate-spin" /> Broadcasting
+            <UnicodeSpinner animation="sparkle" size="sm" className="text-blue-400" /> Broadcasting
           </span>
         );
       case 'broadcast':
@@ -711,7 +712,7 @@ export default function CryptoTransactions() {
                               onClick={() => handleSaveLimit(limit)}
                               disabled={limitSaving}
                             >
-                              {limitSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+                              {limitSaving ? <UnicodeSpinner animation="orbit" size="sm" /> : 'Save'}
                             </Button>
                             <Button
                               size="sm"

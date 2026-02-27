@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { CheckCircle, Circle, Loader2, ListChecks, X } from 'lucide-react';
+import { CheckCircle, Circle, ListChecks, X } from 'lucide-react';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import clsx from 'clsx';
 import { useGateway } from '@/hooks/useGateway';
 import { deletePlannerTask, getPlannerTasks } from '@/lib/api';
@@ -170,7 +171,7 @@ export default function TaskQueueProgress({ className, dbSessionId }: TaskQueueP
       return <CheckCircle className="w-4 h-4 text-green-400" />;
     }
     if (task.status === 'in_progress') {
-      return <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />;
+      return <UnicodeSpinner animation="sparkle" size="sm" className="text-cyan-400" />;
     }
     return <Circle className="w-4 h-4 text-slate-500" />;
   };
@@ -240,7 +241,7 @@ export default function TaskQueueProgress({ className, dbSessionId }: TaskQueueP
                 title="Delete task"
               >
                 {deletingTaskId === task.id ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                  <UnicodeSpinner animation="orbit" size="sm" className="text-slate-400" />
                 ) : (
                   <X className="w-3.5 h-3.5 text-slate-500 hover:text-red-400" />
                 )}

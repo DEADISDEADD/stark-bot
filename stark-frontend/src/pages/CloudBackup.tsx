@@ -3,6 +3,7 @@ import { Cloud, Upload, Download, Shield, AlertCircle, CheckCircle, X, Key, Brai
 import { JsonRpcProvider, Contract, formatUnits } from 'ethers';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import { backupKeysToCloud, restoreKeysFromCloud, previewCloudBackup, CloudBackupPreview, getConfigStatus } from '@/lib/api';
 
 function formatBytes(bytes: number): string {
@@ -275,7 +276,7 @@ export default function CloudBackup() {
           <CardContent>
             {isPreviewing ? (
               <div className="flex items-center justify-center py-12">
-                <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+                <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
               </div>
             ) : previewData ? (
               <div className="space-y-4">
@@ -496,7 +497,7 @@ export default function CloudBackup() {
             </div>
             <div className="text-right">
               {balanceLoading ? (
-                <div className="w-5 h-5 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+                <UnicodeSpinner animation="pulse" size="sm" className="text-stark-500" />
               ) : starkbotBalance !== null ? (
                 <div>
                   <span className="text-2xl font-bold text-stark-400">

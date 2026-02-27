@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Wrench, Check, X, Shield, Eye } from 'lucide-react';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import { getTools, getToolGroups, ToolGroupInfo } from '@/lib/api';
 
 interface Tool {
@@ -40,7 +41,7 @@ export default function Tools() {
     return (
       <div className="p-4 sm:p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
-          <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+          <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
           <span className="text-slate-400">Loading tools...</span>
         </div>
       </div>

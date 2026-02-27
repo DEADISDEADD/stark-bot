@@ -17,6 +17,7 @@ import {
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
+import UnicodeSpinner from '@/components/ui/UnicodeSpinner';
 import { apiFetch } from '@/lib/api';
 
 interface ModuleInfo {
@@ -231,7 +232,7 @@ export default function Modules() {
     return (
       <div className="p-8 flex items-center justify-center min-h-[400px]">
         <div className="flex items-center gap-3">
-          <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+          <UnicodeSpinner animation="rain" size="lg" className="text-stark-500" />
           <span className="text-slate-400">Loading modules...</span>
         </div>
       </div>
