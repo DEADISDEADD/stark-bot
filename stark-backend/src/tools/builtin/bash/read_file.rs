@@ -1,4 +1,4 @@
-use crate::config::{notes_dir, soul_dir};
+use crate::config::{notes_dir, runtime_agents_dir, runtime_modules_dir, runtime_skills_dir, soul_dir};
 use crate::tools::registry::Tool;
 use crate::tools::types::{
     PropertySchema, ToolContext, ToolDefinition, ToolGroup, ToolInputSchema, ToolResult,
@@ -131,6 +131,10 @@ impl Tool for ReadFileTool {
 
             // Resolve the path - check if it starts with "notes/" to use notes dir
             let requested_path = Path::new(&params.path);
+            let skills = PathBuf::from(runtime_skills_dir());
+            let modules = runtime_modules_dir();
+            let agents = runtime_agents_dir();
+            let soul = PathBuf::from(soul_dir());
             let (full_path, base_dir) = if params.path.starts_with("notes/") || params.path == "notes" {
                 // Strip "notes/" prefix and use notes directory
                 let relative = params.path.strip_prefix("notes/").unwrap_or(&params.path);
@@ -142,20 +146,19 @@ impl Tool for ReadFileTool {
             };
 
             // Canonicalize paths for comparison
-            let canonical_base = match base_dir.canonicalize() {
-                Ok(p) => p,
-                Err(e) => {
-                    return ToolResult::error(format!("Cannot resolve base directory: {}", e))
-                }
-            };
-
             let canonical_path = match full_path.canonicalize() {
                 Ok(p) => p,
                 Err(e) => return ToolResult::error(format!("Cannot resolve file path: {}", e)),
             };
 
-            // Security check: ensure path is within allowed directory (workspace or notes)
-            if !canonical_path.starts_with(&canonical_base) {
+            // Security check: ensure path is within an allowed directory
+            // Allowed: workspace, notes, skills, modules, agents, soul (system files)
+            let allowed_bases: Vec<PathBuf> = [&base_dir, &notes, &skills, &modules, &agents, &soul]
+                .iter()
+                .filter_map(|d| d.canonicalize().ok())
+                .collect();
+
+            if !allowed_bases.iter().any(|base| canonical_path.starts_with(base)) {
                 return ToolResult::error(format!(
                     "Access denied: path '{}' is outside the allowed directory",
                     params.path

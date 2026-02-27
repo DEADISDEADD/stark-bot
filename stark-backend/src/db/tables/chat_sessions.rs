@@ -144,7 +144,7 @@ impl Database {
             "SELECT id, session_key, agent_id, scope, channel_type, channel_id, platform_chat_id,
              is_active, reset_policy, idle_timeout_minutes, daily_reset_hour,
              created_at, updated_at, last_activity_at, expires_at, context_tokens, max_context_tokens, compaction_id, completion_status, safe_mode, special_role_name
-             FROM chat_sessions ORDER BY last_activity_at DESC LIMIT 100",
+             FROM chat_sessions ORDER BY last_activity_at DESC LIMIT 500",
         )?;
 
         let sessions = stmt
@@ -919,5 +919,28 @@ impl Database {
             rusqlite::params![&Utc::now().to_rfc3339(), &cutoff],
         )?;
         Ok(count)
+    }
+
+    /// Delete the oldest chat sessions when total count exceeds `max_sessions`.
+    ///
+    /// Deletes inactive sessions (not currently active) ordered by last_activity_at ASC,
+    /// keeping only the most recent `max_sessions` sessions. Returns the number deleted.
+    pub fn cleanup_excess_sessions(&self, max_sessions: i64) -> SqliteResult<usize> {
+        let conn = self.conn();
+        let total: i64 = conn.query_row("SELECT COUNT(*) FROM chat_sessions", [], |row| row.get(0))?;
+        if total <= max_sessions {
+            return Ok(0);
+        }
+        let excess = total - max_sessions;
+        let deleted = conn.execute(
+            "DELETE FROM chat_sessions WHERE id IN (
+                SELECT id FROM chat_sessions
+                WHERE completion_status != 'active'
+                ORDER BY last_activity_at ASC
+                LIMIT ?1
+            )",
+            rusqlite::params![excess],
+        )?;
+        Ok(deleted)
     }
 }

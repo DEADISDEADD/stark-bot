@@ -1,0 +1,100 @@
+{
+  "name": "ERC721",
+  "description": "Standard ERC721 Non-Fungible Token interface",
+  "abi": [
+    {
+      "name": "balanceOf",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [{"name": "owner", "type": "address"}],
+      "outputs": [{"name": "", "type": "uint256"}]
+    },
+    {
+      "name": "ownerOf",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [{"name": "tokenId", "type": "uint256"}],
+      "outputs": [{"name": "", "type": "address"}]
+    },
+    {
+      "name": "safeTransferFrom",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        {"name": "from", "type": "address"},
+        {"name": "to", "type": "address"},
+        {"name": "tokenId", "type": "uint256"}
+      ],
+      "outputs": []
+    },
+    {
+      "name": "transferFrom",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        {"name": "from", "type": "address"},
+        {"name": "to", "type": "address"},
+        {"name": "tokenId", "type": "uint256"}
+      ],
+      "outputs": []
+    },
+    {
+      "name": "approve",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        {"name": "to", "type": "address"},
+        {"name": "tokenId", "type": "uint256"}
+      ],
+      "outputs": []
+    },
+    {
+      "name": "setApprovalForAll",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        {"name": "operator", "type": "address"},
+        {"name": "approved", "type": "bool"}
+      ],
+      "outputs": []
+    },
+    {
+      "name": "getApproved",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [{"name": "tokenId", "type": "uint256"}],
+      "outputs": [{"name": "", "type": "address"}]
+    },
+    {
+      "name": "isApprovedForAll",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [
+        {"name": "owner", "type": "address"},
+        {"name": "operator", "type": "address"}
+      ],
+      "outputs": [{"name": "", "type": "bool"}]
+    },
+    {
+      "name": "name",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [],
+      "outputs": [{"name": "", "type": "string"}]
+    },
+    {
+      "name": "symbol",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [],
+      "outputs": [{"name": "", "type": "string"}]
+    },
+    {
+      "name": "tokenURI",
+      "type": "function",
+      "stateMutability": "view",
+      "inputs": [{"name": "tokenId", "type": "uint256"}],
+      "outputs": [{"name": "", "type": "string"}]
+    }
+  ]
+}

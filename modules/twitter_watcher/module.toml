@@ -1,0 +1,43 @@
+[module]
+name = "twitter_watcher"
+version = "0.1.0"
+author = "starkbot"
+description = "Watch Twitter accounts for new tweets and fire hook events for agent reactions (quote-tweets, replies, commentary)."
+
+[service]
+command = "uv run service.py"
+default_port = 9108
+port_env_var = "TWITTER_WATCHER_PORT"
+dashboard_style = "tui"
+health_endpoint = "/rpc/status"
+backup_endpoint = "/rpc/backup/export"
+restore_endpoint = "/rpc/backup/restore"
+
+[service.env_vars]
+TWITTER_CONSUMER_KEY = "Twitter API consumer key (OAuth 1.0a)"
+TWITTER_CONSUMER_SECRET = "Twitter API consumer secret (OAuth 1.0a)"
+TWITTER_ACCESS_TOKEN = "Twitter API access token (OAuth 1.0a)"
+TWITTER_ACCESS_TOKEN_SECRET = "Twitter API access token secret (OAuth 1.0a)"
+
+[[tools]]
+name = "twitter_watcher"
+description = "Watch Twitter accounts for new tweets. Add/remove accounts to monitor, list watched accounts, or change the poll interval. When a watched account tweets, a 'twitter_watched_tweet' hook fires automatically."
+group = "twitter"
+rpc_method = "POST"
+rpc_endpoint = "/rpc/twitter_watcher"
+
+[tools.parameters.action]
+type = "string"
+description = "The action to perform: add, remove, list, or set_interval."
+required = true
+enum = ["add", "remove", "list", "set_interval"]
+
+[tools.parameters.username]
+type = "string"
+description = "Twitter username to add or remove (without @ prefix). Required for 'add' and 'remove' actions."
+required = false
+
+[tools.parameters.interval]
+type = "integer"
+description = "Poll interval in seconds (required for 'set_interval' action). Minimum 30."
+required = false

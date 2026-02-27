@@ -39,6 +39,7 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::RegisterNewIdentityTool::new()));
     registry.register(Arc::new(builtin::ImportIdentityTool::new()));
     registry.register(Arc::new(builtin::UnregisterIdentityTool::new()));
+    registry.register(Arc::new(builtin::IdentityPostRegisterTool::new()));
     registry.register(Arc::new(builtin::ApiKeysCheckTool::new()));
     registry.register(Arc::new(builtin::TaskFullyCompletedTool::new()));
     registry.register(Arc::new(builtin::AddTaskTool::new()));
@@ -84,6 +85,8 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     // Composite swap tool (token lookup + allowance + quote + execute in one call)
     registry.register(Arc::new(builtin::SwapTokenTool::new()));
     registry.register(Arc::new(builtin::SetAddressTool::new()));
+    // NFT token ID register setter (for ERC721 operations)
+    registry.register(Arc::new(builtin::SetNftTokenIdTool::new()));
     // Post-broadcast transaction verification (AI-based)
     registry.register(Arc::new(builtin::VerifyTxBroadcastTool::new()));
     // Network selection for chain-specific operations

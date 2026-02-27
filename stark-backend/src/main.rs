@@ -304,6 +304,17 @@ fn start_module_services(db: &Database) {
         api_key_envs.push(("ALCHEMY_API_KEY".to_string(), key));
     }
 
+    // Twitter API keys (OAuth 1.0a) — used by twitter_watcher module
+    for twitter_key in &["TWITTER_CONSUMER_KEY", "TWITTER_CONSUMER_SECRET",
+                         "TWITTER_ACCESS_TOKEN", "TWITTER_ACCESS_TOKEN_SECRET"] {
+        let val = db.get_api_key(twitter_key).ok().flatten()
+            .map(|k| k.api_key)
+            .or_else(|| std::env::var(twitter_key).ok().filter(|v| !v.is_empty()));
+        if let Some(v) = val {
+            api_key_envs.push((twitter_key.to_string(), v));
+        }
+    }
+
     // All module services are discovered dynamically from ~/.starkbot/modules/
     let dynamic_services = modules::loader::get_dynamic_service_binaries();
     for svc in &dynamic_services {
@@ -1229,6 +1240,16 @@ async fn main() -> std::io::Result<()> {
                     }
                     Err(e) => {
                         log::error!("[SESSION_CLEANUP] Failed to clean up stale sessions: {}", e);
+                    }
+                }
+                // FIFO: delete oldest inactive sessions when total exceeds 500
+                match db_cleanup.cleanup_excess_sessions(500) {
+                    Ok(0) => {}
+                    Ok(count) => {
+                        log::info!("[SESSION_CLEANUP] Deleted {} excess session(s) (FIFO cap: 500)", count);
+                    }
+                    Err(e) => {
+                        log::error!("[SESSION_CLEANUP] Failed to clean up excess sessions: {}", e);
                     }
                 }
             }

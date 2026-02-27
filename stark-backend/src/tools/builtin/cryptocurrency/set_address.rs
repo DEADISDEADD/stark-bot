@@ -14,7 +14,14 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 
 /// Allowed register names for set_address
-const ALLOWED_REGISTERS: &[&str] = &["send_to", "recipient_address", "safe_address"];
+const ALLOWED_REGISTERS: &[&str] = &[
+    "send_to",
+    "recipient_address",
+    "safe_address",
+    "nft_contract_address",
+    "nft_recipient_address",
+    "nft_operator_address",
+];
 
 /// Set Address tool — typed address setter for send_to and recipient_address
 pub struct SetAddressTool {
@@ -52,7 +59,7 @@ impl SetAddressTool {
         SetAddressTool {
             definition: ToolDefinition {
                 name: "set_address".to_string(),
-                description: "Set an Ethereum address in a named register. Use this to set 'send_to' (for ETH transfers), 'recipient_address' (for ERC20 transfers), or 'safe_address' (for Safe multi-sig operations). Validates the address format and rejects the zero address.".to_string(),
+                description: "Set an Ethereum address in a named register. Use this to set 'send_to' (for ETH transfers), 'recipient_address' (for ERC20 transfers), 'safe_address' (for Safe multi-sig operations), 'nft_contract_address' (for the NFT contract), 'nft_recipient_address' (for NFT transfers), or 'nft_operator_address' (for NFT approvals). Validates the address format and rejects the zero address.".to_string(),
                 input_schema: ToolInputSchema {
                     schema_type: "object".to_string(),
                     properties,

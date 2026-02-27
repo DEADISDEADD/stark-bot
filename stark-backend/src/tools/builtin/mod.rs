@@ -34,7 +34,7 @@ pub use bash::{
 pub use code::{CommitterTool, DeployTool, IndexProjectTool, PrQualityTool, VerifyChangesTool};
 pub use core::{
     AddTaskTool, DefineTasksTool, AgentSendTool, ApiKeysCheckTool, AskUserTool, HeartbeatConfigTool,
-    ImportIdentityTool, InstallApiKeyTool, ManageModulesTool, ManageSkillsTool, ImpulseMapManageTool,
+    IdentityPostRegisterTool, ImportIdentityTool, InstallApiKeyTool, ManageModulesTool, ManageSkillsTool, ImpulseMapManageTool,
     ReadSkillTool, RegisterNewIdentityTool, UnregisterIdentityTool, WorkstreamTool, ModifySoulTool, ModifySpecialRoleTool, SayToUserTool,
     SetAgentSubtypeTool, SubagentStatusTool, SpawnSubagentsTool, TaskFullyCompletedTool, UseSkillTool,
     // Meta tools (self-management)
@@ -44,8 +44,8 @@ pub use core::{
 pub use cryptocurrency::{
     load_networks, load_tokens, BridgeUsdcTool, BroadcastWeb3TxTool, DecodeCalldataTool,
     Erc8128FetchTool, FromRawAmountTool, ListQueuedWeb3TxTool,
-    SelectWeb3NetworkTool, SendEthTool, SetAddressTool, SignRawTxTool, SiwaAuthTool, SwapTokenTool,
-    ToRawAmountTool, TokenLookupTool,
+    SelectWeb3NetworkTool, SendEthTool, SetAddressTool, SetNftTokenIdTool, SignRawTxTool,
+    SiwaAuthTool, SwapTokenTool, ToRawAmountTool, TokenLookupTool,
     VerifyTxBroadcastTool, Web3PresetFunctionCallTool, X402AgentInvokeTool, X402FetchTool,
     X402PostTool, X402RpcTool,
 };
