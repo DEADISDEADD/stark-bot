@@ -27,13 +27,6 @@
         model: Some("MiniMax-M2.5"),
         x402_cost: Some(5000),
     ),
-    "morpheus": (
-        display_name: "GLM-5 via Morpheus (free)",
-        endpoint: "https://inference.defirelay.com/api/v1/chat/completions",
-        model_archetype: "openai",
-        model: Some("morpheus-glm5"),
-        x402_cost: Some(0),
-    ),
     "claude-sonnet": (
         display_name: "Claude Sonnet 4.5",
         endpoint: "https://inference.defirelay.com/api/v1/chat/completions",

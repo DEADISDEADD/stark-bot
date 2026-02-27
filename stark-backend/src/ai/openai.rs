@@ -230,9 +230,9 @@ impl OpenAIClient {
             Some(m) if !m.is_empty() => Some(m.to_string()),
             _ => {
                 if endpoint_url.contains("openai.com") {
-                    Some("gpt-4o".to_string())
+                    Some("gpt-5-mini".to_string())
                 } else if endpoint_url.contains("kimi") || endpoint_url.contains("moonshot") {
-                    Some("kimi-k2-turbo-preview".to_string())
+                    Some("kimi-turbo".to_string())
                 } else {
                     None
                 }
@@ -307,9 +307,9 @@ impl OpenAIClient {
             Some(m) if !m.is_empty() => Some(m.to_string()),
             _ => {
                 if endpoint_url.contains("openai.com") {
-                    Some("gpt-4o".to_string())
+                    Some("gpt-5-mini".to_string())
                 } else if endpoint_url.contains("kimi") || endpoint_url.contains("moonshot") {
-                    Some("kimi-k2-turbo-preview".to_string())
+                    Some("kimi-turbo".to_string())
                 } else {
                     None
                 }

@@ -31,7 +31,7 @@ impl ModelArchetype for ClaudeArchetype {
     }
 
     fn default_model(&self) -> &'static str {
-        "claude-sonnet-4-20250514"
+        "claude-sonnet"
     }
 
     fn enhance_system_prompt(&self, base_prompt: &str, _tools: &[ToolDefinition]) -> String {

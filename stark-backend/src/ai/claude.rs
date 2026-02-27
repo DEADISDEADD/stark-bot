@@ -147,7 +147,7 @@ impl ClaudeClient {
             endpoint: endpoint
                 .unwrap_or("https://api.anthropic.com/v1/messages")
                 .to_string(),
-            model: model.unwrap_or("claude-sonnet-4-20250514").to_string(),
+            model: model.unwrap_or("claude-sonnet").to_string(),
             thinking_budget: AtomicU32::new(0),
             broadcaster: None,
             channel_id: None,

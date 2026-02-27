@@ -34,7 +34,7 @@ impl ModelArchetype for KimiArchetype {
     }
 
     fn default_model(&self) -> &'static str {
-        "kimi-k2-turbo-preview" // Kimi K2 turbo preview - supports native tool calling per docs
+        "kimi-turbo" // Router-compatible name for Kimi K2 turbo
     }
 
     fn enhance_system_prompt(&self, base_prompt: &str, _tools: &[ToolDefinition]) -> String {
