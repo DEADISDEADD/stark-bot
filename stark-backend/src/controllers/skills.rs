@@ -302,9 +302,97 @@ async fn install_from_hub(
         return resp;
     }
 
+    let auth_token = req
+        .headers()
+        .get("X-StarkHub-Token")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
     let client = crate::integrations::starkhub_client::StarkHubClient::new();
 
-    // Get skill detail (includes raw_markdown)
+    // Try ZIP bundle download first (faster — single request for all files)
+    if let Ok(Some(zip_bytes)) = client
+        .download_bundle("skills", &body.username, &body.slug, &auth_token)
+        .await
+    {
+        match crate::skills::zip_parser::parse_skill_zip(&zip_bytes) {
+            Ok(parsed) => {
+                let already_exists = state.skill_registry.has_skill(&parsed.name);
+                let skill_name = parsed.name.clone();
+
+                // Reconstruct raw markdown from ZIP for registry
+                let raw_markdown = reconstruct_skill_md(&parsed);
+
+                match state.skill_registry.create_skill_from_markdown(&raw_markdown) {
+                    Ok(_) => {
+                        // Write auxiliary files (scripts, ABIs, presets) to disk
+                        let mut downloaded_files = vec!["SKILL.md".to_string()];
+                        let skills_dir = std::path::PathBuf::from(crate::config::runtime_skills_dir());
+                        let skill_folder = skills_dir.join(&skill_name);
+                        let _ = std::fs::create_dir_all(&skill_folder);
+
+                        // Write scripts
+                        if !parsed.scripts.is_empty() {
+                            let scripts_dir = skill_folder.join("scripts");
+                            let _ = std::fs::create_dir_all(&scripts_dir);
+                            for script in &parsed.scripts {
+                                let path = scripts_dir.join(&script.name);
+                                if std::fs::write(&path, &script.code).is_ok() {
+                                    downloaded_files.push(format!("scripts/{}", script.name));
+                                    #[cfg(unix)]
+                                    {
+                                        use std::os::unix::fs::PermissionsExt;
+                                        let _ = std::fs::set_permissions(
+                                            &path,
+                                            std::fs::Permissions::from_mode(0o755),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
+                        // Write ABIs
+                        if !parsed.abis.is_empty() {
+                            let abis_dir = skill_folder.join("abis");
+                            let _ = std::fs::create_dir_all(&abis_dir);
+                            for abi in &parsed.abis {
+                                let filename = format!("{}.json", abi.name);
+                                if std::fs::write(abis_dir.join(&filename), &abi.content).is_ok() {
+                                    downloaded_files.push(format!("abis/{}", filename));
+                                }
+                            }
+                        }
+
+                        // Write presets
+                        if let Some(ref presets) = parsed.presets_content {
+                            if std::fs::write(skill_folder.join("web3_presets.ron"), presets).is_ok() {
+                                downloaded_files.push("web3_presets.ron".to_string());
+                            }
+                        }
+
+                        return HttpResponse::Ok().json(serde_json::json!({
+                            "success": true,
+                            "skill_name": skill_name,
+                            "already_existed": already_exists,
+                            "files": downloaded_files,
+                            "message": format!("{} skill '{}' from @{}/{}",
+                                if already_exists { "Updated" } else { "Installed" },
+                                skill_name, body.username, body.slug),
+                        }));
+                    }
+                    Err(e) => {
+                        log::warn!("[SKILLS] ZIP bundle install failed, falling back: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("[SKILLS] ZIP bundle parse failed, falling back: {}", e);
+            }
+        }
+    }
+
+    // Fallback: individual file downloads (legacy items without bundles)
     let skill_detail = match client.get_skill(&body.username, &body.slug).await {
         Ok(d) => d,
         Err(e) => {
@@ -323,13 +411,11 @@ async fn install_from_hub(
         }
     };
 
-    // Parse skill name from markdown to check for conflicts
     let already_exists = match crate::skills::zip_parser::parse_skill_md(&raw_markdown) {
         Ok((meta, _)) => state.skill_registry.has_skill(&meta.name),
         Err(_) => false,
     };
 
-    // Install skill via registry (create_skill_from_markdown handles upsert)
     let db_skill = match state.skill_registry.create_skill_from_markdown(&raw_markdown) {
         Ok(s) => s,
         Err(e) => {
@@ -341,7 +427,6 @@ async fn install_from_hub(
 
     let skill_name = db_skill.name.clone();
 
-    // Download additional files
     let mut downloaded_files = Vec::new();
     if let Ok(files) = client
         .list_skill_files(&body.username, &body.slug)
@@ -368,7 +453,6 @@ async fn install_from_hub(
         }
     }
 
-    let action = if already_exists { "updated" } else { "installed" };
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "skill_name": skill_name,
@@ -1414,4 +1498,45 @@ async fn rebuild_skill_associations(
             count: None,
         }),
     }
+}
+
+/// Reconstruct SKILL.md from a ParsedSkill so we can pass it to create_skill_from_markdown.
+fn reconstruct_skill_md(parsed: &crate::skills::zip_parser::ParsedSkill) -> String {
+    let mut fm = format!("name: {}\ndescription: {}\nversion: {}\n", parsed.name, parsed.description, parsed.version);
+
+    if let Some(ref author) = parsed.author {
+        fm.push_str(&format!("author: {}\n", author));
+    }
+    if let Some(ref homepage) = parsed.homepage {
+        fm.push_str(&format!("homepage: {}\n", homepage));
+    }
+    if !parsed.requires_tools.is_empty() {
+        fm.push_str(&format!("requires_tools: [{}]\n", parsed.requires_tools.join(", ")));
+    }
+    if !parsed.requires_binaries.is_empty() {
+        fm.push_str(&format!("requires_binaries: [{}]\n", parsed.requires_binaries.join(", ")));
+    }
+    if !parsed.tags.is_empty() {
+        fm.push_str(&format!("tags: [{}]\n", parsed.tags.join(", ")));
+    }
+    if let Some(ref subagent_type) = parsed.subagent_type {
+        fm.push_str(&format!("subagent_type: {}\n", subagent_type));
+    }
+    if !parsed.arguments.is_empty() {
+        fm.push_str("arguments:\n");
+        for (key, arg) in &parsed.arguments {
+            fm.push_str(&format!("  {}:\n    description: \"{}\"\n", key, arg.description));
+            if let Some(ref default) = arg.default {
+                fm.push_str(&format!("    default: \"{}\"\n", default));
+            }
+        }
+    }
+    if !parsed.requires_api_keys.is_empty() {
+        fm.push_str("requires_api_keys:\n");
+        for (key, api_key) in &parsed.requires_api_keys {
+            fm.push_str(&format!("  {}:\n    description: \"{}\"\n", key, api_key.description));
+        }
+    }
+
+    format!("---\n{}\n---\n{}", fm.trim(), parsed.body)
 }

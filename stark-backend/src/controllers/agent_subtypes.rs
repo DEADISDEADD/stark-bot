@@ -659,7 +659,68 @@ async fn install_from_hub(
 
     let client = crate::integrations::starkhub_client::StarkHubClient::new();
 
-    // Download raw agent.md
+    // Try ZIP bundle download first (faster — single request for all files)
+    if let Ok(Some(zip_bytes)) = client
+        .download_bundle("agent-subtypes", &body.username, &body.slug, &auth_token)
+        .await
+    {
+        match extract_agent_zip(&zip_bytes) {
+            Ok(files) => {
+                // Find agent.md in the extracted files
+                let agent_md = files.iter().find(|(name, _)| name == "agent.md");
+                if let Some((_, md_content)) = agent_md {
+                    let raw_agent_md = String::from_utf8_lossy(md_content).to_string();
+
+                    match loader::parse_agent_file(&raw_agent_md) {
+                        Ok(config) => {
+                            let agents_dir = crate::config::runtime_agents_dir();
+                            let agent_folder = agents_dir.join(&config.key);
+
+                            if let Err(e) = std::fs::create_dir_all(&agent_folder) {
+                                return HttpResponse::InternalServerError().json(serde_json::json!({
+                                    "error": format!("Failed to create agent folder: {}", e)
+                                }));
+                            }
+
+                            // Write all extracted files
+                            let mut downloaded_files = Vec::new();
+                            for (name, content) in &files {
+                                let file_path = agent_folder.join(name);
+                                if let Some(parent) = file_path.parent() {
+                                    let _ = std::fs::create_dir_all(parent);
+                                }
+                                if let Err(e) = std::fs::write(&file_path, content) {
+                                    log::warn!("Failed to write file '{}': {}", name, e);
+                                } else {
+                                    downloaded_files.push(name.clone());
+                                }
+                            }
+
+                            loader::reload_registry_from_disk();
+
+                            return HttpResponse::Ok().json(serde_json::json!({
+                                "success": true,
+                                "key": config.key,
+                                "label": config.label,
+                                "files": downloaded_files,
+                                "message": format!("Installed agent subtype '{}' from @{}/{}", config.key, body.username, body.slug),
+                            }));
+                        }
+                        Err(e) => {
+                            log::warn!("[AGENTS] ZIP bundle agent.md parse failed, falling back: {}", e);
+                        }
+                    }
+                } else {
+                    log::warn!("[AGENTS] ZIP bundle missing agent.md, falling back to individual downloads");
+                }
+            }
+            Err(e) => {
+                log::warn!("[AGENTS] ZIP bundle extract failed, falling back: {}", e);
+            }
+        }
+    }
+
+    // Fallback: individual file downloads (legacy items without bundles)
     let raw_agent_md = match client
         .download_agent_subtype(&body.username, &body.slug, &auth_token)
         .await
@@ -672,7 +733,6 @@ async fn install_from_hub(
         }
     };
 
-    // Parse agent.md to get the key
     let config = match loader::parse_agent_file(&raw_agent_md) {
         Ok(c) => c,
         Err(e) => {
@@ -685,7 +745,6 @@ async fn install_from_hub(
     let agents_dir = crate::config::runtime_agents_dir();
     let agent_folder = agents_dir.join(&config.key);
 
-    // Create folder and write agent.md
     if let Err(e) = std::fs::create_dir_all(&agent_folder) {
         return HttpResponse::InternalServerError().json(serde_json::json!({
             "error": format!("Failed to create agent folder: {}", e)
@@ -698,7 +757,6 @@ async fn install_from_hub(
         }));
     }
 
-    // Download additional files
     let mut downloaded_files = vec!["agent.md".to_string()];
     if let Ok(files) = client
         .list_agent_subtype_files(&body.username, &body.slug)
@@ -719,7 +777,6 @@ async fn install_from_hub(
         }
     }
 
-    // Reload registry
     loader::reload_registry_from_disk();
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -729,6 +786,37 @@ async fn install_from_hub(
         "files": downloaded_files,
         "message": format!("Installed agent subtype '{}' from @{}/{}", config.key, body.username, body.slug),
     }))
+}
+
+/// Extract files from an agent subtype ZIP bundle.
+/// Returns a vec of (relative_path, content_bytes).
+fn extract_agent_zip(data: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
+    use std::io::{Cursor, Read};
+    use zip::ZipArchive;
+
+    let cursor = Cursor::new(data);
+    let mut archive =
+        ZipArchive::new(cursor).map_err(|e| format!("Failed to read ZIP: {}", e))?;
+
+    let mut files = Vec::new();
+    for i in 0..archive.len() {
+        let mut file = archive
+            .by_index(i)
+            .map_err(|e| format!("Failed to read ZIP entry: {}", e))?;
+
+        let name = file.name().to_string();
+        if name.ends_with('/') {
+            continue;
+        }
+
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)
+            .map_err(|e| format!("Failed to read '{}': {}", name, e))?;
+
+        files.push((name, buf));
+    }
+
+    Ok(files)
 }
 
 pub fn config(cfg: &mut web::ServiceConfig) {

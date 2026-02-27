@@ -789,6 +789,63 @@ impl StarkHubClient {
             .map_err(|e| format!("Failed to parse response: {}", e))
     }
 
+    /// Try to download a pre-built ZIP bundle for an item.
+    ///
+    /// Hits the download endpoint with `Accept: application/json`. If the server
+    /// returns a presigned URL for a ZIP bundle, downloads and returns the bytes.
+    /// Returns `Ok(None)` if the server doesn't have a bundle (legacy items).
+    pub async fn download_bundle(
+        &self,
+        item_type: &str, // "skills", "modules", "agent-subtypes"
+        username: &str,
+        slug: &str,
+        auth_token: &str,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let url = format!(
+            "{}/{}/@{}/{}/download",
+            self.base_url, item_type, username, slug
+        );
+
+        let mut req = self
+            .http
+            .get(&url)
+            .header("Accept", "application/json");
+
+        if !auth_token.is_empty() {
+            req = req.header("Authorization", format!("Bearer {}", auth_token));
+        }
+
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| format!("Failed to connect to StarkHub: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Ok(None);
+        }
+
+        let content_type = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+
+        if content_type.contains("application/json") {
+            let info: BundleDownloadInfo = resp
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse bundle info: {}", e))?;
+
+            if info.format == "zip" {
+                let zip_bytes = self.download_binary(&info.download_url).await?;
+                return Ok(Some(zip_bytes));
+            }
+        }
+
+        Ok(None)
+    }
+
     /// Upload a file for a skill on StarkHub.
     pub async fn upload_skill_file(
         &self,
@@ -824,6 +881,15 @@ impl StarkHubClient {
             .await
             .map_err(|e| format!("Failed to parse response: {}", e))
     }
+}
+
+/// Response from a bundle download endpoint (presigned ZIP URL).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundleDownloadInfo {
+    pub download_url: String,
+    pub file_size: i64,
+    pub sha256_checksum: String,
+    pub format: String,
 }
 
 /// Detect the current platform string for binary downloads.
