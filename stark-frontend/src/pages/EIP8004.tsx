@@ -222,7 +222,7 @@ export default function EIP8004() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="p-4 bg-slate-700/50 rounded-lg">
                       <p className="text-slate-400 text-sm mb-1">Name</p>
-                      <p className="text-white font-medium text-lg">{identity.name ?? 'Loading...'}</p>
+                      <p className="text-white font-medium text-lg">{identity.name ?? 'Not set'}</p>
                     </div>
                     <div className="p-4 bg-slate-700/50 rounded-lg">
                       <p className="text-slate-400 text-sm mb-1">Owner</p>

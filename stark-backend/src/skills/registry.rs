@@ -1,5 +1,5 @@
 use crate::db::Database;
-use crate::skills::types::{DbSkill, DbSkillScript, Skill, SkillSource};
+use crate::skills::types::{DbSkill, DbSkillFlow, DbSkillScript, Skill, SkillSource};
 use crate::skills::zip_parser::{parse_skill_md, parse_skill_zip, ParsedSkill};
 use crate::skills::types::{DbSkillAbi, DbSkillPreset};
 use serde::Serialize;
@@ -118,6 +118,7 @@ impl SkillRegistry {
             scripts: Vec::new(),
             abis: Vec::new(),
             presets_content: None,
+            flows: Vec::new(),
         };
 
         self.create_skill_from_parsed_force(parsed)
@@ -145,6 +146,7 @@ impl SkillRegistry {
             scripts: Vec::new(),
             abis: Vec::new(),
             presets_content: None,
+            flows: Vec::new(),
         };
 
         self.create_skill_from_parsed(parsed)
@@ -234,6 +236,19 @@ impl SkillRegistry {
                 .map_err(|e| format!("Failed to create skill preset: {}", e))?;
         }
 
+        // Insert flows
+        for flow in parsed.flows {
+            let db_flow = DbSkillFlow {
+                id: None,
+                skill_id,
+                name: flow.name,
+                content: flow.content,
+                created_at: now.clone(),
+            };
+            self.db.create_skill_flow(&db_flow)
+                .map_err(|e| format!("Failed to create skill flow: {}", e))?;
+        }
+
         // Return the created skill
         self.db.get_skill(&parsed.name)
             .map_err(|e| format!("Failed to retrieve created skill: {}", e))?
@@ -307,6 +322,17 @@ impl SkillRegistry {
             Ok(scripts) => scripts,
             Err(e) => {
                 log::error!("Failed to get skill scripts: {}", e);
+                Vec::new()
+            }
+        }
+    }
+
+    /// Get flows for a skill
+    pub fn get_skill_flows(&self, skill_name: &str) -> Vec<DbSkillFlow> {
+        match self.db.get_skill_flows_by_name(skill_name) {
+            Ok(flows) => flows,
+            Err(e) => {
+                log::error!("Failed to get skill flows: {}", e);
                 Vec::new()
             }
         }
@@ -522,6 +548,38 @@ impl SkillRegistry {
                         }
                     }
                     Err(e) => log::warn!("Failed to read presets {}: {}", presets_path.display(), e),
+                }
+            }
+
+            // Import flows from {skill_dir}/flows/ into DB
+            let flows_dir = sd.join("flows");
+            if flows_dir.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&flows_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.extension().map_or(false, |e| e == "md") && path.is_file() {
+                            if let Some(file_name) = path.file_name() {
+                                let flow_name = file_name.to_string_lossy().to_string();
+                                match std::fs::read_to_string(&path) {
+                                    Ok(content) => {
+                                        let db_flow = DbSkillFlow {
+                                            id: None,
+                                            skill_id,
+                                            name: flow_name.clone(),
+                                            content,
+                                            created_at: now.clone(),
+                                        };
+                                        if let Err(e) = self.db.create_skill_flow(&db_flow) {
+                                            log::warn!("Failed to import flow '{}' for skill '{}': {}", flow_name, skill.metadata.name, e);
+                                        } else {
+                                            log::debug!("Imported flow '{}' for skill '{}'", flow_name, skill.metadata.name);
+                                        }
+                                    }
+                                    Err(e) => log::warn!("Failed to read flow {}: {}", path.display(), e),
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -776,6 +834,18 @@ pub fn write_skill_folder(skills_dir: &Path, parsed: &ParsedSkill) -> Result<(),
             .map_err(|e| format!("Failed to write web3_presets.ron: {}", e))?;
     }
 
+    // Write flows
+    if !parsed.flows.is_empty() {
+        let flows_dir = skill_dir.join("flows");
+        std::fs::create_dir_all(&flows_dir)
+            .map_err(|e| format!("Failed to create flows directory: {}", e))?;
+        for flow in &parsed.flows {
+            let flow_path = flows_dir.join(&flow.name);
+            std::fs::write(&flow_path, &flow.content)
+                .map_err(|e| format!("Failed to write flow {}: {}", flow.name, e))?;
+        }
+    }
+
     Ok(())
 }
 
@@ -867,6 +937,7 @@ pub fn reconstruct_skill_md_from_db(db_skill: &DbSkill) -> String {
         scripts: Vec::new(),
         abis: Vec::new(),
         presets_content: None,
+        flows: Vec::new(),
     };
     reconstruct_skill_md(&parsed)
 }

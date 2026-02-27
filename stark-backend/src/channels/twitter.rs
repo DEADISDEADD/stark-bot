@@ -593,7 +593,7 @@ pub async fn start_twitter_listener(
                                     }
                                 } else {
                                     // Non-admin mentions are handled by persona hooks
-                                    // (community_manager, etc.) which reply directly via twitter_post.
+                                    // (twitter_associate, etc.) which reply directly via twitter_post.
                                     log::info!("Twitter: @{} is non-admin — using persona hooks", author_username);
 
                                     crate::persona_hooks::fire_twitter_mentioned_hooks(

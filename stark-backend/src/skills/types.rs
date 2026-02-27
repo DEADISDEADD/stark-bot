@@ -99,6 +99,9 @@ pub struct SkillMetadata {
     /// Skill-local web3 presets RON file (e.g. "web3_presets.ron")
     #[serde(default)]
     pub presets_file: Option<String>,
+    /// Flow files bundled with this skill (e.g. ["identity_flow.md"])
+    #[serde(default)]
+    pub flows: Option<Vec<String>>,
 }
 
 fn default_version() -> String {
@@ -123,6 +126,7 @@ impl Default for SkillMetadata {
             scripts: None,
             abis: None,
             presets_file: None,
+            flows: None,
         }
     }
 }
@@ -246,6 +250,7 @@ impl DbSkill {
                 scripts: None,
                 abis: None,
                 presets_file: None,
+                flows: None,
             },
             prompt_template: self.body,
             source: SkillSource::Managed, // All DB skills are "managed"
@@ -283,6 +288,16 @@ pub struct DbSkillScript {
     pub name: String,
     pub code: String,
     pub language: String,
+    pub created_at: String,
+}
+
+/// Database record for skill flows (markdown flow files)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DbSkillFlow {
+    pub id: Option<i64>,
+    pub skill_id: i64,
+    pub name: String,
+    pub content: String,
     pub created_at: String,
 }
 

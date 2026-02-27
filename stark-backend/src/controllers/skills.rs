@@ -1017,6 +1017,7 @@ async fn update_skill(
             scripts: Vec::new(),
             abis: Vec::new(),
             presets_content: None,
+            flows: Vec::new(),
         };
         if let Err(e) = crate::skills::write_skill_folder(&skills_dir, &parsed) {
             log::warn!("Failed to create skill folder for '{}': {}", name, e);

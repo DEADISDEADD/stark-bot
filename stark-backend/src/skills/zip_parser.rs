@@ -10,6 +10,13 @@ pub struct ParsedAbi {
     pub content: String,
 }
 
+/// Parsed flow from ZIP file or disk
+#[derive(Debug, Clone)]
+pub struct ParsedFlow {
+    pub name: String,
+    pub content: String,
+}
+
 /// Parsed skill from ZIP file
 #[derive(Debug, Clone)]
 pub struct ParsedSkill {
@@ -29,6 +36,7 @@ pub struct ParsedSkill {
     pub scripts: Vec<ParsedScript>,
     pub abis: Vec<ParsedAbi>,
     pub presets_content: Option<String>,
+    pub flows: Vec<ParsedFlow>,
 }
 
 /// Parsed script from ZIP file
@@ -115,12 +123,13 @@ pub fn parse_skill_zip(data: &[u8]) -> Result<ParsedSkill, String> {
     };
     let (metadata, body) = parse_skill_md(&skill_md)?;
 
-    // Third pass: collect scripts, ABIs, and presets
+    // Third pass: collect scripts, ABIs, presets, and flows
     let base_dir = skill_md_path.as_ref()
         .and_then(|p| p.rsplit('/').nth(1))
         .unwrap_or("");
 
     let mut abis: Vec<ParsedAbi> = Vec::new();
+    let mut flows: Vec<ParsedFlow> = Vec::new();
     let mut presets_content: Option<String> = None;
 
     for i in 0..archive.len() {
@@ -162,6 +171,14 @@ pub fn parse_skill_zip(data: &[u8]) -> Result<ParsedSkill, String> {
                 || normalized == "presets.ron"
         };
 
+        // Check if this is a flow file in a flows/ subdirectory
+        let is_flow = if base_dir.is_empty() {
+            normalized.starts_with("flows/") && normalized.ends_with(".md")
+        } else {
+            (normalized.starts_with(&format!("{}/flows/", base_dir)) || normalized.starts_with("flows/"))
+                && normalized.ends_with(".md")
+        };
+
         if is_script {
             // Extract script name (last component of path)
             let script_name = name.rsplit('/').next().unwrap_or(&name);
@@ -199,6 +216,17 @@ pub fn parse_skill_zip(data: &[u8]) -> Result<ParsedSkill, String> {
                 .map_err(|e| format!("Failed to read web3_presets.ron: {}", e))?;
 
             presets_content = Some(content);
+        } else if is_flow {
+            let flow_filename = name.rsplit('/').next().unwrap_or(&name);
+
+            let mut content = String::new();
+            file.read_to_string(&mut content)
+                .map_err(|e| format!("Failed to read flow {}: {}", flow_filename, e))?;
+
+            flows.push(ParsedFlow {
+                name: flow_filename.to_string(),
+                content,
+            });
         }
     }
 
@@ -219,6 +247,7 @@ pub fn parse_skill_zip(data: &[u8]) -> Result<ParsedSkill, String> {
         scripts,
         abis,
         presets_content,
+        flows,
     })
 }
 

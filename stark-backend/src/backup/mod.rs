@@ -351,6 +351,9 @@ pub struct SkillEntry {
     /// Presets RON content for this skill
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub presets_content: Option<String>,
+    /// Flow files bundled with this skill
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flows: Vec<SkillFlowEntry>,
     /// All files from the skill folder (new folder-based format)
     /// When present, restore writes these files directly to disk
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -370,6 +373,14 @@ pub struct SkillScriptEntry {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SkillAbiEntry {
+    pub name: String,
+    pub content: String,
+}
+
+/// Skill flow entry in backup
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SkillFlowEntry {
     pub name: String,
     pub content: String,
 }
@@ -836,6 +847,16 @@ pub async fn collect_backup_data(
                     .flatten()
                     .map(|p| p.content);
 
+                let flows = db
+                    .get_skill_flows(skill_id)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|f| SkillFlowEntry {
+                        name: f.name,
+                        content: f.content,
+                    })
+                    .collect();
+
                 // Collect all files from the skill's disk folder
                 let folder_files = collect_skill_folder_files(&runtime_skills, &skill.name);
 
@@ -858,6 +879,7 @@ pub async fn collect_backup_data(
                     scripts,
                     abis,
                     presets_content,
+                    flows,
                     folder_files,
                 });
             }

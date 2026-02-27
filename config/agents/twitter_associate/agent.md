@@ -1,7 +1,7 @@
 ---
-key: community_manager
-version: "1.0.0"
-label: Community Manager
+key: twitter_associate
+version: "1.0.1"
+label: Twitter Associate
 emoji: "\U0001F916"
 description: "System-only: autonomous community manager that posts daily inspirational tweets and replies to @mentions"
 aliases: []

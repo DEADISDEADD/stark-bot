@@ -3,7 +3,7 @@
 use chrono::Utc;
 use rusqlite::Result as SqliteResult;
 
-use crate::skills::{DbSkill, DbSkillAbi, DbSkillPreset, DbSkillScript};
+use crate::skills::{DbSkill, DbSkillAbi, DbSkillFlow, DbSkillPreset, DbSkillScript};
 use super::super::Database;
 
 /// Compare two semantic version strings (e.g., "1.0.0", "2.1.3")
@@ -501,5 +501,90 @@ impl Database {
             .collect();
 
         Ok(presets)
+    }
+
+    // ============================================
+    // Skill Flows CRUD methods
+    // ============================================
+
+    /// Create or update a skill flow
+    pub fn create_skill_flow(&self, flow: &DbSkillFlow) -> SqliteResult<i64> {
+        let conn = self.conn();
+        let now = Utc::now().to_rfc3339();
+
+        conn.execute(
+            "INSERT INTO skill_flows (skill_id, name, content, created_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(skill_id, name) DO UPDATE SET
+                content = excluded.content",
+            rusqlite::params![
+                flow.skill_id,
+                flow.name,
+                flow.content,
+                now
+            ],
+        )?;
+
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Get all flows for a skill
+    pub fn get_skill_flows(&self, skill_id: i64) -> SqliteResult<Vec<DbSkillFlow>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, skill_id, name, content, created_at
+             FROM skill_flows WHERE skill_id = ?1 ORDER BY name"
+        )?;
+
+        let flows: Vec<DbSkillFlow> = stmt
+            .query_map([skill_id], |row| {
+                Ok(DbSkillFlow {
+                    id: row.get(0)?,
+                    skill_id: row.get(1)?,
+                    name: row.get(2)?,
+                    content: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(flows)
+    }
+
+    /// Get flows for a skill by skill name
+    pub fn get_skill_flows_by_name(&self, skill_name: &str) -> SqliteResult<Vec<DbSkillFlow>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT sf.id, sf.skill_id, sf.name, sf.content, sf.created_at
+             FROM skill_flows sf
+             JOIN skills s ON s.id = sf.skill_id
+             WHERE s.name = ?1 ORDER BY sf.name"
+        )?;
+
+        let flows: Vec<DbSkillFlow> = stmt
+            .query_map([skill_name], |row| {
+                Ok(DbSkillFlow {
+                    id: row.get(0)?,
+                    skill_id: row.get(1)?,
+                    name: row.get(2)?,
+                    content: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(flows)
+    }
+
+    /// Delete all flows for a skill
+    pub fn delete_skill_flows(&self, skill_id: i64) -> SqliteResult<i64> {
+        let conn = self.conn();
+        let rows_affected = conn.execute(
+            "DELETE FROM skill_flows WHERE skill_id = ?1",
+            [skill_id],
+        )?;
+        Ok(rows_affected as i64)
     }
 }

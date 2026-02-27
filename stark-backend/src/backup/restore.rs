@@ -577,6 +577,10 @@ pub async fn restore_all(
                         content: a.content.clone(),
                     }).collect(),
                     presets_content: skill_entry.presets_content.clone(),
+                    flows: skill_entry.flows.iter().map(|f| crate::skills::ParsedFlow {
+                        name: f.name.clone(),
+                        content: f.content.clone(),
+                    }).collect(),
                 };
 
                 match crate::skills::write_skill_folder(&runtime_skills_dir, &parsed) {

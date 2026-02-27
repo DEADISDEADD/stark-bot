@@ -772,6 +772,20 @@ impl Database {
             [],
         )?;
 
+        // Skill flows (markdown flow files stored in DB)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS skill_flows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                skill_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE,
+                UNIQUE(skill_id, name)
+            )",
+            [],
+        )?;
+
         // Skill presets (RON preset content stored in DB, single source of truth)
         conn.execute(
             "CREATE TABLE IF NOT EXISTS skill_presets (
